@@ -240,4 +240,3 @@ export function diffSegments(before: string, after: string): { before: DiffSegme
 export function filterTransfers(items: TransferHistoryItem[], { siteId, kind }: { siteId: string; kind: string }) {
   return items.filter(item => (!siteId || item.siteId === siteId || item.sourceSiteId === siteId) && (!kind || item.kind === kind));
 }
-

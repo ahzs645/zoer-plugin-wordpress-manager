@@ -23,4 +23,3 @@ export interface WordPressUpdraftImportStatus {
   warnings?: string[];
   error?: string;
 }
-
