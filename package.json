@@ -1,0 +1,33 @@
+{
+  "name": "zoer-plugin-wordpress-manager",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "description": "Independent WordPress workspace for Zoer, with scoped reusable site operations.",
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "test": "bun test --preload ./tests/host-modules.ts src tests",
+    "typecheck": "tsc --noEmit",
+    "pack": "bun tools/zoer-plugin.mjs pack dist/package --output dist/wordpress-manager-0.5.0.zip",
+    "release": "bun tools/zoer-plugin.mjs release dist/package --output dist/release"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@tanstack/react-query": "^5.62.0",
+    "@types/bun": "latest",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "es-module-lexer": "^2.3.1",
+    "lucide-react": "^0.460.0",
+    "postcss": "^8.4.49",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "@zoer/api-types": "file:packages/api-types"
+  }
+}

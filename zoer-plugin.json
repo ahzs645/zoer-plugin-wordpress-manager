@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "manifest": "plugin/manifest.json",
+  "package": "dist/package",
+  "install": ["bun", "install", "--frozen-lockfile"],
+  "test": ["bun", "run", "test"],
+  "build": ["bun", "run", "build"],
+  "zoerSource": true
+}

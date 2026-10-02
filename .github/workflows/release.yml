@@ -1,0 +1,43 @@
+# Template: publish a Zoer plugin from its own repository as a GitHub Release.
+# Copy to .github/workflows/zoer-plugin-release.yml in the plugin repository and
+# commit the CLI it uses:  bun run plugin export-cli <plugin-repo>/tools/zoer-plugin.mjs
+#
+# Adjust BUILD and PACKAGE_DIR. Push a tag v<manifest version> to release.
+# Secrets: ZOER_PLUGIN_SIGNING_KEY (Ed25519 private key, PEM) and ZOER_PLUGIN_KEY_ID.
+# Add the matching public key under Extensions → Trusted signing keys in Zoer.
+name: Zoer plugin release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  BUILD: bun run build
+  PACKAGE_DIR: dist/package
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+      - run: $BUILD
+      - name: Check the tag matches the manifest version
+        run: |
+          version=$(jq -r .version "$PACKAGE_DIR/manifest.json")
+          [ "$GITHUB_REF_NAME" = "v$version" ] || { echo "::error::Tag $GITHUB_REF_NAME does not match manifest version $version"; exit 1; }
+      - name: Package and sign
+        env:
+          ZOER_PLUGIN_SIGNING_KEY: ${{ secrets.ZOER_PLUGIN_SIGNING_KEY }}
+          ZOER_PLUGIN_KEY_ID: ${{ secrets.ZOER_PLUGIN_KEY_ID }}
+        run: bun tools/zoer-plugin.mjs release "$PACKAGE_DIR" --output release
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/* --verify-tag --title "$GITHUB_REF_NAME"

@@ -1,0 +1,1308 @@
+{
+  "id": "wordpress-manager",
+  "name": "WordPress Manager",
+  "version": "0.5.0",
+  "description": "Independent WordPress workspace with Hostinger temporary-domain setup, safe imports, backups, transfers, update review and cache tools.",
+  "author": "Zoer contributors",
+  "type": "integration",
+  "integration": {
+    "apiVersion": "1",
+    "permissions": [
+      "runtime:wordpress:read",
+      "runtime:wordpress:lifecycle",
+      "database:linked-register",
+      "wordpress:wp-cli:read",
+      "wordpress:snapshots",
+      "wordpress:backups",
+      "workspace:native",
+      "workspace:wordpress"
+    ],
+    "workspace": {
+      "title": "WordPress",
+      "icon": "wordpress",
+      "surfaceIds": [
+        "sites-table",
+        "health-table",
+        "plugins-table",
+        "themes-table",
+        "users-table",
+        "backups-table"
+      ],
+      "native": {
+        "module": "native/index.js",
+        "style": "native/style.css"
+      }
+    },
+    "actions": [
+      {
+        "id": "sites.refresh",
+        "title": "Refresh WordPress sites",
+        "description": "Inspect DDEV WordPress sites and reconcile their credential-free MariaDB links into Zoer's database registry.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/sites.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_sites",
+            "purpose": "List and inspect DDEV WordPress runtimes and register their linked database references.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "runtime.list.v1",
+              "wordpress.overview.v1",
+              "database.register-linked.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "wordpress": {
+                    "type": "string"
+                  },
+                  "updates": {
+                    "type": "string"
+                  },
+                  "home": {
+                    "type": "string"
+                  },
+                  "preview": {
+                    "type": "string",
+                    "pattern": "^ddev-[a-z0-9-]+$"
+                  },
+                  "admin": {
+                    "type": "string",
+                    "pattern": "^ddev-[a-z0-9-]+$"
+                  },
+                  "database": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "status",
+                  "wordpress",
+                  "updates",
+                  "home",
+                  "preview",
+                  "admin",
+                  "database"
+                ]
+              }
+            }
+          },
+          "required": [
+            "rows"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 524288
+        },
+        "idempotent": true
+      },
+      {
+        "id": "site.start",
+        "title": "Start site",
+        "description": "Start one selected DDEV WordPress runtime.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/runtime-action.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Start a selected DDEV site.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "runtime.start.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            }
+          },
+          "required": [
+            "siteId"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": true
+      },
+      {
+        "id": "site.stop",
+        "title": "Stop site",
+        "description": "Stop one selected DDEV WordPress runtime without deleting its project.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/runtime-action.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Stop a selected DDEV site.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "runtime.stop.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            }
+          },
+          "required": [
+            "siteId"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": true
+      },
+      {
+        "id": "snapshot.list",
+        "title": "List database snapshots",
+        "description": "List DDEV database snapshots for a selected WordPress site.",
+        "effect": "read",
+        "approval": "never",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/runtime-action.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Read snapshots for a DDEV site.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "snapshot.list.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            }
+          },
+          "required": [
+            "siteId"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 60000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": true
+      },
+      {
+        "id": "snapshot.create",
+        "title": "Create database snapshot",
+        "description": "Create a named DDEV database-server snapshot before risky development changes.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/runtime-action.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Create a DDEV database snapshot.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "snapshot.create.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,100}$"
+            }
+          },
+          "required": [
+            "siteId"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": false
+      },
+      {
+        "id": "snapshot.restore",
+        "title": "Restore database snapshot",
+        "description": "Replace the selected site's entire DDEV database server with a named snapshot. This intentionally requires Full access approval.",
+        "effect": "destructive",
+        "approval": "always",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/runtime-action.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Restore a DDEV database snapshot.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "snapshot.restore.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,100}$"
+            }
+          },
+          "required": [
+            "siteId",
+            "name"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": false
+      },
+      {
+        "id": "plugins.refresh",
+        "title": "Refresh plugin inventory",
+        "description": "List plugin status, versions, available updates, and auto-update state across running DDEV WordPress sites.",
+        "effect": "read",
+        "approval": "never",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/inventory.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_sites",
+            "purpose": "Read WordPress plugin inventory.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "runtime.list.v1",
+              "wordpress.plugins.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "type": "array",
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "site": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "update": {
+                    "type": "string"
+                  },
+                  "update_version": {
+                    "type": "string"
+                  },
+                  "auto_update": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "site",
+                  "name",
+                  "status",
+                  "version",
+                  "update",
+                  "update_version",
+                  "auto_update"
+                ]
+              }
+            }
+          },
+          "required": [
+            "rows"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 900000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 524288
+        },
+        "idempotent": true
+      },
+      {
+        "id": "themes.refresh",
+        "title": "Refresh theme inventory",
+        "description": "List theme status, versions, available updates, and auto-update state across running DDEV WordPress sites.",
+        "effect": "read",
+        "approval": "never",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/inventory.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_sites",
+            "purpose": "Read WordPress theme inventory.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "runtime.list.v1",
+              "wordpress.themes.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "type": "array",
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "site": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "update": {
+                    "type": "string"
+                  },
+                  "update_version": {
+                    "type": "string"
+                  },
+                  "auto_update": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "site",
+                  "name",
+                  "status",
+                  "version",
+                  "update",
+                  "update_version",
+                  "auto_update"
+                ]
+              }
+            }
+          },
+          "required": [
+            "rows"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 900000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 524288
+        },
+        "idempotent": true
+      },
+      {
+        "id": "users.refresh",
+        "title": "Refresh user inventory",
+        "description": "List non-secret user identity, roles, and registration dates. Email, passwords, hashes, and sessions are excluded.",
+        "effect": "read",
+        "approval": "never",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/inventory.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_sites",
+            "purpose": "Read non-secret WordPress user inventory.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "runtime.list.v1",
+              "wordpress.users.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "type": "array",
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "site": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "login": {
+                    "type": "string"
+                  },
+                  "display_name": {
+                    "type": "string"
+                  },
+                  "roles": {
+                    "type": "string"
+                  },
+                  "registered": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "site",
+                  "id",
+                  "login",
+                  "display_name",
+                  "roles",
+                  "registered"
+                ]
+              }
+            }
+          },
+          "required": [
+            "rows"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 900000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 524288
+        },
+        "idempotent": true
+      },
+      {
+        "id": "health.refresh",
+        "title": "Run Site Health",
+        "description": "Run bounded WordPress Site Health tests across running sites and return plain-text good, recommended, or critical results.",
+        "effect": "read",
+        "approval": "never",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/inventory.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_sites",
+            "purpose": "Run WordPress Site Health tests.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "runtime.list.v1",
+              "wordpress.site-health.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "type": "array",
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "site": {
+                    "type": "string"
+                  },
+                  "test": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "badge": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "site",
+                  "test",
+                  "label",
+                  "status",
+                  "badge",
+                  "description"
+                ]
+              }
+            }
+          },
+          "required": [
+            "rows"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 900000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 524288
+        },
+        "idempotent": true
+      },
+      {
+        "id": "backup.list",
+        "title": "Refresh application backups",
+        "description": "List integrity-manifested database and WP_CONTENT_DIR backups stored by the DDEV bridge.",
+        "effect": "read",
+        "approval": "never",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/inventory.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_sites",
+            "purpose": "List WordPress application backups.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "runtime.list.v1",
+              "backup.list.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "type": "array",
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "site": {
+                    "type": "string"
+                  },
+                  "backup_id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "created_at": {
+                    "type": "string"
+                  },
+                  "database_bytes": {
+                    "type": "number"
+                  },
+                  "content_bytes": {
+                    "type": "number"
+                  },
+                  "manifest_sha256": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "site",
+                  "backup_id",
+                  "name",
+                  "created_at",
+                  "database_bytes",
+                  "content_bytes",
+                  "manifest_sha256"
+                ]
+              }
+            }
+          },
+          "required": [
+            "rows"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 900000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 524288
+        },
+        "idempotent": true
+      },
+      {
+        "id": "backup.create",
+        "title": "Create application backup",
+        "description": "Export the WordPress database and archive the resolved WP_CONTENT_DIR with an integrity manifest. Repository files remain protected by Git.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/runtime-action.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Create a database and WP_CONTENT_DIR backup.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "backup.create.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "required": [
+            "siteId",
+            "name"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 900000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": false
+      },
+      {
+        "id": "backup.restore",
+        "title": "Restore application backup",
+        "description": "Verify the exact manifest and component digests, snapshot the current database, then replace the database and WP_CONTENT_DIR. Requires one-time Full access approval.",
+        "effect": "destructive",
+        "approval": "always",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/runtime-action.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Restore an integrity-checked WordPress application backup.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "backup.restore.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            },
+            "backupId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,100}$"
+            },
+            "expectedManifestSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "siteId",
+            "backupId",
+            "expectedManifestSha256"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 900000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": false
+      },
+      {
+        "id": "wpcli.read",
+        "title": "Run read-only WP-CLI",
+        "description": "Run an argv-based WP-CLI command from the bridge's explicit read-only allowlist.",
+        "effect": "read",
+        "approval": "never",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/runtime-action.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Run bounded read-only WP-CLI.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "wordpress.wp-cli.read.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            },
+            "args": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 24,
+              "items": {
+                "type": "string",
+                "maxLength": 500
+              }
+            }
+          },
+          "required": [
+            "siteId",
+            "args"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 262144
+        },
+        "idempotent": true
+      }
+    ],
+    "ui": [
+      {
+        "id": "sites-table",
+        "title": "WordPress development sites",
+        "placement": "dashboard",
+        "renderer": "table",
+        "recordType": "wordpress-site",
+        "actionId": "sites.refresh",
+        "columns": [
+          {
+            "key": "name",
+            "label": "Site"
+          },
+          {
+            "key": "status",
+            "label": "Status"
+          },
+          {
+            "key": "wordpress",
+            "label": "WordPress"
+          },
+          {
+            "key": "updates",
+            "label": "Updates"
+          },
+          {
+            "key": "home",
+            "label": "Home"
+          },
+          {
+            "key": "preview",
+            "label": "Preview",
+            "link": "runtime-preview"
+          },
+          {
+            "key": "admin",
+            "label": "Admin",
+            "link": "runtime-admin"
+          },
+          {
+            "key": "database",
+            "label": "Database"
+          }
+        ]
+      },
+      {
+        "id": "health-table",
+        "title": "WordPress Site Health",
+        "placement": "dashboard",
+        "renderer": "table",
+        "recordType": "wordpress-health",
+        "actionId": "health.refresh",
+        "columns": [
+          {
+            "key": "site",
+            "label": "Site"
+          },
+          {
+            "key": "status",
+            "label": "Status"
+          },
+          {
+            "key": "badge",
+            "label": "Group"
+          },
+          {
+            "key": "label",
+            "label": "Test"
+          },
+          {
+            "key": "description",
+            "label": "Detail"
+          }
+        ]
+      },
+      {
+        "id": "plugins-table",
+        "title": "Plugins",
+        "placement": "dashboard",
+        "renderer": "table",
+        "recordType": "wordpress-plugin",
+        "actionId": "plugins.refresh",
+        "columns": [
+          {
+            "key": "site",
+            "label": "Site"
+          },
+          {
+            "key": "name",
+            "label": "Plugin"
+          },
+          {
+            "key": "status",
+            "label": "Status"
+          },
+          {
+            "key": "version",
+            "label": "Version"
+          },
+          {
+            "key": "update",
+            "label": "Update"
+          },
+          {
+            "key": "update_version",
+            "label": "Available"
+          },
+          {
+            "key": "auto_update",
+            "label": "Auto update"
+          }
+        ]
+      },
+      {
+        "id": "themes-table",
+        "title": "Themes",
+        "placement": "dashboard",
+        "renderer": "table",
+        "recordType": "wordpress-theme",
+        "actionId": "themes.refresh",
+        "columns": [
+          {
+            "key": "site",
+            "label": "Site"
+          },
+          {
+            "key": "name",
+            "label": "Theme"
+          },
+          {
+            "key": "status",
+            "label": "Status"
+          },
+          {
+            "key": "version",
+            "label": "Version"
+          },
+          {
+            "key": "update",
+            "label": "Update"
+          },
+          {
+            "key": "update_version",
+            "label": "Available"
+          },
+          {
+            "key": "auto_update",
+            "label": "Auto update"
+          }
+        ]
+      },
+      {
+        "id": "users-table",
+        "title": "Users (non-secret)",
+        "placement": "dashboard",
+        "renderer": "table",
+        "recordType": "wordpress-user",
+        "actionId": "users.refresh",
+        "columns": [
+          {
+            "key": "site",
+            "label": "Site"
+          },
+          {
+            "key": "id",
+            "label": "ID"
+          },
+          {
+            "key": "login",
+            "label": "Login"
+          },
+          {
+            "key": "display_name",
+            "label": "Display name"
+          },
+          {
+            "key": "roles",
+            "label": "Roles"
+          },
+          {
+            "key": "registered",
+            "label": "Registered"
+          }
+        ]
+      },
+      {
+        "id": "backups-table",
+        "title": "Application backups \u00b7 database + WP_CONTENT_DIR",
+        "placement": "dashboard",
+        "renderer": "table",
+        "recordType": "wordpress-backup",
+        "actionId": "backup.list",
+        "columns": [
+          {
+            "key": "site",
+            "label": "Site"
+          },
+          {
+            "key": "backup_id",
+            "label": "Backup ID"
+          },
+          {
+            "key": "name",
+            "label": "Name"
+          },
+          {
+            "key": "created_at",
+            "label": "Created"
+          },
+          {
+            "key": "database_bytes",
+            "label": "DB bytes"
+          },
+          {
+            "key": "content_bytes",
+            "label": "Content bytes"
+          },
+          {
+            "key": "manifest_sha256",
+            "label": "Manifest SHA-256"
+          }
+        ]
+      }
+    ]
+  }
+}
