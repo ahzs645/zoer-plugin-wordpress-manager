@@ -28,3 +28,5 @@ export * from "./native-workspace";
 export * from "./plugin-versions";
 
 export * from "./repository-access";
+
+export * from "./wordpress";

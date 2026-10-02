@@ -18,6 +18,7 @@ const built = await build({
   configFile: false,
   root,
   mode: "production",
+  resolve: { alias: { "@zoer/api-types": resolve(root, "packages/api-types/src/index.ts") } },
   logLevel: "warn",
   plugins: [tailwindcss(), react()],
   define: { "process.env.NODE_ENV": JSON.stringify("production") },
