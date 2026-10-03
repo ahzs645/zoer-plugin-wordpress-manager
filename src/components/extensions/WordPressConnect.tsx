@@ -9,7 +9,7 @@ import { controlClass } from "@zoer/plugin-ui/controls";
 import ConnectionCard from "./wordpressTransfer/ConnectionCard";
 import TransferWorkspace from "./wordpressTransfer/TransferWorkspace";
 
-export default function WordPressConnect({ siteId, siteName, label = "Connect Zoer", primary = false }: { siteId: string; siteName: string; /** Already-connected sites read "Transfers": the dialog is where pulls, pushes and backups run. */ label?: string; /** The site's main action (an external site has no WordPress admin button). */ primary?: boolean }) {
+export default function WordPressConnect({ siteId, siteName, label = "Connect Zoer", primary = false, localCopy = false }: { siteId: string; siteName: string; /** Already-connected sites read "Transfers": the dialog is where pulls, pushes and backups run. */ label?: string; /** The site's main action (an external site has no WordPress admin button). */ primary?: boolean; localCopy?: boolean }) {
   const [copyPull, setCopyPull] = useState<string | null>(null);
   const [copyOpen, setCopyOpen] = useState(false);
   const [open, setOpen] = useState(false);
@@ -33,10 +33,11 @@ export default function WordPressConnect({ siteId, siteName, label = "Connect Zo
   const close = () => { if (!busy) { setOpen(false); setInfo(""); setShow(false); setReplacing(false); } };
   return <>
     <Btn size={primary ? undefined : "sm"} variant={primary ? "primary" : undefined} icon={primary ? <ArrowLeftRight className="h-4 w-4" /> : undefined} onClick={() => { setOpen(true); void conn.refetch(); }}>{label}</Btn>
-    {open && <Modal mobileSheet size="wide" title={`Zoer Connect · ${siteName}`} onClose={close}>
+    {open && <Modal mobileSheet size="wide" title={`${localCopy ? "Make a local copy" : "Zoer Connect"} · ${siteName}`} onClose={close}>
       <div className="min-w-0 space-y-4 text-sm">
+        {localCopy && <p className="text-text-secondary">Download the database, themes, plugins and media with Pull, then choose <strong>Make a local copy</strong> on the verified download. The new local site keeps its own address and administrator; outgoing mail and scheduled tasks start disabled.</p>}
         {conn.isLoading && <p className="text-text-secondary">Loading connection…</p>}
-        {!conn.isLoading && (!connection || replacing) && <p className="text-text-secondary">In this site's WordPress admin, open <strong>Tools → Zoer Connect</strong>, generate a key and copy its connection info. Requires version 0.2 or later; 0.4.0 enables every option below.</p>}
+        {!conn.isLoading && (!connection || replacing) && <p className="text-text-secondary">Install and activate Zoer Connect in this site's WordPress admin, then open <strong>Tools → Zoer Connect</strong>, enable <strong>Pull</strong> and copy its connection info. <a className="underline" href="https://github.com/ahzs645/zoer-connect/releases/latest" target="_blank" rel="noreferrer">Download Zoer Connect</a>.</p>}
         {connection && <ConnectionCard connection={connection} diagnostics={diagnostics.data} diagnosticsError={diagnostics.error instanceof Error ? diagnostics.error.message : null} busy={busy}
           onTest={() => void run("test")} onReplace={() => setReplacing(true)} onDisconnect={() => void run("disconnect")} />}
         {!conn.isLoading && (!connection || replacing) && <form className="space-y-3" onSubmit={event => { event.preventDefault(); void run("save"); }}>

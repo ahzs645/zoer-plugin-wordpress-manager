@@ -4,6 +4,7 @@ Independent source and releases for the `wordpress-manager` native plugin. This 
 
 ## Features
 
+- Hostinger overview offers **Make a local copy**, including connector/Pull setup and the existing verified-download-to-DDEV workflow.
 - DDEV, Playground, Hostinger and Zoer Connect site inventory, previews and administrator handoffs.
 - Local WordPress creation, start/stop, rename and recoverable removal.
 - Hostinger account API/browser login, plan inventory, free temporary domain generation, reviewed website creation, cache purge/bypass and installation detection.

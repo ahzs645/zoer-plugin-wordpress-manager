@@ -769,6 +769,7 @@ function OverviewTab({ site, details, loading }: { site: WordPressManagedSite | 
   return <div className="space-y-4">
     {site.provider === "ddev" && <WordPressCoreUpdates key={site.id} site={site} />}
     {site.provider === "hostinger" && <HostingerSiteTools key={site.id} site={site} />}
+    {site.provider === "hostinger" && <section className="rounded-lg border border-border-default p-4"><h4 className="text-sm font-medium text-text-heading">Local development copy</h4><p className="my-3 text-sm text-text-secondary">Download this website into a separate local WordPress site for testing and development.</p><WordPressConnect key={site.id} siteId={site.id} siteName={site.name} label="Make a local copy" localCopy /></section>}
     <details><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-sm text-text-secondary">Site details</summary><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
       <Info label="Provider" value={site.provider} /><Info label="Environment" value={site.environment} />
       <Info label="WordPress" value={site.wordpressVersion || "Provider-managed"} />

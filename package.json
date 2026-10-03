@@ -1,6 +1,6 @@
 {
   "name": "zoer-plugin-wordpress-manager",
-  "version": "0.5.6",
+  "version": "0.5.7",
   "private": true,
   "type": "module",
   "description": "Independent WordPress workspace for Zoer, with scoped reusable site operations.",
