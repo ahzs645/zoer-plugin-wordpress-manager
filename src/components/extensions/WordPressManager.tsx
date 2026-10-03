@@ -66,6 +66,7 @@ import TransferHistory from "./wordpressTransfer/TransferHistory";
 import SiteBackups from "./wordpressTransfer/SiteBackups";
 import WordPressAddSite from "./WordPressAddSite";
 import { isLocalWordPress, wordpressLifecycleAction } from "./wordpressLifecycle";
+import { consolidateWordPressSites, readSeparatedSiteConnections, writeSeparatedSiteConnections } from "./wordpressSiteIdentity";
 import { filterWordPressSiteGroups, groupWordPressSites, readSeparatedSitePairs, wordPressSiteCopies, wordPressSiteSource, writeSeparatedSitePairs } from "./wordpressSiteGroups";
 import { databaseKeys } from "../../lib/queries/databases";
 
@@ -88,8 +89,8 @@ function siteDomain(site: WordPressManagedSite) {
   return site.managedUrl ? new URL(site.managedUrl).hostname : site.domain || "No public URL";
 }
 function siteLabel(site: WordPressManagedSite) { return `${site.name} — ${siteLocation(site)}`; }
-function siteOptions(sites: WordPressManagedSite[]) {
-  return Object.fromEntries(sites.map(site => [site.id, { icon: providerIcon(site.provider), description: `${siteDomain(site)} · ${site.status}` }]));
+function siteOptions(sites: WordPressManagedSite[], aliases: (id: string) => WordPressManagedSite[] = () => []) {
+  return Object.fromEntries(sites.map(site => [site.id, { icon: providerIcon(site.provider), description: `${siteDomain(site)} · ${site.status}`, keywords: aliases(site.id).map(alias => `${alias.name} ${alias.provider}`).join(" ") }]));
 }
 
 function statusTone(status: string): StatusTone {
@@ -155,16 +156,20 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const client = useQueryClient();
   const session = useOperationSession();
   const sitesQuery = useQuery(wordpressQueries.sites());
+  const [separatedConnections, setSeparatedConnections] = useState(readSeparatedSiteConnections);
+  const sites = sitesQuery.data ?? [];
+  const identity = useMemo(() => consolidateWordPressSites(sites, separatedConnections), [sitesQuery.data, separatedConnections]);
+  const candidateIdentity = useMemo(() => consolidateWordPressSites(sites), [sitesQuery.data]);
   const connectionsQuery = useQuery({ ...wordpressQueries.connections(), enabled: providersOpen || tab === "deployments" });
   const deploymentsQuery = useQuery({ ...wordpressQueries.deployments(), refetchInterval: query => query.state.data?.some(item => activeWordPressDeployment(item.status)) ? 5_000 : false, refetchIntervalInBackground: false });
   const connectorsQuery = useQuery(wordpressQueries.connectors());
-  const selectedSummary = sitesQuery.data?.find(site => site.id === selectedId && (siteScope === "all" || isLocalWordPress(site))) ?? null;
+  const selectedSummary = identity.sites.find(site => site.id === identity.canonicalId(selectedId ?? "") && (siteScope === "all" || isLocalWordPress(site))) ?? null;
   const inspectSelected = Boolean(selectedSummary && (!isLocalWordPress(selectedSummary) || selectedSummary.status === "running"));
   // Transfer history is cross-site; it reuses the overview details request for the selected site.
   const detailSection = tab === "history" ? "overview" : tab;
-  const detailsQuery = useQuery({ ...wordpressQueries.site(selectedId ?? "", detailSection), enabled: inspectSelected });
-  const sites = sitesQuery.data ?? [];
+  const detailsQuery = useQuery({ ...wordpressQueries.site(selectedSummary?.id ?? "", detailSection), enabled: inspectSelected });
   const scopedSites = siteScope === "local" ? sites.filter(isLocalWordPress) : sites;
+  const pickerSites = siteScope === "local" ? identity.sites.filter(isLocalWordPress) : identity.sites;
   const connections = connectionsQuery.data ?? [];
   const deployments = deploymentsQuery.data ?? [];
   const runtimeConnectors = connectorsQuery.data ?? [];
@@ -224,10 +229,21 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     }
   }, [deployments, client]);
 
-  const selectedDetails = inspectSelected && details?.site.id === selectedId ? details : null;
+  const selectedDetails = inspectSelected && details?.site.id === selectedSummary?.id ? details : null;
   const selected = selectedSummary ?? selectedDetails?.site ?? null;
+  const connectSite = selected ? identity.connector(selected) : null;
+  const connectionMembers = selected ? candidateIdentity.aliases(selected.id) : [];
+  const connectionsCombined = Boolean(selected && identity.aliases(selected.id).length > 1);
+  const toggleConnections = () => {
+    setSeparatedConnections(current => {
+      const next = new Set(current);
+      for (const member of connectionMembers) { if (connectionsCombined) next.add(member.id); else next.delete(member.id); }
+      writeSeparatedSiteConnections(next);
+      return next;
+    });
+  };
   const ddevConnector = runtimeConnectors.find((connector) => connector.id === "ddev");
-  const visibleGroups = useMemo(() => filterWordPressSiteGroups(groupWordPressSites(scopedSites, separatedPairs), siteQuery), [scopedSites, separatedPairs, siteQuery]);
+  const visibleGroups = useMemo(() => filterWordPressSiteGroups(groupWordPressSites(scopedSites, separatedPairs, separatedConnections), siteQuery, identity.aliases), [scopedSites, separatedPairs, separatedConnections, siteQuery]);
   const selectSite = (site: WordPressManagedSite) => {
     if (site.id !== selectedId) setExtensionPlan(null);
     setSelectedId(site.id);
@@ -236,13 +252,13 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const setPairSeparated = (sourceId: string, separated: boolean) => {
     setSeparatedPairs((current) => {
       const next = new Set(current);
-      if (separated) next.add(sourceId); else next.delete(sourceId);
+      for (const alias of identity.aliases(sourceId)) { if (separated) next.add(alias.id); else next.delete(alias.id); }
       writeSeparatedSitePairs(next);
       return next;
     });
   };
-  const selectedSource = selected ? wordPressSiteSource(scopedSites, selected) : null;
-  const selectedCopies = selected ? wordPressSiteCopies(scopedSites, selected) : [];
+  const selectedSource = selected ? wordPressSiteSource(scopedSites, selected, separatedConnections) : null;
+  const selectedCopies = selected ? wordPressSiteCopies(scopedSites, selected, separatedConnections) : [];
   // A local site's Publish form always starts from that site.
   const fixedSourceId = selected?.capabilities.deploySource ? selected.id : "";
   useEffect(() => { if (tab === "deployments" && fixedSourceId) setPublishSource(fixedSourceId); }, [tab, fixedSourceId]);
@@ -580,11 +596,11 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const scopeSelect = (className: string) => <label className={className}><span className="sr-only">Show sites</span><Select aria-label="Show WordPress sites" presentation="dropdown" searchable={false} value={siteScope} onChange={event => setSiteScope(event.target.value as "all" | "local")} className={selectClass("compact", "w-full")}><option value="all">All sites</option><option value="local">Local only</option></Select></label>;
 
   return (
-    <PluginPage title={page} badge={scopedSites.length || undefined} fill actions={headerActions} primary={newSiteButton}>
+    <PluginPage title={page} badge={pickerSites.length || undefined} fill actions={headerActions} primary={newSiteButton}>
     <section className="flex min-h-0 flex-1 flex-col" aria-label="WordPress Sites manager">
       {/* Phones: the site list is a picker with the scope filter beside it. */}
       <div className="flex items-center gap-2 px-3 pt-3 lg:hidden">
-        <label className="min-w-0 flex-1"><span className="sr-only">Site</span><Select searchable aria-label="Select WordPress site" optionDetails={siteOptions(scopedSites)} value={selectedSummary?.id || ""} onChange={e => { setExtensionPlan(null); setSelectedId(e.target.value); setTab("overview"); }} className={selectClass("compact")}><option value="" disabled>Select a site</option>{scopedSites.map(site => <option key={site.id} value={site.id}>{siteLabel(site)}</option>)}</Select></label>
+        <label className="min-w-0 flex-1"><span className="sr-only">Site</span><Select searchable aria-label="Select WordPress site" optionDetails={siteOptions(pickerSites, identity.aliases)} value={selectedSummary?.id || ""} onChange={e => { setExtensionPlan(null); setSelectedId(e.target.value); setTab("overview"); }} className={selectClass("compact")}><option value="" disabled>Select a site</option>{pickerSites.map(site => <option key={site.id} value={site.id}>{siteLabel(site)}</option>)}</Select></label>
         {scopeSelect("w-32 shrink-0")}
       </div>
       <WordPressAddSite open={addSiteOpen} onOpenChange={setAddSiteOpen} onAdded={async id => { await load(true, true); setSelectedId(id); setTab("overview"); setNotice("Website connected."); }} />
@@ -635,12 +651,12 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
           <div className="flex gap-2"><SearchInput className="min-w-0 flex-1" value={siteQuery} onChange={setSiteQuery} placeholder="Search sites" />{scopeSelect("w-28 shrink-0")}</div>
           <div className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto">
             {visibleGroups.map((group) => group.kind === "pair"
-              ? <SitePairCard key={`pair:${group.id}`} source={group.source} copies={group.copies} selectedId={selectedId} onSelect={selectSite} onSeparate={() => setPairSeparated(group.id, true)} />
-              : <SiteCard key={group.site.id} site={group.site} selected={selectedId === group.site.id} onSelect={selectSite} mergeInto={(() => {
+              ? <SitePairCard key={`pair:${group.id}`} source={group.source} copies={group.copies} selectedId={selected?.id ?? null} onSelect={selectSite} onSeparate={() => setPairSeparated(group.id, true)} />
+              : <SiteCard key={group.site.id} site={group.site} selected={selected?.id === group.site.id} onSelect={selectSite} mergeInto={(() => {
                   // A separated copy, or a live site with separated copies, offers to merge again.
-                  const source = wordPressSiteSource(sites, group.site);
-                  if (source) return separatedPairs.has(source.id) ? source : null;
-                  return separatedPairs.has(group.site.id) && wordPressSiteCopies(sites, group.site).length ? group.site : null;
+                  const source = wordPressSiteSource(sites, group.site, separatedConnections);
+                  if (source) return identity.aliases(source.id).some(alias => separatedPairs.has(alias.id)) ? source : null;
+                  return identity.aliases(group.site.id).some(alias => separatedPairs.has(alias.id)) && wordPressSiteCopies(sites, group.site, separatedConnections).length ? group.site : null;
                 })()} onMerge={(source) => setPairSeparated(source.id, false)} />)}
             {!visibleGroups.length && <EmptyState icon={<Globe2 />} title={siteQuery ? "No matches" : siteScope === "local" ? "No local sites" : "No sites yet"} description={siteQuery ? undefined : "Create a local site or connect one."} />}
           </div>
@@ -653,7 +669,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
                 <h2 className="truncate text-[15px] font-semibold text-text-heading">{selected?.name || "No site selected"}</h2>
                 {selected ? <>
                   <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-text-secondary">
-                    <span className="inline-flex items-center gap-1.5">{providerIcon(selected.provider)}{siteLocation(selected)}</span>
+                    <span className="inline-flex items-center gap-1.5">{providerIcon(selected.provider)}{connectionsCombined ? "Live · Hostinger + Zoer Connect" : siteLocation(selected)}</span>
                     <span role="status" className="inline-flex items-center gap-2">
                       <StatusBadge tone={updating ? "info" : statusTone(selected.status)} icon={updating ? <Loader2 className="animate-spin" /> : undefined}>{updating ? "Updating" : statusLabel(selected.status)}</StatusBadge>
                       {lifecycle === "start" && !updating && <span className="text-[12px] text-text-muted">Start to inspect.</span>}
@@ -676,16 +692,17 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
           </div>
           <PageTabs id="wordpress-sections" label="WordPress manager sections" tabs={tabs} value={tab} onChange={setTab} />
           <PageTabPanel id="wordpress-sections" value={tab} className="flex-1 overflow-y-auto p-3 sm:p-4">
-            {selected?.provider === "zoer-connect" && tab !== "history" && <WordPressTransferSummary key={selected.id} siteId={selected.id} />}
-            {detailError && <div role="alert" className="mb-3 text-sm text-status-error">{detailError} <Btn size="sm" onClick={() => selectedId && void loadDetails(selectedId)}>Retry section</Btn></div>}
-            {tab === "history" ? <TransferHistory sites={sites} /> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
+            {connectSite?.provider === "zoer-connect" && tab !== "history" && !(connectionsCombined && tab === "overview") && <WordPressTransferSummary key={connectSite.id} siteId={connectSite.id} />}
+            {connectionMembers.length > 1 && <section aria-label="Website connections" className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border-muted pb-3 text-sm"><p className="text-text-secondary">{connectionsCombined ? "Hostinger hosting and Zoer Connect transfers share this website view." : "Hostinger and Zoer Connect have the same website address."}</p><Btn size="sm" onClick={toggleConnections}>{connectionsCombined ? "Show connections separately" : "Combine connections"}</Btn></section>}
+            {detailError && <div role="alert" className="mb-3 text-sm text-status-error">{detailError} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>}
+            {tab === "history" ? <TransferHistory sites={sites} canonicalId={identity.canonicalId} /> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
               <>
-                {tab === "overview" && <OverviewTab site={selected} details={selectedDetails} loading={detailLoading} onSetup={()=>selected && void openSite(selected,true)} onRestore={openBackupImport} />}
-                {tab === "plugins" && <ExtensionsTab kind="plugin" site={selected} rows={selectedDetails?.plugins || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
-                {tab === "themes" && <ExtensionsTab kind="theme" site={selected} rows={selectedDetails?.themes || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
-                {tab === "backups" && selected?.provider === "zoer-connect" && <div className="mb-5"><SiteBackups key={selected.id} siteId={selected.id} siteName={selected.name} /></div>}
+                {tab === "overview" && <OverviewTab site={selected} connectSite={connectSite} details={selectedDetails} loading={detailLoading} onSetup={()=>selected && void openSite(selected,true)} onRestore={openBackupImport} />}
+                {tab === "plugins" && <ExtensionsTab kind="plugin" site={selected} connectSiteId={connectSite?.id} rows={selectedDetails?.plugins || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
+                {tab === "themes" && <ExtensionsTab kind="theme" site={selected} connectSiteId={connectSite?.id} rows={selectedDetails?.themes || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
+                {tab === "backups" && connectSite?.provider === "zoer-connect" && <div className="mb-5"><SiteBackups key={connectSite.id} siteId={connectSite.id} siteName={selected?.name ?? connectSite.name} /></div>}
                 {tab === "backups" && <BackupsTab site={selected} details={selectedDetails} busy={busy} retainPortableBackup={retainPortableBackup} onRetainPortableBackup={setRetainPortableBackup} onCreatePortableBackup={createPortableBackup} onRecordRecovery={recordRecovery} onImportBackup={openBackupImport} />}
-                {tab === "deployments" && selected && selectedDetails?.plugins.some(plugin => plugin.slug === "zoer-connect" && plugin.status === "active") && <section className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border-muted pb-3"><h3 className="text-sm font-medium text-text-heading">Zoer Connect is installed</h3><WordPressConnect key={selected.id} siteId={selected.id} siteName={selected.name} /></section>}
+                {tab === "deployments" && selected && (connectionsCombined || selectedDetails?.plugins.some(plugin => plugin.slug === "zoer-connect" && plugin.status === "active")) && <section className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border-muted pb-3"><h3 className="text-sm font-medium text-text-heading">Zoer Connect transfers</h3><WordPressConnect key={connectSite?.id ?? selected.id} siteId={connectSite?.id ?? selected.id} siteName={selected.name} /></section>}
                 {tab === "deployments" && selected?.provider === "zoer-connect" && <p className="text-sm text-text-secondary">Use {connectLabel} to pull, push, back up or export this site.</p>}
                 {tab === "deployments" && selected?.provider !== "zoer-connect" && <DeploymentsTab sites={sites} fixedSource={selected?.capabilities.deploySource ? selected : null} connections={connections} deployments={deployments} source={publishSource} setSource={setPublishSource} connection={publishConnection} setConnection={setPublishConnection} domain={publishDomain} setDomain={setPublishDomain} mode={publishMode} setMode={setPublishMode} busy={busy} onPlan={planPublish} onVerify={confirmDeployment} onImport={() => setTab("backups")} />}
 
@@ -763,13 +780,13 @@ function SitePairCard({ source, copies, selectedId, onSelect, onSeparate }: { so
   </div>;
 }
 
-function OverviewTab({ site, details, loading, onSetup, onRestore }: { site: WordPressManagedSite | null; details: WordPressSiteDetails | null; loading: boolean; onSetup: () => void; onRestore: () => void }) {
+function OverviewTab({ site, connectSite, details, loading, onSetup, onRestore }: { site: WordPressManagedSite | null; connectSite: WordPressManagedSite | null; details: WordPressSiteDetails | null; loading: boolean; onSetup: () => void; onRestore: () => void }) {
   if (!site) return <EmptyState icon={<Globe2 className="h-7 w-7" />} title="Select a WordPress site" />;
   const health = details?.health || [];
   return <div className="space-y-4">
     {site.provider === "ddev" && <WordPressCoreUpdates key={site.id} site={site} />}
     {site.provider === "hostinger" && <HostingerSiteTools key={site.id} site={site} />}
-    {(site.provider === "hostinger" || site.provider === "zoer-connect") && <section className="rounded-lg border border-border-default p-4"><h4 className="text-sm font-medium text-text-heading">Local development copy</h4><p className="my-3 text-sm text-text-secondary">Download this website into a separate local WordPress site for testing and development.</p><WordPressConnect key={site.id} siteId={site.id} siteName={site.name} label="Make a local copy" localCopy onSetup={site.provider === "hostinger" ? onSetup : undefined} onRestore={onRestore} /></section>}
+    {(site.provider === "hostinger" || site.provider === "zoer-connect") && <section className="rounded-lg border border-border-default p-4"><h4 className="text-sm font-medium text-text-heading">Local development copy</h4><p className="my-3 text-sm text-text-secondary">Download this website into a separate local WordPress site for testing and development.</p><WordPressConnect key={connectSite?.id ?? site.id} siteId={connectSite?.id ?? site.id} siteName={site.name} label="Make a local copy" localCopy onSetup={site.provider === "hostinger" ? onSetup : undefined} onRestore={onRestore} /></section>}
     <details><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-sm text-text-secondary">Site details</summary><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
       <Info label="Provider" value={site.provider} /><Info label="Environment" value={site.environment} />
       <Info label="WordPress" value={site.wordpressVersion || "Provider-managed"} />
@@ -786,7 +803,7 @@ function Info({ label, value }: { label: string; value: string }) {
   return <div className="rounded-md border border-border-muted bg-surface-primary/50 p-3"><div className="text-[12px] text-text-secondary">{label}</div><div className="mt-1 truncate text-[13px] font-medium capitalize text-text-primary">{value}</div></div>;
 }
 
-function ExtensionsTab({ kind, site, rows, query, setQuery, slug, setSlug, directoryResults, busy, error, onSearch, onPlan }: { kind: WordPressExtensionKind; site: WordPressManagedSite | null; rows: WordPressInstalledExtension[]; query: string; setQuery: (value: string) => void; slug: string; setSlug: (value: string) => void; directoryResults: Array<{ slug: string; name: string; description: string; imageUrl: string | null }>; busy: string | null; error: string | null; onSearch: (kind: WordPressExtensionKind) => void; onPlan: (kind: WordPressExtensionKind, operation: WordPressExtensionOperation, slugs: string[]) => void }) {
+function ExtensionsTab({ kind, site, connectSiteId, rows, query, setQuery, slug, setSlug, directoryResults, busy, error, onSearch, onPlan }: { kind: WordPressExtensionKind; site: WordPressManagedSite | null; connectSiteId?: string; rows: WordPressInstalledExtension[]; query: string; setQuery: (value: string) => void; slug: string; setSlug: (value: string) => void; directoryResults: Array<{ slug: string; name: string; description: string; imageUrl: string | null }>; busy: string | null; error: string | null; onSearch: (kind: WordPressExtensionKind) => void; onPlan: (kind: WordPressExtensionKind, operation: WordPressExtensionOperation, slugs: string[]) => void }) {
   const [addOpen, setAddOpen] = useState(false);
   const [searched, setSearched] = useState(false);
   const decode = (value: string) => { const el = document.createElement("textarea"); el.innerHTML = value; return el.value; };
@@ -800,7 +817,7 @@ function ExtensionsTab({ kind, site, rows, query, setQuery, slug, setSlug, direc
   if (!site) return <EmptyState icon={<Package className="h-7 w-7" />} title="Select a site" />;
   if (!site.capabilities.extensions) return <EmptyState icon={<Package className="h-7 w-7" />} title={`${kind === "plugin" ? "Plugin" : "Theme"} management unavailable`} description={site.limitation || undefined} />;
   return <div className="space-y-3">
-    {kind === "plugin" && rows.some(row => row.slug === "zoer-connect" && row.status === "active") && <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-default p-3"><div><h4 className="text-sm font-medium">Zoer Connect</h4><p className="text-xs text-text-secondary">Paste the connection info generated in WordPress.</p></div><WordPressConnect key={site.id} siteId={site.id} siteName={site.name} /></section>}
+    {kind === "plugin" && rows.some(row => row.slug === "zoer-connect" && row.status === "active") && <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-default p-3"><div><h4 className="text-sm font-medium">Zoer Connect</h4><p className="text-xs text-text-secondary">Paste the connection info generated in WordPress.</p></div><WordPressConnect key={connectSiteId ?? site.id} siteId={connectSiteId ?? site.id} siteName={site.name} /></section>}
     <div className="flex flex-wrap gap-2"><SearchInput className="min-w-0 flex-1 basis-44" value={query} onChange={setQuery} placeholder={`Filter installed ${kind}s…`} /><Btn variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => { setAddOpen(true); setSearched(false); setSlug(""); }}>Add {kind}</Btn>{updates.length > 0 && <Btn disabled={busy !== null} onClick={() => plan("update", updates)}>Review {updates.length} updates</Btn>}</div>
     {allUnchecked && <p className="text-xs text-text-secondary">Security: not checked.</p>}
     {addOpen && <Modal title={`Add ${kind}`} onClose={() => setAddOpen(false)}>

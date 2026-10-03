@@ -61,3 +61,9 @@ installation/pairing and SSH-only exports are not implemented. A public URL or
 hosting account connection alone cannot export the database. The finished copy
 links to WordPress update checks and reviewed plugin activation. Source plugins
 start inactive; email, cron and outgoing WordPress HTTP remain blocked locally.
+
+## Matching website connections (0.5.9)
+
+A Hostinger installation and an external Zoer Connect entry with the same HTTPS installation address appear as one website. Hostinger supplies hosting, admin, cache and publishing controls; the saved external connection supplies transfers, backups and local copies. Both existing deep links open the combined view. Local copies and transfer-history filters include either original connection.
+
+Matching preserves installation paths and ports, and does not infer aliases from titles, `www`, redirects or hosting accounts. Multiple matches remain separate. **Show connections separately** / **Combine connections** saves a display preference in this browser. Credentials, permissions, backend IDs and historical job ownership are preserved; the backend and other plugins still see the original inventory entries. Transfers saved independently under the Hostinger connection can be accessed by showing connections separately.

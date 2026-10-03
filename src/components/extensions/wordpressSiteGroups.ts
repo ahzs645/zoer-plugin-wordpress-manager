@@ -1,4 +1,5 @@
 import type { WordPressManagedSite } from "../../lib/api";
+import { consolidateWordPressSites } from "./wordpressSiteIdentity";
 
 export type WordPressSiteGroup =
   | { kind: "site"; site: WordPressManagedSite }
@@ -27,25 +28,30 @@ export function writeSeparatedSitePairs(ids: ReadonlySet<string>) {
 }
 
 /** The live site a local copy was made from, when it is still listed. */
-export function wordPressSiteSource(sites: WordPressManagedSite[], site: WordPressManagedSite): WordPressManagedSite | null {
+export function wordPressSiteSource(sites: WordPressManagedSite[], site: WordPressManagedSite, connectionsSeparated: ReadonlySet<string> = new Set()): WordPressManagedSite | null {
   if (!site.sourceSiteId || site.sourceSiteId === site.id) return null;
-  return sites.find((item) => item.id === site.sourceSiteId) ?? null;
+  const identity = consolidateWordPressSites(sites, connectionsSeparated);
+  return identity.sites.find((item) => item.id === identity.canonicalId(site.sourceSiteId!)) ?? null;
 }
 
 /** Local copies made from this site. */
-export function wordPressSiteCopies(sites: WordPressManagedSite[], site: WordPressManagedSite): WordPressManagedSite[] {
-  return sites.filter((item) => item.id !== site.id && item.sourceSiteId === site.id);
+export function wordPressSiteCopies(sites: WordPressManagedSite[], site: WordPressManagedSite, connectionsSeparated: ReadonlySet<string> = new Set()): WordPressManagedSite[] {
+  const identity = consolidateWordPressSites(sites, connectionsSeparated);
+  return sites.filter((item) => item.id !== site.id && item.sourceSiteId && identity.canonicalId(item.sourceSiteId) === identity.canonicalId(site.id));
 }
 
 /**
  * Groups local copies under the site they were copied from, unless that pair was separated.
  * A pair takes the position of its earliest member so the list order stays familiar.
  */
-export function groupWordPressSites(sites: WordPressManagedSite[], separated: ReadonlySet<string>): WordPressSiteGroup[] {
+export function groupWordPressSites(sites: WordPressManagedSite[], separated: ReadonlySet<string>, connectionsSeparated: ReadonlySet<string> = new Set()): WordPressSiteGroup[] {
+  const identity = consolidateWordPressSites(sites, connectionsSeparated);
+  const inventory = sites;
+  sites = identity.sites;
   const pairOf = new Map<string, string>();
   for (const site of sites) {
-    const source = wordPressSiteSource(sites, site);
-    if (source && !separated.has(source.id)) pairOf.set(site.id, source.id);
+    const source = wordPressSiteSource(inventory, site, connectionsSeparated);
+    if (source && !identity.aliases(source.id).some(alias => separated.has(alias.id))) pairOf.set(site.id, source.id);
   }
   const sourcesWithCopies = new Set(pairOf.values());
   const emitted = new Set<string>();
@@ -66,10 +72,10 @@ export function wordPressSiteMatches(site: WordPressManagedSite, query: string):
 }
 
 /** A pair stays together when any of its sites matches the search. */
-export function filterWordPressSiteGroups(groups: WordPressSiteGroup[], query: string): WordPressSiteGroup[] {
+export function filterWordPressSiteGroups(groups: WordPressSiteGroup[], query: string, aliases: (id: string) => WordPressManagedSite[] = () => []): WordPressSiteGroup[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return groups;
   return groups.filter((group) => group.kind === "site"
-    ? wordPressSiteMatches(group.site, needle)
-    : [group.source, ...group.copies].some((site) => wordPressSiteMatches(site, needle)));
+    ? [group.site, ...aliases(group.site.id)].some(site => wordPressSiteMatches(site, needle))
+    : [group.source, ...aliases(group.source.id), ...group.copies].some((site) => wordPressSiteMatches(site, needle)));
 }

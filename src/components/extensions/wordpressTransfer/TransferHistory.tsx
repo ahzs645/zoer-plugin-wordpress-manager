@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { wordPressTransferMatchesSite } from "../wordpressSiteIdentity";
 import { History } from "lucide-react";
 import type { TransferHistoryItem, TransferHistoryKind } from "../../../lib/api/types/wordpress-transfer";
 import type { WordPressManagedSite } from "../../../lib/api/types/wordpress-manager";
@@ -24,12 +25,12 @@ function errorText(error: TransferHistoryItem["lastError"]) {
 }
 
 /** All transfers across sites, newest first (`GET /transfers`). */
-export default function TransferHistory({ sites }: { sites: WordPressManagedSite[] }) {
+export default function TransferHistory({ sites, canonicalId = id => id }: { sites: WordPressManagedSite[]; canonicalId?: (id: string) => string }) {
   const [siteId, setSiteId] = useState("");
   const [kind, setKind] = useState("");
   const history = useTransferHistory();
-  const items = filterTransfers(history.data ?? [], { siteId, kind });
-  const siteChoices = [...new Map((history.data ?? []).flatMap(item => [[item.siteId, item.siteName], ...(item.sourceSiteId ? [[item.sourceSiteId, item.sourceName ?? item.sourceSiteId]] : [])] as Array<[string, string]>)).entries()]
+  const items = filterTransfers(history.data ?? [], { siteId: "", kind }).filter(item => wordPressTransferMatchesSite(item, siteId, canonicalId));
+  const siteChoices = [...new Map((history.data ?? []).flatMap(item => [[canonicalId(item.siteId), item.siteName], ...(item.sourceSiteId ? [[canonicalId(item.sourceSiteId), item.sourceName ?? item.sourceSiteId]] : [])] as Array<[string, string]>)).entries()]
     .map(([id, name]) => ({ id, name: sites.find(site => site.id === id)?.name ?? name }))
     .sort((a, b) => a.name.localeCompare(b.name));
   return <section className="min-w-0 space-y-4" aria-label="Transfer history">
@@ -37,7 +38,7 @@ export default function TransferHistory({ sites }: { sites: WordPressManagedSite
     <p className="text-sm text-text-secondary">Pulls, pushes, Find & Replace jobs and local copies across every site. Open a site's Transfers dialog to control a running transfer.</p>
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <label className="block min-w-0 text-sm"><span className={fieldLabelClass}>Site</span>
-        <Select searchable aria-label="Filter transfers by site" className={selectClass("default", "w-full")} value={siteId} onChange={event => setSiteId(event.target.value)}>
+        <Select searchable aria-label="Filter transfers by site" className={selectClass("default", "w-full")} value={canonicalId(siteId)} onChange={event => setSiteId(event.target.value)}>
           <option value="">All sites</option>
           {siteChoices.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}
         </Select>
