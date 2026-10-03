@@ -225,3 +225,22 @@ export function useWordPressLocalCopies(siteId: string) {
   });
   return { ...query, copies: query.data ?? [], command: mutation.mutateAsync, pending: mutation.isPending, commandError: mutation.error };
 }
+
+export type WordPressCopyWorkflowJob = {
+  id: string; name: string; phase: "pulling" | "copying" | "complete" | "cancelled"; paused?: boolean; running: boolean; error?: string;
+  replaceSiteId?: string; copyId?: string;
+  progress?: { status?: string; files?: number; bytes?: number; downloadedBytes?: number; preparation?: { files: number } };
+  copy?: WordPressLocalCopyJob;
+};
+export function useWordPressCopyWorkflows(siteId: string, enabled = true) {
+  const endpoint = `${connectPath(siteId)}/copy-workflows`;
+  const queryKey = [...transferKeys.localCopies(siteId), "workflows"];
+  const client = useQueryClient();
+  const query = useQuery({ queryKey, enabled, queryFn: async ({ signal }) => (await json<{ jobs: WordPressCopyWorkflowJob[] }>(endpoint,{signal})).jobs,
+    refetchInterval: q => q.state.data?.some(j=>j.running) ? 2000 : 15000, refetchIntervalInBackground: true });
+  const mutation = useMutation({ mutationFn: async (command: {action:"start"; requestId:string; name:string; replaceSiteId?:string} | {action:"run"|"pause"|"cancel";id:string}) => {
+    return json<{job:WordPressCopyWorkflowJob}>(command.action==="start"?endpoint:`${endpoint}/${command.id}/${command.action}`, {method:"POST",...(command.action==="start"?{body:JSON.stringify(command)}:{})});
+  }, onSuccess: ({job}) => client.setQueryData<WordPressCopyWorkflowJob[]>(queryKey,old=>[job,...(old??[]).filter(j=>j.id!==job.id)]),
+    onSettled:()=>{void client.invalidateQueries({queryKey});void client.invalidateQueries({queryKey:transferKeys.localCopies(siteId)});void client.invalidateQueries({queryKey:[...transferKeys.all(),"history"]});} });
+  return {...query,jobs:query.data??[],command:mutation.mutateAsync,pending:mutation.isPending,commandError:mutation.error};
+}

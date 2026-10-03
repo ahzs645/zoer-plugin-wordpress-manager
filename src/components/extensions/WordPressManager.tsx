@@ -334,7 +334,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const importedBackup = (computer: Computer) => {
     setSelectedId(computer.id);
     setTab("overview");
-    setNotice(`${computer.name} was restored and started as a local Playground site.`);
+    setNotice(`${computer.name} was restored and started as a local WordPress site.`);
     void load(true, true);
   };
 
@@ -680,7 +680,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
             {detailError && <div role="alert" className="mb-3 text-sm text-status-error">{detailError} <Btn size="sm" onClick={() => selectedId && void loadDetails(selectedId)}>Retry section</Btn></div>}
             {tab === "history" ? <TransferHistory sites={sites} /> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
               <>
-                {tab === "overview" && <OverviewTab site={selected} details={selectedDetails} loading={detailLoading} />}
+                {tab === "overview" && <OverviewTab site={selected} details={selectedDetails} loading={detailLoading} onSetup={()=>selected && void openSite(selected,true)} onRestore={openBackupImport} />}
                 {tab === "plugins" && <ExtensionsTab kind="plugin" site={selected} rows={selectedDetails?.plugins || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
                 {tab === "themes" && <ExtensionsTab kind="theme" site={selected} rows={selectedDetails?.themes || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
                 {tab === "backups" && selected?.provider === "zoer-connect" && <div className="mb-5"><SiteBackups key={selected.id} siteId={selected.id} siteName={selected.name} /></div>}
@@ -763,13 +763,13 @@ function SitePairCard({ source, copies, selectedId, onSelect, onSeparate }: { so
   </div>;
 }
 
-function OverviewTab({ site, details, loading }: { site: WordPressManagedSite | null; details: WordPressSiteDetails | null; loading: boolean }) {
+function OverviewTab({ site, details, loading, onSetup, onRestore }: { site: WordPressManagedSite | null; details: WordPressSiteDetails | null; loading: boolean; onSetup: () => void; onRestore: () => void }) {
   if (!site) return <EmptyState icon={<Globe2 className="h-7 w-7" />} title="Select a WordPress site" />;
   const health = details?.health || [];
   return <div className="space-y-4">
     {site.provider === "ddev" && <WordPressCoreUpdates key={site.id} site={site} />}
     {site.provider === "hostinger" && <HostingerSiteTools key={site.id} site={site} />}
-    {site.provider === "hostinger" && <section className="rounded-lg border border-border-default p-4"><h4 className="text-sm font-medium text-text-heading">Local development copy</h4><p className="my-3 text-sm text-text-secondary">Download this website into a separate local WordPress site for testing and development.</p><WordPressConnect key={site.id} siteId={site.id} siteName={site.name} label="Make a local copy" localCopy /></section>}
+    {(site.provider === "hostinger" || site.provider === "zoer-connect") && <section className="rounded-lg border border-border-default p-4"><h4 className="text-sm font-medium text-text-heading">Local development copy</h4><p className="my-3 text-sm text-text-secondary">Download this website into a separate local WordPress site for testing and development.</p><WordPressConnect key={site.id} siteId={site.id} siteName={site.name} label="Make a local copy" localCopy onSetup={site.provider === "hostinger" ? onSetup : undefined} onRestore={onRestore} /></section>}
     <details><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-sm text-text-secondary">Site details</summary><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
       <Info label="Provider" value={site.provider} /><Info label="Environment" value={site.environment} />
       <Info label="WordPress" value={site.wordpressVersion || "Provider-managed"} />

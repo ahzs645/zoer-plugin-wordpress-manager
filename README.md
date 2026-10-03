@@ -42,3 +42,22 @@ See [Zoer's architecture guide](https://github.com/ahzs645/zoer/blob/main/docs/w
 ## Verification
 
 Unit tests cover transfer/replacement options, capability availability, grouping, lifecycle restrictions, clipboard parsing, progress/history labels and bridge cancellation/session fencing. The build rejects unexpected or dynamic native imports and local filesystem paths, and scopes plugin CSS including portaled dialog content. CI typechecks, tests, builds, validates and archives every push. Host tests cover runtime/upload restrictions, per-site operation grants/revocation, sanitized outputs, discovery precedence and installed-worker file permissions. Browser integration is checked against Zoer's real cluster; UI unit stubs supply shared-module imports only.
+
+## One-operation local copies (0.5.8)
+
+Hostinger and connected external sites expose **Overview → Make a local copy**.
+Choose a name or an existing copy to refresh, then create. The Zoer host must
+provide `/connect/:siteId/copy-workflows`: the server persists the destination,
+prepares a complete read-only Pull, verifies the download and runs the existing
+DDEV import without a second browser action. Closing the dialog does not stop
+work. After a backend restart, Resume continues the saved job. Pause and Cancel
+are available during download; cancellation retains the paused Pull in advanced
+transfers. Imports retain their existing backup, guards and retry behavior.
+
+Unpaired sites show connector setup guidance and a **Restore from backup instead**
+route to the existing supported UpdraftPlus import. Hostinger sites can open
+WordPress through the existing authorized login flow. Automatic connector
+installation/pairing and SSH-only exports are not implemented. A public URL or
+hosting account connection alone cannot export the database. The finished copy
+links to WordPress update checks and reviewed plugin activation. Source plugins
+start inactive; email, cron and outgoing WordPress HTTP remain blocked locally.
