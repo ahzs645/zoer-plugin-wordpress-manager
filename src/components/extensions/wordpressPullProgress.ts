@@ -21,3 +21,10 @@ export function pullStatus(job: WordPressPullJob) {
   if (!job.running) return "Resume needed";
   return job.status === "preparing" ? "Preparing source export" : "Downloading to Zoer";
 }
+
+export function pullPreparation(job: WordPressPullJob) {
+  const c = job.preparation?.checkpoint;
+  if (c?.fileBytes !== undefined) return `Preparing file: ${formatTransferBytes(c.fileOffset ?? 0)} / ${formatTransferBytes(c.fileBytes)}`;
+  if (c?.tables !== undefined) return `${c.table ?? 0} / ${c.tables} tables completed · ${(c.rows ?? 0).toLocaleString()} rows saved · ${formatTransferBytes(c.bytes ?? 0)}`;
+  return `${(job.preparation?.files ?? 0).toLocaleString()} files found on source · Export preparation`;
+}

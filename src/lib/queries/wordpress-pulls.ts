@@ -8,7 +8,7 @@ export type WordPressPullJob = {
   status: "preparing" | "downloading" | "ready" | "paused" | "cancelled";
   pausedFrom?: "preparing" | "downloading";
   running?: boolean; pendingAction?: "pause" | "cancel"; lastError?: string;
-  preparation?: { phase: string; files: number };
+  preparation?: { phase: string; files: number; sourcePaused?: boolean; checkpoint?: Record<string, number> };
   fileCount?: number; totalBytes?: number; downloadedBytes?: number;
   index: number; offset: number; files: { path: string; bytes: number }[];
   remoteCleanupPending?: boolean;

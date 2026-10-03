@@ -9,6 +9,7 @@ Independent source and releases for the `wordpress-manager` native plugin. This 
 - Hostinger account API/browser login, plan inventory, free temporary domain generation, reviewed website creation, cache purge/bypass and installation detection.
 - Five-component Updraft import, validation and DDEV or Playground restoration; portable backups with optional Files retention.
 - Core version checks, backup-before-update review and publishing preflight; plugin/theme search, install, activation, updates, removal and rollback safeguards.
+- Opt-in resumable large-database exports with source-pause acknowledgement and table/row/part progress (Zoer Connect 0.5.0 and the matching Zoer host required).
 - Pull, push, database filters, media/theme/plugin selection, serialized replacements, staged review, recovery, resumable progress, local copies, profiles and transfer history.
 - Existing isolated DDEV inventory, health, user, snapshot, backup and bounded WP-CLI actions.
 

@@ -6,7 +6,7 @@ import { downloadPullPart, useZoerConnection } from "../../lib/queries/wordpress
 import PushJobs from "./wordpressTransfer/PushJobs";
 import { pullContents, pullIncludesDownloadOnly } from "../../lib/wordpress-transfer/options";
 import { useWordPressPulls, type WordPressPullJob } from "../../lib/queries/wordpress-pulls";
-import { formatTransferBytes, pullProgress, pullStatus } from "./wordpressPullProgress";
+import { formatTransferBytes, pullProgress, pullStatus, pullPreparation } from "./wordpressPullProgress";
 import { Btn as Btn } from "@zoer/plugin-ui/controls";
 import { ActionMenu as ActionMenu } from "@zoer/plugin-ui/controls";
 import { useDialogs } from "@zoer/plugin-ui/controls";
@@ -31,7 +31,7 @@ export function WordPressPullJobs({ siteId, local = false, enabled = true, compa
   const busy = pulls.pending.length > 0;
   async function control(job: WordPressPullJob, action: "run" | "pause" | "cancel") {
     if (action === "cancel" && !await dialogs.confirm({ title: job.status === "ready" ? "Delete verified download?" : "Cancel this pull?",
-      description: "This removes the downloaded files from Zoer and requests cleanup of the temporary source export. To download them again, start a new pull. The source website is unchanged.",
+      description: "This removes the downloaded files from Zoer and requests cleanup of the temporary source export. To download them again, start a new pull. Source content is preserved. Cancelling also resumes a source paused for this export.",
       cancelLabel: "Keep download", confirmLabel: job.status === "ready" ? "Delete download" : "Cancel pull", tone: "danger" })) return;
     await pulls.command({ id: job.id, action }).catch(() => {});
   }
@@ -58,9 +58,10 @@ export function WordPressPullJobs({ siteId, local = false, enabled = true, compa
         </div>
         {progress.total !== null && progress.total > 0 && <progress aria-label="Bytes downloaded to Zoer" className="h-2 w-full accent-indigo-500" value={progress.bytes} max={progress.total} />}
         <p className="text-xs text-text-secondary">{job.status === "preparing" || progress.total === null
-          ? `${(job.preparation?.files ?? 0).toLocaleString()} files found on source · Export preparation`
+          ? pullPreparation(job)
           : `${job.index.toLocaleString()} / ${(job.fileCount ?? job.files.length).toLocaleString()} files downloaded`}</p>
       </>}
+      {job.preparation?.sourcePaused && !terminal && <p className="text-xs text-status-warning">The source is paused for its database export. Cancel resumes the source; pausing this transfer keeps the source paused until the one-hour idle expiry.</p>}
       {job.lastError && <p role="alert" className="break-words text-sm text-status-error">{job.lastError}</p>}
       {!terminal && !job.running && !job.lastError && job.status !== "paused" && <p className="text-xs text-text-secondary">This transfer has no active server worker. Resume from its saved progress.</p>}
       {pendingAction && <p className="text-xs text-text-secondary">Waiting for the current batch to finish safely.</p>}
