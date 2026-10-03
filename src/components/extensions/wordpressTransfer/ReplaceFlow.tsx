@@ -72,6 +72,7 @@ export default function ReplaceFlow({ siteId, connection, diagnostics, diagnosti
     <ConfirmDestination target={target} value={confirm} onChange={setConfirm} shared={shared} writers={writers} onWriters={setWriters} disabled={pushes.pending.length > 0} />
     {running && <p className="text-xs text-status-warning">Finish, roll back or cancel the current job below before starting another.</p>}
     <Btn variant="primary" disabled={!ready} loading={pushes.pending.some(c => c.action === "start")} onClick={() => void start()}>Preview replacements</Btn>
+    {pushes.commandError && <p role="alert" className="break-words text-sm text-status-error">{pushes.commandError.message}</p>}
     <section className="min-w-0 space-y-2"><h4 className="text-sm font-semibold text-text-heading">Find & Replace jobs</h4><PushJobs siteId={siteId} caps={caps} kind="replace" /></section>
   </div>;
 }

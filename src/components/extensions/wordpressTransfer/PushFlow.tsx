@@ -33,7 +33,9 @@ export default function PushFlow({ siteId, connection, destination, draft, updat
   const enabled = status.push && status.publish;
   const sites = useQuery(wordpressQueries.sites()).data ?? [];
   const local = draft.sourceKind === "local-export";
-  const choices = local ? sites.filter(s => s.provider === "ddev" && s.status === "running" && s.id !== siteId) : sites.filter(s => s.provider === "zoer-connect" && s.id !== siteId);
+  const choices = sites.filter(s => s.id !== siteId && (local
+    ? s.provider === "ddev" && s.status === "running"
+    : s.provider !== "playground"));
   const sourceSiteId = choices.some(s => s.id === draft.sourceSiteId) ? draft.sourceSiteId : "";
   const [selectedId, setSelectedId] = useState("");
   const [scope, setScope] = useState<"selected" | "all">("selected");
@@ -141,6 +143,7 @@ export default function PushFlow({ siteId, connection, destination, draft, updat
       <Btn variant="primary" disabled={!ready} loading={pushes.pending.some(c => c.action === "start")} onClick={() => void start()}>{pushButtonLabel(scope, selectedCount)}</Btn>
     </Step>}
 
+    {pushes.commandError && <p role="alert" className="break-words text-sm text-status-error">{pushes.commandError.message}</p>}
     <section className="min-w-0 space-y-2"><h4 className="text-sm font-semibold text-text-heading">Push jobs</h4><PushJobs siteId={siteId} caps={caps} kind="push" /></section>
     {!caps?.importPauseResume && <p className="text-xs text-text-secondary">{REQUIRES_040} to pause and resume imports safely.</p>}
   </div>;
