@@ -31,6 +31,15 @@ bun run release
 
 Zoer can build a committed source through Repos → Plugin using `zoer-plugin.json`, or install the ZIP/GitHub release through Plugins. This repository is private like Zoer; configure GitHub access for release discovery or upload the downloaded ZIP. Review the added `workspace:native` and `workspace:wordpress` permissions. Use normal versioned upgrades/rollback, keeping `wordpress-manager` as the ID. The plugin negotiates WordPress host contract version 1; install the accompanying Zoer host changes first.
 
+## WordPress-side plugins (`wordpress-plugins/`)
+
+The PHP plugins installed *into* WordPress sites moved here from the Zoer repository (Zoer `docs/plugin-shared-services.md`, section 16.3, phase P1). Neither is part of the Zoer package built above: `scripts/build.ts` copies only `plugin/` and the native module, and `typecheck`/`test` cover only `src`, `tests` and `scripts`.
+
+- `wordpress-plugins/zoer-connect` is a Git submodule pinned to the public [Zoer Connect repository](https://github.com/ahzs645/zoer-connect) (same remote and commit Zoer pinned). Run `git submodule update --init wordpress-plugins/zoer-connect` after cloning. Connector changes, tests (`make test`), builds (`make build`), release tags and the update feed belong in that repository; commit here only to move the pin. `branch = main` allows an explicit `git submodule update --remote`.
+- `wordpress-plugins/zoer-content-modules` is the standalone Content Modules plugin. Build and test it from its folder as its README describes (`php tests/package.php`, `node tests/upload.cjs`, `python3 build.py`, which writes `dist/zoer-content-modules-<version>.zip` plus a SHA-256 sidecar).
+
+The Zoer Connect operating guide and the historical handoff are in [`docs/zoer-connect-operations.md`](docs/zoer-connect-operations.md) and [`docs/zoer-connect-handoff.md`](docs/zoer-connect-handoff.md). Agents editing an existing Zoer-managed DDEV site from outside Zoer use the [site-edit skill](.agents/skills/zoer-wordpress-site-edit/SKILL.md).
+
 ## Host API and reuse
 
 Domain code is in `src/components/extensions`, `src/lib/queries`, `src/lib/wordpress-transfer` and the typed API client. All supported HTTP calls pass through `host.request("api.request", ...)` with the reviewed `/wordpress-manager` scope. WordPress-specific runtime calls use `/wordpress-manager/workspace`; no broad `/computers` or secrets endpoint is exposed. Downloads use existing exact-resource host links. Shared `@zoer/plugin-ui/controls` and `@zoer/plugin-ui/workspace` are supplied by Zoer at runtime; React and React Query share the host instances. Native UI is trusted code in the viewer's page, not an isolation boundary. Workers are separately isolated.
@@ -41,7 +50,7 @@ See [Zoer's architecture guide](https://github.com/ahzs645/zoer/blob/main/docs/w
 
 ## Verification
 
-Unit tests cover transfer/replacement options, capability availability, grouping, lifecycle restrictions, clipboard parsing, progress/history labels and bridge cancellation/session fencing. The build rejects unexpected or dynamic native imports and local filesystem paths, and scopes plugin CSS including portaled dialog content. CI typechecks, tests, builds, validates and archives every push. Host tests cover runtime/upload restrictions, per-site operation grants/revocation, sanitized outputs, discovery precedence and installed-worker file permissions. Browser integration is checked against Zoer's real cluster; UI unit stubs supply shared-module imports only.
+Unit tests cover transfer/replacement options, capability availability, grouping, lifecycle restrictions, clipboard parsing, progress/history labels and bridge cancellation/session fencing. The build rejects unexpected or dynamic native imports and local filesystem paths, and scopes plugin CSS including portaled dialog content. CI typechecks, tests, builds, validates and archives every push. Host tests cover runtime/upload restrictions, per-site operation grants/revocation, sanitized outputs and installed-worker file permissions. Browser integration is checked against Zoer's real cluster; UI unit stubs supply shared-module imports only.
 
 ## One-operation local copies (0.5.8)
 

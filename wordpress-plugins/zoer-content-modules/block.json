@@ -1,0 +1,18 @@
+{
+  "apiVersion": 3,
+  "name": "zoer/content-module",
+  "version": "0.1.3",
+  "title": "Content Module",
+  "category": "embed",
+  "icon": "welcome-learn-more",
+  "description": "Display a reusable HTML course or interactive module from your module library.",
+  "keywords": ["course", "learning", "interactive", "storyline"],
+  "attributes": {
+    "moduleId": {"type": "number", "default": 0},
+    "height": {"type": "number", "default": 650},
+    "showTitle": {"type": "boolean", "default": true},
+    "showOpenLink": {"type": "boolean", "default": true}
+  },
+  "supports": {"html": false, "align": ["wide", "full"]},
+  "textdomain": "zoer-content-modules"
+}

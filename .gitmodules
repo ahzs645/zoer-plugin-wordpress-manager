@@ -1,0 +1,4 @@
+[submodule "wordpress-plugins/zoer-connect"]
+	path = wordpress-plugins/zoer-connect
+	url = https://github.com/ahzs645/zoer-connect.git
+	branch = main

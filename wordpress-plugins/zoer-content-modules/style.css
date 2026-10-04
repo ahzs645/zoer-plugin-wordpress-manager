@@ -1,0 +1,12 @@
+.wp-block-zoer-content-module { max-width: 100%; min-width: 0; }
+.zcm-content-module .zcm-module-title { margin-block: 0 1rem; }
+.zcm-content-module .zcm-open { margin-block: 0 1rem; }
+.wp-block-zoer-content-module.zcm-content-module .zcm-open a,
+.wp-block-zoer-content-module.zcm-content-module .zcm-open a:visited { display: inline-flex; align-items: center; gap: .5rem; padding: .75rem 1rem; min-height: 44px; background: #174d7d; color: #fff; border: 2px solid #174d7d; border-radius: 0; font-weight: 700; line-height: 1.5; text-decoration: none; box-sizing: border-box; }
+.wp-block-zoer-content-module.zcm-content-module .zcm-open a:hover { background: #103859; border-color: #103859; color: #fff; text-decoration: underline; }
+.wp-block-zoer-content-module.zcm-content-module .zcm-open a:focus-visible { outline-color: #174d7d; }
+.zcm-content-module .zcm-frame { display: block; width: 100%; max-width: 100%; border: 1px solid #d1d5db; box-sizing: border-box; }
+.zcm-content-module a:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+.zcm-editor .components-placeholder__fieldset { display: block; width: 100%; }
+.zcm-editor .components-base-control { margin-bottom: 16px; }
+@media (max-width: 600px) { .zcm-content-module .zcm-frame { max-height: 85vh; min-height: 320px; } }

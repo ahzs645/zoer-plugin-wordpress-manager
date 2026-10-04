@@ -1,0 +1,13 @@
+.zcm-admin { max-width: 1100px; }
+.zcm-import-card { background: white; border: 1px solid #c3c4c7; padding: 20px 24px; margin-block: 24px; }
+.zcm-import-card h2 { margin-top: 0; }
+.zcm-import-card label { display: block; font-weight: 600; margin-top: 16px; margin-bottom: 6px; }
+.zcm-import-card input { max-width: 100%; }
+.zcm-import-card details { margin-top: 16px; }
+.zcm-admin summary { cursor: pointer; }
+.zcm-admin progress { width: min(100%, 480px); height: 20px; }
+.zcm-admin #zcm-import-status { font-weight: 600; }
+.zcm-library th { font-weight: 600; }
+.zcm-library td { vertical-align: top; }
+.zcm-library details { margin-top: 12px; }
+@media (max-width: 600px) { .zcm-library tr { display: grid; } .zcm-library thead { display: none; } .zcm-library td { display: block; } }
