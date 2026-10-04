@@ -65,6 +65,8 @@ import WordPressTransferSummary from "./WordPressPullJobs";
 import TransferHistory from "./wordpressTransfer/TransferHistory";
 import SiteBackups from "./wordpressTransfer/SiteBackups";
 import WordPressAddSite from "./WordPressAddSite";
+import WordPressTrash from "./WordPressTrash";
+import { runAction } from "../../host/actions";
 import { isLocalWordPress, wordpressLifecycleAction } from "./wordpressLifecycle";
 import { consolidateWordPressSites, readSeparatedSiteConnections, writeSeparatedSiteConnections } from "./wordpressSiteIdentity";
 import { filterWordPressSiteGroups, groupWordPressSites, readSeparatedSitePairs, wordPressSiteCopies, wordPressSiteSource, writeSeparatedSitePairs } from "./wordpressSiteGroups";
@@ -127,6 +129,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const [restoreRunning, setRestoreRunning] = useState(false);
   const [providersOpen, setProvidersOpen] = useState(false);
   const [addSiteOpen, setAddSiteOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [tab, setTab] = useResourceSelection<ManagerTab>("tab", "overview", ["overview", "plugins", "themes", "backups", "deployments", "history", "connections"]);
   const [busy, setBusy] = useState<string | null>(null);
   const lifecycleLock = useRef(false);
@@ -303,16 +306,20 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
       return;
     }
     const description = site.provider === "ddev"
-      ? "This stops the DDEV site and removes it from the WordPress Manager. Its project and database files remain on the DDEV server and the Zoer trash entry can be restored."
+      ? "This stops the DDEV site and moves it to the Zoer trash. Its project and database files remain on the DDEV server; restore it from Trash in this workspace before its scheduled purge."
       : "This stops the Playground site and moves it to Zoer trash. Its workspace remains recoverable until the trash retention period ends.";
     if (!await dialogs.confirm({ title: `Delete ${site.name}?`, description, confirmLabel: "Move to trash", tone: "danger" })) return;
     setBusy(`delete:${site.id}`);
     setError(null);
     setNotice(null);
     try {
-      await write(() => api.destroyComputer(site.id));
+      // DDEV: S9 managed resources through the site.archive action (runtime:manage). Playground is a
+      // Docker profile without a runtime connector and keeps the workspace route.
+      const result = site.provider === "ddev"
+        ? await write(() => runAction<{ summary: string }>("site.archive", { siteId: site.id }))
+        : (await write(() => api.destroyComputer(site.id)), null);
       setSelectedId(null);
-      setNotice(`${site.name} was moved to trash.`);
+      setNotice(`${site.name} was moved to trash.${result?.summary ? ` ${result.summary}` : ""}`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to delete this WordPress site.");
     } finally {
@@ -328,9 +335,17 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     setError(null);
     setNotice(null);
     try {
-      const computer = await write(() => api.createComputer(kind === "playground"
-        ? { name, runtime: "docker", runtimeProfile: "wordpress-playground", aiMode: "api" }
-        : { name, runtime: "connector", runtimeConnectorId: "ddev" }));
+      if (kind === "ddev") {
+        // S9: a DDEV site owned by WordPress Manager (site.create → runtime.create.v1, runtime:manage).
+        if (name.length > 80) throw new Error("Use a DDEV site name of up to 80 characters.");
+        const created = await write(() => runAction<{ siteId?: string; summary: string }>("site.create", { name }));
+        setWorkspaceName("WordPress workspace");
+        setNotice(created.summary || `${name} is being prepared. It will appear in the site list when ready.`);
+        if (created.siteId) setSelectedId(created.siteId);
+        setCreateOpen(false);
+        return;
+      }
+      const computer = await write(() => api.createComputer({ name, runtime: "docker", runtimeProfile: "wordpress-playground", aiMode: "api" }));
       setWorkspaceName("WordPress workspace");
       setNotice(`${computer.name} is being prepared. It will appear in the site list when ready.`);
       setSelectedId(computer.id);
@@ -558,6 +573,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const headerActions = [
     { label: "Connect existing site", icon: <Link2 className="h-4 w-4" />, onClick: () => setAddSiteOpen(true) },
     { label: "Provider accounts", icon: <Cloud className="h-4 w-4" />, onClick: () => setProvidersOpen(true) },
+    { label: "Trash", icon: <Trash2 className="h-4 w-4" />, onClick: () => setTrashOpen(true) },
     { label: "Refresh", iconOnly: true, tooltip: checkedAt ? `Last checked ${checkedAt}` : undefined, icon: <RefreshCw className="h-4 w-4" />, loading: busy === "refresh", disabled: busy !== null, onClick: () => void refreshAll() },
   ];
   const newSiteButton = <Btn variant="primary" aria-label="New local site" icon={<Plus className="h-4 w-4" />} onClick={() => { setCreateMode("blank"); setCreateOpen(true); }}><span className="hidden sm:inline">New local site</span></Btn>;
@@ -603,7 +619,8 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
         <label className="min-w-0 flex-1"><span className="sr-only">Site</span><Select searchable aria-label="Select WordPress site" optionDetails={siteOptions(pickerSites, identity.aliases)} value={selectedSummary?.id || ""} onChange={e => { setExtensionPlan(null); setSelectedId(e.target.value); setTab("overview"); }} className={selectClass("compact")}><option value="" disabled>Select a site</option>{pickerSites.map(site => <option key={site.id} value={site.id}>{siteLabel(site)}</option>)}</Select></label>
         {scopeSelect("w-32 shrink-0")}
       </div>
-      <WordPressAddSite open={addSiteOpen} onOpenChange={setAddSiteOpen} onAdded={async id => { await load(true, true); setSelectedId(id); setTab("overview"); setNotice("Website connected."); }} />
+      <WordPressAddSite open={addSiteOpen} onOpenChange={setAddSiteOpen} existingUrls={sites.flatMap(site => [site.url, site.managedUrl, site.provider === "hostinger" && site.domain ? `https://${site.domain}` : null].filter((value): value is string => Boolean(value)))} onAdded={async id => { await load(true, true); setSelectedId(id); setTab("overview"); setNotice("Website connected."); }} />
+      {trashOpen && <WordPressTrash onClose={() => setTrashOpen(false)} onChanged={async (restoredId) => { await load(true, true); if (restoredId) { setSelectedId(restoredId); setTab("overview"); } }} />}
 
       {(error || readError || notice) && <div className="space-y-2 px-3 pt-3 sm:px-4">
         {(error || readError) && <div role="alert" className="rounded-md border border-status-error/30 bg-status-error/10 px-3 py-2 text-[13px] text-status-error">{error || readError}</div>}
@@ -867,7 +884,7 @@ function DeploymentsTab({ sites, fixedSource, connections, deployments, source, 
 
 function ConnectionsTab({ onConnected, connections, name, setName, token, setToken, busy, onAdd, onTest, onRemove }: { onConnected: () => void; connections: HostingerConnectionPublic[]; name: string; setName: (value: string) => void; token: string; setToken: (value: string) => void; busy: string | null; onAdd: (event: React.FormEvent) => void; onTest: (connection: HostingerConnectionPublic) => void; onRemove: (connection: HostingerConnectionPublic) => void }) {
   return <div className="space-y-5">
-    <section><h4 className="flex items-center gap-2 text-[13px] font-semibold text-text-heading"><Cloud className="h-4 w-4" /> Hostinger connections</h4><p className="mt-1 text-[13px] leading-4 text-text-secondary">Connect your account to discover and manage its WordPress sites.</p><HostingerBrowserLogin name={name} setName={setName} onConnected={onConnected} /><details className="mt-3"><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-[13px] text-text-secondary">Advanced setup · API token</summary><form onSubmit={onAdd} className="mt-3 grid gap-2 rounded-md border border-border-muted bg-surface-primary/40 p-3 md:grid-cols-[1fr_2fr_auto]"><input aria-label="Connection name" className={controlClass("compact")} value={name} onChange={(event) => setName(event.target.value)} placeholder="My Hostinger account" /><input aria-label="Hostinger API token" type="password" autoComplete="new-password" className={controlClass("compact")} value={token} onChange={(event) => setToken(event.target.value)} placeholder="Hostinger API token" /><Btn size="sm" type="submit" variant="primary" loading={busy === "add-connection"} disabled={!name || !token}>Connect</Btn></form></details><div className="mt-3 space-y-2">{connections.map((connection) => <div key={connection.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-muted bg-surface-primary/50 p-3"><div><div className="flex items-center gap-2 text-[12px] font-medium text-text-primary">{connection.name}<Status status={connection.status} /></div><div className="mt-1 text-[12px] text-text-secondary">{connection.authMethod === "browser-login" ? "Browser sign-in" : "API token"} · Last tested {connection.lastTestedAt ? new Date(connection.lastTestedAt).toLocaleString() : "never"}</div>{connection.lastError && <div className="mt-1 text-[12px] text-status-error">{connection.lastError}</div>}</div><div className="flex gap-1"><Btn size="sm" variant="ghost" loading={busy === `test:${connection.id}`} onClick={() => onTest(connection)}>Test</Btn><Btn size="sm" variant="ghost" loading={busy === `remove:${connection.id}`} icon={<Trash2 className="h-3 w-3" />} onClick={() => onRemove(connection)}>Remove</Btn></div></div>)}{!connections.length && <p className="text-[13px] text-text-secondary">No Hostinger connection configured.</p>}</div></section>
+    <section><h4 className="flex items-center gap-2 text-[13px] font-semibold text-text-heading"><Cloud className="h-4 w-4" /> Hostinger connections</h4><p className="mt-1 text-[13px] leading-4 text-text-secondary">Connect your account to discover and manage its WordPress sites.</p><HostingerBrowserLogin name={name} setName={setName} onConnected={onConnected} connections={connections} /><details className="mt-3"><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-[13px] text-text-secondary">Advanced setup · API token</summary><form onSubmit={onAdd} className="mt-3 grid gap-2 rounded-md border border-border-muted bg-surface-primary/40 p-3 md:grid-cols-[1fr_2fr_auto]"><input aria-label="Connection name" className={controlClass("compact")} value={name} onChange={(event) => setName(event.target.value)} placeholder="My Hostinger account" /><input aria-label="Hostinger API token" type="password" autoComplete="new-password" className={controlClass("compact")} value={token} onChange={(event) => setToken(event.target.value)} placeholder="Hostinger API token" /><Btn size="sm" type="submit" variant="primary" loading={busy === "add-connection"} disabled={!name || !token}>Connect</Btn></form></details><div className="mt-3 space-y-2">{connections.map((connection) => <div key={connection.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-muted bg-surface-primary/50 p-3"><div><div className="flex items-center gap-2 text-[12px] font-medium text-text-primary">{connection.name}<Status status={connection.status} /></div><div className="mt-1 text-[12px] text-text-secondary">{connection.oauthConnectionId ? "Browser sign-in · Zoer connection" : connection.authMethod === "browser-login" ? "Browser sign-in" : "API token"} · Last tested {connection.lastTestedAt ? new Date(connection.lastTestedAt).toLocaleString() : "never"}</div>{connection.lastError && <div className="mt-1 text-[12px] text-status-error">{connection.lastError}</div>}</div><div className="flex gap-1"><Btn size="sm" variant="ghost" loading={busy === `test:${connection.id}`} onClick={() => onTest(connection)}>Test</Btn><Btn size="sm" variant="ghost" loading={busy === `remove:${connection.id}`} icon={<Trash2 className="h-3 w-3" />} onClick={() => onRemove(connection)}>Remove</Btn></div></div>)}{!connections.length && <p className="text-[13px] text-text-secondary">No Hostinger connection configured.</p>}</div></section>
     <HostingerWebsiteSetup connections={connections} onCreated={onConnected} />
   </div>;
 }

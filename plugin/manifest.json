@@ -1,21 +1,143 @@
 {
   "id": "wordpress-manager",
   "name": "WordPress Manager",
-  "version": "0.5.9",
+  "version": "0.6.0",
   "description": "Independent WordPress workspace with Hostinger temporary-domain setup, safe imports, backups, transfers, update review and cache tools.",
   "author": "Zoer contributors",
   "type": "integration",
   "integration": {
     "apiVersion": "1",
     "permissions": [
-      "runtime:wordpress:read",
-      "runtime:wordpress:lifecycle",
+      "runtime:read",
+      "runtime:lifecycle",
+      "runtime:manage",
       "database:linked-register",
-      "wordpress:wp-cli:read",
-      "wordpress:snapshots",
-      "wordpress:backups",
+      "runtime:commands:read",
+      "runtime:snapshots",
+      "runtime:backups",
       "workspace:native",
       "workspace:wordpress"
+    ],
+    "networkAllowlist": [
+      "developers.hostinger.com"
+    ],
+    "requiredConnections": [
+      {
+        "alias": "hostinger",
+        "provider": "hostinger",
+        "scopes": [
+          "hosting"
+        ],
+        "purpose": "Sign in to Hostinger accounts so WordPress Manager can list and manage their websites.",
+        "optional": true,
+        "multiple": true
+      }
+    ],
+    "requiredEndpoints": [
+      {
+        "alias": "site",
+        "purpose": "Pull from and push to WordPress sites running Zoer Connect.",
+        "multiple": true,
+        "pathPrefix": "/wp-json/zoer-connect/v1/",
+        "keyHeader": "x-zoer-connection",
+        "keyPattern": "^zc_[a-f0-9]{64}$",
+        "maxBodyBytes": 8388608,
+        "probe": "status",
+        "routes": [
+          {
+            "path": "status",
+            "methods": [
+              "GET"
+            ],
+            "effect": "read"
+          },
+          {
+            "path": "diagnostics",
+            "methods": [
+              "GET"
+            ],
+            "effect": "read"
+          },
+          {
+            "path": "files/compare",
+            "methods": [
+              "POST"
+            ],
+            "effect": "read"
+          },
+          {
+            "path": "exports",
+            "methods": [
+              "POST"
+            ],
+            "effect": "local_write"
+          },
+          {
+            "path": "exports/{hex32}",
+            "methods": [
+              "GET",
+              "DELETE"
+            ],
+            "effect": "local_write"
+          },
+          {
+            "path": "exports/{hex32}/{step|chunks|manifest|batch}",
+            "methods": [
+              "GET",
+              "POST"
+            ],
+            "effect": "local_write"
+          },
+          {
+            "path": "exports/paged",
+            "methods": [
+              "POST"
+            ],
+            "effect": "local_write"
+          },
+          {
+            "path": "exports/paged/{hex32}",
+            "methods": [
+              "GET",
+              "DELETE"
+            ],
+            "effect": "local_write"
+          },
+          {
+            "path": "exports/paged/{hex32}/{step|chunks|manifest|batch}",
+            "methods": [
+              "GET",
+              "POST",
+              "DELETE"
+            ],
+            "effect": "local_write"
+          },
+          {
+            "path": "imports",
+            "methods": [
+              "GET",
+              "POST"
+            ],
+            "effect": "external_write"
+          },
+          {
+            "path": "imports/{hex32}",
+            "methods": [
+              "GET",
+              "DELETE"
+            ],
+            "effect": "external_write"
+          },
+          {
+            "path": "imports/{hex32}/{step|chunks|batch|rollback|finish|pause|resume|approve|cleanup}",
+            "methods": [
+              "GET",
+              "POST"
+            ],
+            "effect": "external_write"
+          }
+        ]
+      }
     ],
     "workspace": {
       "title": "WordPress",
@@ -247,6 +369,622 @@
           "timeoutMs": 120000,
           "maxMemoryMb": 128,
           "maxOutputBytes": 131072
+        },
+        "idempotent": true
+      },
+      {
+        "id": "site.create",
+        "title": "Create DDEV site",
+        "description": "Create a new local DDEV WordPress site owned by WordPress Manager.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/site-lifecycle.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Create a DDEV WordPress site.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "profiles": [
+              "wordpress-ddev"
+            ],
+            "operations": [
+              "runtime.create.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "siteId": {
+              "type": "string"
+            },
+            "scheduledPurgeAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 600000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": false
+      },
+      {
+        "id": "sites.trash",
+        "title": "List trashed sites",
+        "description": "List DDEV WordPress sites in the Zoer trash with their scheduled purge dates.",
+        "effect": "read",
+        "approval": "never",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/site-lifecycle.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "List archived DDEV WordPress sites.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "profiles": [
+              "wordpress-ddev"
+            ],
+            "operations": [
+              "runtime.list.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sites": {
+              "type": "array",
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "archivedAt": {
+                    "type": "string"
+                  },
+                  "scheduledPurgeAt": {
+                    "type": "string"
+                  },
+                  "owned": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "status",
+                  "archivedAt",
+                  "scheduledPurgeAt",
+                  "owned"
+                ]
+              }
+            }
+          },
+          "required": [
+            "sites"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": true
+      },
+      {
+        "id": "site.archive",
+        "title": "Move site to trash",
+        "description": "Stop one DDEV WordPress site and move it to the Zoer trash. It can be restored until its scheduled purge.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/site-lifecycle.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Move a DDEV WordPress site to the trash.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "profiles": [
+              "wordpress-ddev"
+            ],
+            "operations": [
+              "runtime.archive.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            }
+          },
+          "required": [
+            "siteId"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "siteId": {
+              "type": "string"
+            },
+            "scheduledPurgeAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 300000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": true
+      },
+      {
+        "id": "site.restore",
+        "title": "Restore site from trash",
+        "description": "Restore one trashed DDEV WordPress site and start it.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/site-lifecycle.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Restore a trashed DDEV WordPress site.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "profiles": [
+              "wordpress-ddev"
+            ],
+            "operations": [
+              "runtime.restore.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            },
+            "start": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "siteId"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "siteId": {
+              "type": "string"
+            },
+            "scheduledPurgeAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 600000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": true
+      },
+      {
+        "id": "site.removal-plan",
+        "title": "Plan removal from Zoer",
+        "description": "Describe what removing one trashed DDEV WordPress site from Zoer does and what stays on the DDEV host, with the confirmation phrase.",
+        "effect": "read",
+        "approval": "never",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/site-lifecycle.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Plan the removal of a trashed DDEV WordPress site.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "profiles": [
+              "wordpress-ddev"
+            ],
+            "operations": [
+              "runtime.removal-plan.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            }
+          },
+          "required": [
+            "siteId"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "plan": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "resourceId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "connectorId": {
+                  "type": "string"
+                },
+                "operation": {
+                  "type": "string"
+                },
+                "confirmationPhrase": {
+                  "type": "string"
+                },
+                "steps": {
+                  "type": "array",
+                  "maxItems": 32,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "warnings": {
+                  "type": "array",
+                  "maxItems": 32,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "retainedResources": {
+                  "type": "array",
+                  "maxItems": 64,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "fingerprintSha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "resourceId",
+                "name",
+                "confirmationPhrase",
+                "steps",
+                "warnings",
+                "retainedResources",
+                "fingerprintSha256"
+              ]
+            }
+          },
+          "required": [
+            "ok",
+            "summary",
+            "plan"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": true
+      },
+      {
+        "id": "site.remove",
+        "title": "Remove site from Zoer",
+        "description": "Remove one trashed DDEV WordPress site from Zoer after the reviewed plan and typed confirmation. The DDEV project directory and database files remain on the bridge host; it cannot be restored from the Zoer trash afterwards.",
+        "effect": "destructive",
+        "approval": "always",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/site-lifecycle.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Remove a trashed DDEV WordPress site from Zoer.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "profiles": [
+              "wordpress-ddev"
+            ],
+            "operations": [
+              "runtime.removal-plan.v1",
+              "runtime.remove.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            },
+            "fingerprintSha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "confirmation": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          "required": [
+            "siteId",
+            "fingerprintSha256",
+            "confirmation"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "siteId": {
+              "type": "string"
+            },
+            "scheduledPurgeAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 600000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": false
+      },
+      {
+        "id": "site.test",
+        "title": "Check Zoer Connect site",
+        "description": "Read the Zoer Connect status of one added site through its saved endpoint key and check that it answers for that address.",
+        "effect": "read",
+        "approval": "never",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/connections.js"
+        },
+        "requiredCapabilities": [
+          "network-egress"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "endpointId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9:._@-]{0,255}$"
+            }
+          },
+          "required": [
+            "endpointId"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "pull": {
+              "type": "boolean"
+            },
+            "push": {
+              "type": "boolean"
+            },
+            "stagingReady": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 60000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 65536,
+          "maxNetworkRequests": 2
+        },
+        "idempotent": true
+      },
+      {
+        "id": "hostinger.check",
+        "title": "Check Hostinger account",
+        "description": "Check that one Hostinger account connected to WordPress Manager can list its websites.",
+        "effect": "read",
+        "approval": "never",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/connections.js"
+        },
+        "requiredCapabilities": [
+          "network-egress"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account": {
+              "type": "string",
+              "pattern": "^oc_[a-f0-9]{32}$"
+            }
+          },
+          "required": [
+            "account"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "websites": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "ok",
+            "summary"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 60000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 65536,
+          "maxNetworkRequests": 2
         },
         "idempotent": true
       },
@@ -1047,7 +1785,9 @@
               "maxItems": 24,
               "items": {
                 "type": "string",
-                "maxLength": 500
+                "minLength": 1,
+                "maxLength": 500,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
               }
             }
           },

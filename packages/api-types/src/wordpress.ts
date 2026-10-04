@@ -86,7 +86,12 @@ export interface HostingerConnectionPublic {
   status: "connected" | "error";
   lastError: string | null;
   apiVersion: string;
+  /** Browser sign-ins are reported as `browser-login`; since P1.4 they are host OAuth connections. */
   authMethod?: "api-token" | "browser-login";
+  /** The host OAuth connection (provider `hostinger`) behind a browser sign-in, when it is one. */
+  oauthConnectionId?: string | null;
+  /** Hosting usernames that identify the Hostinger account. */
+  accountUsernames?: string[];
 }
 
 export interface HostingerLoginStatus {

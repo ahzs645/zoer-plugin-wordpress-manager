@@ -1,8 +1,6 @@
-import { type BrowserProvider } from "@zoer/api-types";
 import { blob, json } from "./_http";
 import type {
   HostingerConnectionPublic,
-  HostingerLoginStatus,
   WordPressDeployment,
   WordPressExtensionKind,
   WordPressExtensionOperation,
@@ -37,9 +35,6 @@ export const wordpressManagerClient = {
   getWordPressCoreUpdates: (siteId: string) => json<WordPressCoreUpdateState>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/core-updates`),
   checkWordPressCoreUpdates: (siteId: string) => json<WordPressCoreUpdateState>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/core-updates/check`, { method: "POST", body: "{}" }),
   applyWordPressCoreUpdate: (siteId: string, check: WordPressCoreCheck) => json<WordPressCoreUpdateState>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/core-updates/update`, { method: "POST", body: JSON.stringify({ installed: check.installed, latest: check.latest, checkedAt: check.checkedAt }) }),
-  startHostingerLogin: (name: string, viewport?: { width: number; height: number }, browserProvider: BrowserProvider = "steel") => json<{ login: HostingerLoginStatus }>("/wordpress-manager/hostinger/login", { method: "POST", body: JSON.stringify({ name, viewport, browserProvider }) }),
-  getHostingerLogin: (id: string) => json<{ login: HostingerLoginStatus }>(`/wordpress-manager/hostinger/login/${encodeURIComponent(id)}`),
-  cancelHostingerLogin: (id: string) => json<{ ok: boolean }>(`/wordpress-manager/hostinger/login/${encodeURIComponent(id)}`, { method: "DELETE" }),
   listWordPressManagedSites: (fresh = false) => json<{ sites: WordPressManagedSite[] }>(`/wordpress-manager/sites${fresh ? "?fresh=1" : ""}`),
   renameLocalWordPressSite: (id: string, name: string) => json<{ name: string; managedUrl: string }>(`/wordpress-manager/sites/${encodeURIComponent(id)}/display-name`, { method: "PATCH", body: JSON.stringify({ name }) }),
   getWordPressManagedSite: (id: string, section = "all") => json<WordPressSiteDetails>(`/wordpress-manager/sites/${encodeURIComponent(id)}?section=${encodeURIComponent(section)}`),
@@ -48,6 +43,8 @@ export const wordpressManagerClient = {
   searchWordPressExtensions: (siteId: string, kind: WordPressExtensionKind, query: string) => json<{ provider: string; results: Array<{ slug: string; name: string; description: string; imageUrl: string | null }> }>(`/wordpress-manager/extension-search?siteId=${encodeURIComponent(siteId)}&kind=${kind}&query=${encodeURIComponent(query)}`),
   listWordPressManagerConnections: () => json<{ connections: HostingerConnectionPublic[] }>("/wordpress-manager/connections"),
   createWordPressManagerConnection: (input: { name: string; token: string }) => json<{ connection: HostingerConnectionPublic }>("/wordpress-manager/connections", { method: "POST", body: JSON.stringify(input) }),
+  /** 0.6.0: load the websites of a Hostinger account connected through Zoer (S7a). */
+  adoptHostingerOAuthConnection: (connectionId: string, name?: string) => json<{ connection: HostingerConnectionPublic }>("/wordpress-manager/connections/oauth", { method: "POST", body: JSON.stringify({ connectionId, ...(name ? { name } : {}) }) }),
   testWordPressManagerConnection: (id: string) => json<{ ok: boolean; testedAt: string; websites: number; installations: number }>(`/wordpress-manager/connections/${encodeURIComponent(id)}/test`, { method: "POST" }),
   deleteWordPressManagerConnection: (id: string) => json<{ ok: boolean }>(`/wordpress-manager/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
   createWordPressAdminLink: (siteId: string) => json<{ url: string }>("/wordpress-manager/admin-link", { method: "POST", body: JSON.stringify({ siteId }) }),

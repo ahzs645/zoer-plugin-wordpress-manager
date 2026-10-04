@@ -17,8 +17,10 @@ async function invoke(operation, resourceId) {
   const next = await input.next();
   if (next.done) throw new Error("Zoer host response was missing.");
   const response = JSON.parse(next.value);
-  if (response.kind !== "host-response" || response.requestId !== requestId || !response.ok) throw new Error(response.error?.message || "Runtime call failed.");
+  // Refusals carry the next one-use ticket too (Zoer S8), so one site's error does not end the run.
   if (response.nextTicket) ticket = response.nextTicket;
+  if (response.kind !== "host-response" || response.requestId !== requestId) throw new Error("Invalid Zoer host response.");
+  if (!response.ok) { const error = new Error(response.error?.message || "Runtime call failed."); error.code = response.error?.code; error.recoverable = Boolean(response.nextTicket); throw error; }
   return response.result;
 }
 
@@ -35,7 +37,9 @@ const listed = await invoke("runtime.list.v1");
 const resources = Array.isArray(listed?.resources) ? listed.resources.filter((entry) => entry.status === "running").slice(0, 8) : [];
 const rows = [];
 for (const resource of resources) {
-  const result = await invoke(operation, resource.id);
+  let result;
+  try { result = await invoke(operation, resource.id); }
+  catch (error) { if (!error.recoverable) throw error; result = { error: error.message }; }
   if (result?.error) {
     if (request.action.id === "health.refresh") rows.push({ site: String(resource.name || resource.id), test: "unavailable", label: "Site Health unavailable", status: "recommended", badge: "Zoer", description: String(result.error).slice(0, 500) });
     else if (request.action.id === "plugins.refresh" || request.action.id === "themes.refresh") rows.push({ site: String(resource.name || resource.id), name: "Unavailable", status: "error", version: "", update: "", update_version: "", auto_update: "" });
