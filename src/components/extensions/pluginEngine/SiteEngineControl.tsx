@@ -72,9 +72,9 @@ export default function SiteEngineControl({ siteId, siteName, origin, production
     {error && !open && <p role="alert" className="mt-2 break-words text-sm text-status-error">{error}</p>}
 
     {open && <Modal mobileSheet title={`Plugin transfer engine · ${siteName}`} onClose={close} aria-describedby="zoer-engine-switch-help"
-      footer={<div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:justify-end">
-        <Btn className="w-full sm:w-auto" variant="ghost" disabled={saving} onClick={close}>Cancel</Btn>
-        <Btn className="w-full sm:w-auto" variant="danger" disabled={!ready || saving} loading={saving} onClick={() => void usePlugin()}>Switch this site to the plugin engine</Btn>
+      footer={<div className="wpm-sheet-actions flex w-full flex-col-reverse gap-2 md:w-auto md:flex-row md:justify-end">
+        <Btn className="w-full md:w-auto" variant="ghost" disabled={saving} onClick={close}>Cancel</Btn>
+        <Btn className="w-full md:w-auto" variant="danger" disabled={!ready || saving} loading={saving} onClick={() => void usePlugin()}>Switch this site to the plugin engine</Btn>
       </div>}>
       <div className="min-w-0 space-y-4 text-sm">
         <div id="zoer-engine-switch-help" className="space-y-2">
