@@ -175,6 +175,13 @@ function pullRecord(state, status, extra = {}) {
  * back to back; it only holds between steps for transient-failure backoff, which S1 retries do).
  */
 const PREPARE_TIME_LEFT_MS = 10_000;
+/**
+ * At most this many remote export steps per slice. Zoer allows 250 `runtime.invoke` calls per
+ * worker execution ("Runtime RPC budget exhausted.", a permanent refusal) and a DDEV bridge step
+ * only reads the job status, so a fast bridge would reach it within seconds. The pull's network
+ * budget (2,000 requests per slice) leaves the same room for Zoer Connect.
+ */
+const PREPARE_MAX_STEPS = 200;
 
 /** One remote job answer while preparing: create once, then poll; identity and status are checked. */
 async function pollExport(state, source) {
@@ -200,16 +207,17 @@ async function pollExport(state, source) {
 }
 
 /**
- * Steps the remote export until it is ready, its manifest is declared, or the slice budget runs
- * out; returns true once the export is ready and declared. At least one step runs per slice.
+ * Steps the remote export until it is ready, its manifest is declared, or the slice budget (time
+ * or step count) runs out; returns true once the export is ready and declared. At least one step
+ * runs per slice.
  */
 async function prepare(state, ctx, source) {
   const { host } = ctx;
   const id = state.pullId;
   let current, slowest = 0;
-  for (let first = true; ; first = false) {
-    if (!first) {
-      if (ctx.timeLeft() <= PREPARE_TIME_LEFT_MS + slowest) return false;
+  for (let steps = 0; ; steps++) {
+    if (steps > 0) {
+      if (steps >= PREPARE_MAX_STEPS || ctx.timeLeft() <= PREPARE_TIME_LEFT_MS + slowest) return false;
       stopIfPaused(ctx);
     }
     const started = ctx.now();

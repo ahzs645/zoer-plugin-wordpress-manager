@@ -172,6 +172,22 @@ describe("export preparation pacing", () => {
     expect(source.log.filter(l => l.method === "POST" && l.route === "/exports")).toHaveLength(1);
   });
 
+  test("fast bridge polls stop below Zoer's runtime call budget per slice", async () => {
+    const w = new FakeWorld();
+    const content = sampleSite("https://shop.ddev.site", { exportSteps: 450 });
+    w.ddev.add("ddev-shop", "shop", content);
+    w.catalog.engine("ddev-shop");
+    const clock = timed(content, 20);
+    const runtimeCalls: number[] = [];
+    let before = 0;
+    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { clock, onSlice: () => { const now = w.calls.filter(c => c.method === "runtime.invoke").length; runtimeCalls.push(now - before); before = now; } });
+    expect(result.status).toBe("succeeded");
+    expect(result.envelopes.slice(0, 2)).toMatchObject([{ resumable: "continue", waitMs: 0 }, { resumable: "continue", waitMs: 0 }]);
+    // Zoer refuses the 251st runtime.invoke of one worker execution.
+    expect(Math.max(...runtimeCalls)).toBeLessThanOrEqual(250);
+    expect(runtimeCalls.slice(0, 2)).toEqual([202, 200]);
+  });
+
   test("a slow step shortens the slice so the next step cannot overrun the deadline", async () => {
     const w = new FakeWorld();
     const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 80 }));
