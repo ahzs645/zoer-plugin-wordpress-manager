@@ -104,6 +104,8 @@ export class FakeZoerConnect {
   /** Files written by activated imports (path → bytes). */
   readonly site: Map<string, Buffer>;
   database: Buffer | null = null;
+  /** Called on every request with its route (tests advance a fake clock here). */
+  onRequest?: (route: string, method: string) => void;
   /** Called on every export step (tests advance a fake clock here to give steps a duration). */
   onExportStep?: (job: { id: string; steps: number; status: string }) => void;
   constructor(readonly options: FakeSiteOptions) {
@@ -124,6 +126,7 @@ export class FakeZoerConnect {
     const url = new URL(request.path, "https://fake.invalid");
     const route = url.pathname.replace(/^\/+/, "/");
     this.log.push({ method: request.method, route: route + (url.search || ""), ...(request.body?.length ? { body: sha(request.body).slice(0, 16) } : {}) });
+    this.onRequest?.(route, request.method);
     const failure = this.failures.find(f => f.count > 0 && f.pattern.test(route));
     if (failure) { failure.count--; return json(failure.status, { code: "busy", message: "busy" }, failure.retryAfter ? { "retry-after": failure.retryAfter } : {}); }
     const body = () => JSON.parse((request.body ?? Buffer.from("{}")).toString("utf8"));

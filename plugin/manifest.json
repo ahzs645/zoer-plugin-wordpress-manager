@@ -2259,11 +2259,20 @@
         "outputSchema": {
           "type": "object"
         },
+        "resumable": {
+          "stepTimeoutMs": 180000,
+          "maxSteps": 20000,
+          "maxRunHours": 48,
+          "lock": {
+            "input": "importId",
+            "group": "import-control"
+          }
+        },
         "resourceLimits": {
           "timeoutMs": 180000,
           "maxMemoryMb": 128,
-          "maxOutputBytes": 65536,
-          "maxNetworkRequests": 70
+          "maxOutputBytes": 1048576,
+          "maxNetworkRequests": 2000
         },
         "idempotent": false
       },

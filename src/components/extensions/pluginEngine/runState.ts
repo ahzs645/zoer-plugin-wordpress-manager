@@ -178,7 +178,7 @@ export function runInput(run: Pick<RecentRun, "input">): Record<string, unknown>
 }
 
 /** Actions whose runs a site's Transfers list shows (a local export runs on the DDEV site it exports). */
-export const SITE_RUN_ACTIONS = [ENGINE_ACTIONS.pull, ENGINE_ACTIONS.localExport, ENGINE_ACTIONS.push, ENGINE_ACTIONS.replace, ENGINE_ACTIONS.copy] as const;
+export const SITE_RUN_ACTIONS = [ENGINE_ACTIONS.pull, ENGINE_ACTIONS.localExport, ENGINE_ACTIONS.push, ENGINE_ACTIONS.replace, ENGINE_ACTIONS.copy, ENGINE_ACTIONS.control] as const;
 
 /**
  * A site's runs in every status (failed, cancelled and finished ones too): started for the site,

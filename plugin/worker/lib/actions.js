@@ -1,7 +1,7 @@
 // Action dispatch of the plugin transfer engine (shared by the worker entry, tests and the parity harness).
 import { copySpec, restoreSpec } from "./copy.js";
 import { pullSpec } from "./pull.js";
-import { previewSpec, pushControl, pushSpec } from "./push.js";
+import { controlSpec, previewSpec, pushSpec } from "./push.js";
 import { runResumable } from "./slices.js";
 
 export const RESUMABLE_ACTIONS = {
@@ -10,6 +10,7 @@ export const RESUMABLE_ACTIONS = {
   "transfer.preview": previewSpec,
   "transfer.push": pushSpec("push"),
   "transfer.replace": pushSpec("replace"),
+  "transfer.push.control": controlSpec,
   "copy.local": copySpec,
   "backup.restore-local": restoreSpec,
 };
@@ -26,12 +27,12 @@ export const OUTPUT_LIMITS = {
   "transfer.replace": 4194304,
   "copy.local": 4194304,
   "backup.restore-local": 4194304,
+  "transfer.push.control": 1048576,
 };
 
 /** Runs one slice (resumable actions) or one action; returns the runner output. */
 export async function runTransferAction(request, host, clock) {
   const id = request.action?.id;
-  if (id === "transfer.push.control") return pushControl(request.input ?? {}, { host, request });
   const spec = RESUMABLE_ACTIONS[id];
   if (!spec) throw new Error("Unsupported transfer action.");
   return runResumable(request, host, spec, clock, { outputLimit: OUTPUT_LIMITS[id] });

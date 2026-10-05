@@ -93,10 +93,17 @@ export const pauseRun = (id: string) => hostRequest<{ run: EngineRun }>("run.pau
 export const resumeRun = (id: string, reapprove = false) => hostRequest<{ run: EngineRun }>("run.resume", { id, ...(reapprove ? { reapprove: true } : {}) });
 export const cancelRun = (id: string) => hostRequest<{ run: EngineRun }>("cancel", { id });
 
-/** `transfer.push.control` (approval always, short): waits for the decision and the result. */
+/**
+ * `transfer.push.control` (approval always, resumable): waits for the decision and the result.
+ * A rollback or cleanup runs to its end on the server across many requests (a large import can
+ * take a long time); its run shows under the site's transfers meanwhile.
+ */
 export async function controlImport(input: { siteId: string; importId: string; control: "approve" | "finish" | "rollback" | "cleanup" }) {
   const runId = await startEngineAction("transfer.push.control", input, { approval: true });
-  const run = await waitForRun<{ summary?: string; phase?: string; cleanedUp?: boolean }>(runId, { timeoutMs: 30 * 60_000 });
+  const long = input.control === "rollback" || input.control === "cleanup";
+  const run = await waitForRun<{ summary?: string; phase?: string; cleanedUp?: boolean; status?: string; error?: { message?: string } }>(runId, { timeoutMs: long ? 12 * 3_600_000 : 30 * 60_000 });
+  // A refusal by the site ends the run with a failure result (see the worker's slices.js).
+  if (run.status === "succeeded" && run.output?.status === "failed") throw new Error(run.output.error?.message || "The destination refused this request.");
   if (run.status === "succeeded") return run.output ?? {};
   throw new Error(run.status === "cancelled" ? run.error || "The request was declined or cancelled." : run.error || "The request failed.");
 }

@@ -722,6 +722,72 @@ describe("backup.restore-local", () => {
   });
 });
 
+describe("transfer.push.control", () => {
+  const confirm = { confirmTarget: "https://dest.example", replacementAccepted: true };
+  /** A completed push of `count` files plus the database onto a destination with a few files of its own. */
+  async function completedPush(count: number) {
+    const w = new FakeWorld();
+    const files: Record<string, string> = { "database.sql": "-- db\n" };
+    for (let i = 0; i < count; i++) files[`wp-content/uploads/2024/01/f${i}.jpg`] = `new ${i}`;
+    w.addSite("hostinger-1", new FakeZoerConnect({ origin: "https://source.example", files }));
+    const destination = w.addSite("external:dest", new FakeZoerConnect({ origin: "https://dest.example", files: {}, existing: { "wp-content/uploads/2024/01/f0.jpg": "old 0" }, importTables: 12 }));
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    const pushed = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
+    expect((pushed as any).output.status).toBe("complete");
+    expect(destination.site.get("wp-content/uploads/2024/01/f0.jpg")!.toString()).toBe("new 0");
+    return { w, destination };
+  }
+
+  test("one approved rollback drives every rollback phase to the end, across slices", async () => {
+    const { w, destination } = await completedPush(300);
+    let now = Date.parse("2026-10-04T12:00:00Z");
+    const phases: string[] = [];
+    destination.onRequest = (route) => { if (route.endsWith("/rollback")) { now += 400; const phase = destination.imports.get(IMPORT)!.phase; if (phases.at(-1) !== phase) phases.push(phase); } };
+    const result = await w.run("transfer.push.control", { siteId: "external:dest", importId: IMPORT, control: "rollback" }, { clock: () => now });
+    expect(result.status).toBe("succeeded");
+    expect((result as any).output).toMatchObject({ importId: IMPORT, control: "rollback", phase: "rolled_back", summary: "Import rolled back." });
+    const requests = destination.imports.get(IMPORT)!.requests.rollback!;
+    expect(requests).toBeGreaterThan(900);
+    expect((result as any).output.requests).toBe(requests);
+    // Several slices, each within its time, request and output budgets; every one a continue until done.
+    expect(result.envelopes.length).toBeGreaterThan(1);
+    expect(result.envelopes.slice(0, -1).every((e: any) => e.resumable === "continue" && e.progress.phase === "rolling back")).toBe(true);
+    for (const execution of w.executions.filter(e => e.actionId === "transfer.push.control")) expect(execution.output).toBeLessThanOrEqual(execution.limit);
+    expect(phases).toEqual(["complete", "rollback_reset", "rollback_reset_files", "rollback_preflight_tables", "rollback_preflight_files", "rollback_tables", "rollback_files", "rollback_ready"]);
+    expect(destination.site.get("wp-content/uploads/2024/01/f0.jpg")!.toString()).toBe("old 0");
+    expect(destination.site.has("wp-content/uploads/2024/01/f1.jpg")).toBe(false);
+  });
+
+  test("a rollback an earlier build left half done continues where it stopped", async () => {
+    const { w, destination } = await completedPush(40);
+    const job = destination.imports.get(IMPORT)!;
+    // 0.7.0 stopped after one request per run: the import waits in rollback_reset_files, fenced.
+    Object.assign(job, { phase: "rollback_reset_files", cursor: 17 });
+    const seen = new Set<string>();
+    destination.onRequest = () => seen.add(destination.imports.get(IMPORT)!.phase);
+    const result = await w.run("transfer.push.control", { siteId: "external:dest", importId: IMPORT, control: "rollback" });
+    expect((result as any).output.phase).toBe("rolled_back");
+    expect(seen.has("rollback_reset")).toBe(false);
+    expect(destination.site.get("wp-content/uploads/2024/01/f0.jpg")!.toString()).toBe("old 0");
+  });
+
+  test("a refused rollback and a staged import's cancel end cleanly", async () => {
+    const { w, destination } = await completedPush(3);
+    destination.imports.get(IMPORT)!.rollbackRefused = true;
+    const refused = await w.run("transfer.push.control", { siteId: "external:dest", importId: IMPORT, control: "rollback" });
+    expect((refused as any).output).toMatchObject({ status: "failed", error: { message: "The destination changed after this import. Rollback was refused before changing data." } });
+  });
+
+  test("cleanup repeats until the site reports it done", async () => {
+    const { w, destination } = await completedPush(3);
+    (destination.options as any).cleanupCalls = 7;
+    const result = await w.run("transfer.push.control", { siteId: "external:dest", importId: IMPORT, control: "cleanup" });
+    expect((result as any).output).toMatchObject({ control: "cleanup", cleanedUp: true });
+    expect(destination.imports.get(IMPORT)!.requests.cleanup).toBe(7);
+  });
+});
+
 describe("files Zoer Connect refuses", () => {
   const corpus = [
     "wp-content/plugins/akismet/.htaccess", "wp-content/uploads/.htaccess", "wp-content/themes/t/.gitignore", "wp-content/plugins/a/.github/workflows/ci.yml",

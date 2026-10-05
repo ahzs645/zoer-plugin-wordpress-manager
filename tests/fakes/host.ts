@@ -440,7 +440,7 @@ export class FakeWorld {
     const effect = options.effect ?? ({ "transfer.push": "external_write", "transfer.replace": "external_write", "transfer.push.control": "external_write" } as Record<string, string>)[actionId] ?? "local_write";
     let checkpoint = options.checkpoint ?? null;
     const envelopes: any[] = [];
-    const resumable = actionId !== "transfer.push.control";
+    const resumable = true; // every transfer action is resumable (transfer.push.control since 0.7.1)
     // Zoer's consecutive retry count (`attempt`); the run fails after `maxConsecutive` (default 8).
     let failures = 0;
     for (let slice = options.step ?? 1; slice <= (options.maxSlices ?? 200); slice++) {

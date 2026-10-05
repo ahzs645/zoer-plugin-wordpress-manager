@@ -27,13 +27,15 @@ const ICONS: Record<TransferAction, React.ReactNode> = {
   export: <Archive className="h-4 w-4" aria-hidden="true" />,
 };
 /** Actions sharing the `site-transfer` lock group: one may run per site at a time. */
-const RUN_TITLES: Record<string, string> = { [ENGINE_ACTIONS.pull]: "Pull", [ENGINE_ACTIONS.push]: "Push", [ENGINE_ACTIONS.replace]: "Find & Replace", [ENGINE_ACTIONS.copy]: "Local copy" };
+const RUN_TITLES: Record<string, string> = { [ENGINE_ACTIONS.pull]: "Pull", [ENGINE_ACTIONS.localExport]: "Local export", [ENGINE_ACTIONS.push]: "Push", [ENGINE_ACTIONS.replace]: "Find & Replace", [ENGINE_ACTIONS.copy]: "Local copy" };
+const CONTROL_TITLES: Record<string, string> = { approve: "Approve import", finish: "Finish import", rollback: "Roll back import", cleanup: "Clean up import" };
 /** Dry run starts on for the actions that write to the site. */
 const DRY_RUN_DEFAULTS: Record<TransferAction, boolean> = { pull: false, backup: false, export: false, push: true, replace: true };
 
 function runTitle(run: RecentRun) {
   const input = runInput(run);
   if (run.actionId === ENGINE_ACTIONS.pull && (input.action === "backup" || input.action === "export")) return input.action === "backup" ? "Backup" : "Export";
+  if (run.actionId === ENGINE_ACTIONS.control) return CONTROL_TITLES[String(input.control)] ?? "Import control";
   return RUN_TITLES[run.actionId] ?? run.actionId;
 }
 

@@ -8,7 +8,7 @@ import { listEntries } from "./filesets.js";
 import { capabilityFlags, importOptionsToPlugin, legacyImportOptions, replaceOptionsToPlugin, validateImportOptions, validateTableSuffixes } from "./options.js";
 import { HEX32, pullOfSet, runHex } from "./pull.js";
 import { connectRefusal, normalizeConnectUrl, NOT_ACCEPTED } from "./files.js";
-import { fail, OUTPUT_RESERVE, TransferError } from "./slices.js";
+import { fail, isTransient, OUTPUT_RESERVE, stopIfPaused, TransferError } from "./slices.js";
 import { connectClient, parseStatus, siteEndpoint } from "./zoer-connect.js";
 
 const PREVIEW_BATCH = 20;
@@ -235,6 +235,8 @@ function applyRemotePhase(state, remote) {
   if (phase === "uploading") state.phase = "uploading";
   else if (phase === "cancelled") state.phase = "rolled_back";
   else if (["review_required", "verification_required", "complete", "rolled_back"].includes(phase)) state.phase = phase;
+  // A rollback in progress on the site (the control, or an earlier run): follow it to its end.
+  else if (typeof phase === "string" && phase.startsWith("rollback_") && phase !== "rollback_refusal_release") state.phase = "rolling_back";
   else if (state.phase === "review_required" || state.phase === "creating") state.phase = "importing";
   if (typeof remote?.cleanedUp === "boolean") state.cleanedUp = remote.cleanedUp;
   state.remotePhase = typeof phase === "string" ? phase.slice(0, 40) : state.remotePhase;
@@ -374,7 +376,9 @@ export async function cancelPush(state, input, ctx) {
   // import is a harmless 404.
   if (!state || state.phase === "creating" || TERMINAL.includes(state.phase)) return;
   const client = connectClient(ctx.host, endpointOf(ctx.request, state.siteId), state.generation);
-  for (let calls = 0; calls < 10 && ctx.timeLeft() > 5_000; calls++) {
+  // One rollback tick per request: keep going for the whole cleanup slice. What is left (a large
+  // import) continues with the Roll back control, which picks up the current phase.
+  for (let calls = 0; calls < CONTROL_REQUESTS && ctx.timeLeft() > 10_000; calls++) {
     const remote = await client.request(`/imports/${state.importId}/rollback`, "POST").catch(() => null);
     if (!remote || remote.rollbackRefused || ["rolled_back", "cancelled", "complete"].includes(remote.phase ?? remote.status)) return;
   }
@@ -409,45 +413,97 @@ export const pushSpec = (kind) => ({
 // Controls of a remote import (approve after review, finish after verification, roll back, clean up)
 // ---------------------------------------------------------------------------------------------
 
-export async function pushControl(input, { host, request }) {
-  if (!HEX32.test(input.importId ?? "")) fail("A valid import ID is required.");
-  await assertPluginEngine(host, input.siteId);
-  const client = connectClient(host, endpointOf(request, input.siteId));
-  const id = input.importId;
-  const phaseOf = (remote) => remote?.phase ?? remote?.status;
-  if (input.control === "approve") {
-    const current = await client.request(`/imports/${id}`);
-    if (phaseOf(current) !== "review_required") fail("This import is not waiting for review.");
-    const remote = await client.request(`/imports/${id}/approve`, "POST");
-    return { importId: id, control: "approve", phase: String(phaseOf(remote) ?? "importing"), summary: "Import approved. Resume the push to activate it." };
-  }
-  if (input.control === "finish") {
-    const remote = await client.request(`/imports/${id}/finish`, "POST");
-    if (phaseOf(remote) !== "complete") fail("Destination has not completed verification.");
-    return { importId: id, control: "finish", phase: "complete", summary: "Import finished." };
-  }
-  if (input.control === "rollback") {
-    let remote;
-    try { remote = await client.request(`/imports/${id}/rollback`, "POST"); }
-    catch (error) {
-      const status = await client.request(`/imports/${id}`).catch(() => null);
-      if (!status?.rollbackRefused) throw error;
-      fail("The destination changed after this import. Rollback was refused before changing data.");
+/** Zoer Connect's terminal import phases (TransferImport::TERMINAL) and the rollback ends. */
+const ROLLED_BACK = ["rolled_back", "cancelled"];
+const REFUSED = "The destination changed after this import. Rollback was refused before changing data.";
+/** Requests one control slice may make (the action's network budget is 2,000 per slice). */
+const CONTROL_REQUESTS = 1500;
+const phaseOf = (remote) => remote?.phase ?? remote?.status;
+
+/**
+ * `transfer.push.control`, resumable: one approved request drives the control to its end.
+ * Zoer Connect does one rollback tick per request (one table or file, or a 2 s batch) through
+ * rollback_reset → rollback_reset_files → rollback_preflight_tables → rollback_preflight_files →
+ * rollback_tables → rollback_files → rollback_ready → rolled_back (TransferImport::tick), and
+ * cleans up in 2 s batches until `cleanedUp`. Like the host engine's runner, which kept posting
+ * /rollback while the job was rolling back and repeated /cleanup until done, the control posts
+ * until the import reaches its end, slice after slice. Each request only continues from the
+ * import's current phase, so a rollback started elsewhere (an earlier build, the push's cancel)
+ * is continued, not restarted.
+ */
+export const controlSpec = {
+  async start(input, { host, request, now }) {
+    if (!HEX32.test(input.importId ?? "")) fail("A valid import ID is required.");
+    if (!["approve", "finish", "rollback", "cleanup"].includes(input.control)) fail("Choose approve, finish, rollback or cleanup.");
+    await assertPluginEngine(host, input.siteId);
+    endpointOf(request, input.siteId);
+    return { v: 1, kind: "control", control: input.control, siteId: input.siteId, importId: input.importId, requests: 0, startedAt: new Date(now()).toISOString() };
+  },
+  async step(state, input, ctx) {
+    const counter = { requests: 0 };
+    const endpoint = endpointOf(ctx.request, state.siteId);
+    const client = connectClient(ctx.host, endpoint, endpoint.generation, counter);
+    const id = state.importId;
+    const result = (phase, summary, extra = {}) => ctx.done({ importId: id, control: state.control, phase: String(phase ?? ""), requests: state.requests, ...extra, summary }, { phase: "done" });
+    const sent = () => { state.requests++; };
+    if (state.control === "approve") {
+      const current = await client.request(`/imports/${id}`);
+      // A retried approval after a lost answer is a no-op on the site (approvedAt).
+      if (phaseOf(current) !== "review_required" && !state.approving) fail("This import is not waiting for review.");
+      state.approving = true;
+      const remote = await client.request(`/imports/${id}/approve`, "POST"); sent();
+      return result(phaseOf(remote) ?? "importing", "Import approved. Resume the push to activate it.");
     }
-    if (remote?.rollbackRefused) fail("The destination changed after this import. Rollback was refused before changing data.");
-    // Step the rollback to its end here (bounded), so a finished push with no run to resume still rolls back.
-    const deadline = Date.now() + 120_000;
-    for (let calls = 0; calls < 60 && phaseOf(remote) === "rolling_back" && Date.now() < deadline; calls++) remote = await client.request(`/imports/${id}/rollback`, "POST");
-    const phase = phaseOf(remote);
-    return { importId: id, control: "rollback", phase: String(phase ?? "rolling_back"), summary: ["rolled_back", "cancelled"].includes(phase) ? "Import rolled back." : "Rolling back. Resume the push to finish the rollback." };
-  }
-  if (input.control === "cleanup") {
-    const current = await client.request(`/imports/${id}`);
-    if (!TERMINAL.includes(phaseOf(current))) fail("Clean up after the import completes, rolls back or is cancelled.");
-    let cleanedUp = current?.cleanedUp === true;
-    const deadline = Date.now() + 120_000;
-    for (let calls = 0; calls < 60 && !cleanedUp && Date.now() < deadline; calls++) cleanedUp = (await client.request(`/imports/${id}/cleanup`, "POST"))?.cleanedUp !== false;
-    return { importId: id, control: "cleanup", phase: String(phaseOf(current)), cleanedUp, summary: cleanedUp ? "Staged import files removed from the destination." : "Cleanup continues; run it again." };
-  }
-  fail("Choose approve, finish, rollback or cleanup.");
+    if (state.control === "finish") {
+      let remote = await client.request(`/imports/${id}/finish`, "POST"); sent();
+      for (let calls = 0; calls < 5 && phaseOf(remote) === "finishing"; calls++) { remote = await client.request(`/imports/${id}/finish`, "POST"); sent(); }
+      if (phaseOf(remote) !== "complete") fail("Destination has not completed verification.");
+      return result("complete", "Import finished.");
+    }
+    if (state.control === "cleanup") {
+      if (!state.checked) {
+        const current = await client.request(`/imports/${id}`);
+        if (current?.cleanedUp === true) return result(phaseOf(current), "Staged import files were already removed.", { cleanedUp: true });
+        if (!TERMINAL.includes(phaseOf(current))) fail("Clean up after the import completes, rolls back or is cancelled.");
+        state.checked = true;
+      }
+      while (budgetLeft(ctx, counter)) {
+        stopIfPaused(ctx);
+        const remote = await client.request(`/imports/${id}/cleanup`, "POST"); sent();
+        state.remotePhase = String(phaseOf(remote) ?? "").slice(0, 40);
+        if (remote?.cleanedUp !== false) return result(state.remotePhase, "Staged import files removed from the destination.", { cleanedUp: true });
+        await ctx.progress(controlProgress(state));
+      }
+      return ctx.continue(state, controlProgress(state));
+    }
+    // rollback
+    while (budgetLeft(ctx, counter)) {
+      stopIfPaused(ctx);
+      let remote;
+      try { remote = await client.request(`/imports/${id}/rollback`, "POST"); }
+      catch (error) {
+        if (isTransient(error)) throw error;
+        const status = await client.request(`/imports/${id}`).catch(() => null);
+        if (status?.rollbackRefused) fail(REFUSED);
+        throw error;
+      }
+      sent();
+      state.remotePhase = String(phaseOf(remote) ?? "").slice(0, 40);
+      if (remote?.rollbackRefused) fail(REFUSED);
+      if (ROLLED_BACK.includes(state.remotePhase)) return result(state.remotePhase, state.remotePhase === "cancelled" ? "Import cancelled before anything was activated." : "Import rolled back.");
+      if (state.remotePhase === "complete") fail(REFUSED);
+      await ctx.progress(controlProgress(state));
+    }
+    return ctx.continue(state, controlProgress(state));
+  },
+  definiteFailures: true,
+  failureOutput: (state, input) => ({ importId: state?.importId ?? input.importId ?? null, control: state?.control ?? input.control, phase: state?.remotePhase ?? null, requests: state?.requests ?? 0 }),
+};
+
+function budgetLeft(ctx, counter) {
+  return counter.requests < CONTROL_REQUESTS && ctx.timeLeft() > 10_000 && ctx.outputLeft() > 16 * 1024;
+}
+
+function controlProgress(state) {
+  return { phase: state.control === "rollback" ? "rolling back" : "cleaning up", done: state.requests, unit: "steps", ...(state.remotePhase ? { message: `Destination: ${state.remotePhase}` } : {}) };
 }

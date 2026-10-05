@@ -58,7 +58,10 @@ test("P3 transfer actions are resumable with the documented effects, locks and g
   expect(action.inputSchema.properties.dryRun??action.inputSchema.properties.previewId).toBeDefined();
  }
  for(const id of ["transfer.push","transfer.replace"])expect(byId[id].resumable).toMatchObject({autoResume:"manual",cleanup:true,lock:{input:"siteId",group:"site-transfer"}});
- expect(byId["transfer.push.control"]).toMatchObject({effect:"external_write",approval:"always"});expect(byId["transfer.push.control"].resumable).toBeUndefined();
+ expect(byId["transfer.push.control"]).toMatchObject({effect:"external_write",approval:"always"});
+ // 0.7.1: one approved control drives a rollback or cleanup to its end across slices; its own lock (per import) so it can act while the push run waits at review.
+ expect(byId["transfer.push.control"].resumable).toEqual({stepTimeoutMs:180000,maxSteps:20000,maxRunHours:48,lock:{input:"importId",group:"import-control"}});
+ expect(byId["transfer.push.control"].inputSchema.required).toContain("importId");
  for(const id of ["transfer.pull","transfer.push","copy.local","transfer.local-export","transfer.replace"])expect(byId[id].presets).toEqual({max:100});
  expect(byId["transfer.pull"].requiredCapabilities).toEqual(["network-egress","file-transfer"]);
 });
