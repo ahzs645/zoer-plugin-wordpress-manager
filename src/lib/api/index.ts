@@ -8,7 +8,6 @@ export const api = {
  ...wordpressManagerClient,
  contract:()=>json<{version:number}>(`${base}/contract`),
  createComputer:(input:{name:string;runtime?:string;runtimeProfile?:string;runtimeConnectorId?:string;aiMode?:string})=>json<Computer>(`${base}/computers`,{method:"POST",body:JSON.stringify(input)}),
- getComputer:(id:string)=>json<Computer>(computer(id)),
  startComputer:(id:string)=>json<{ok:boolean}>(`${computer(id)}/start`,{method:"POST"}),
  stopComputer:(id:string)=>json<{ok:boolean}>(`${computer(id)}/stop`,{method:"POST"}),
  destroyComputer:(id:string)=>json<{ok:boolean}>(computer(id),{method:"DELETE"}),
