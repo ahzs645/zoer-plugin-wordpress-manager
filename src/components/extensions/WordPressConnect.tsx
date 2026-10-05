@@ -10,7 +10,9 @@ import ConnectionCard from "./wordpressTransfer/ConnectionCard";
 import TransferWorkspace from "./wordpressTransfer/TransferWorkspace";
 import { useSiteEngine } from "../../lib/queries/plugin-engine";
 import PluginLocalCopy from "./pluginEngine/PluginLocalCopy";
+import PluginSiteRuns from "./pluginEngine/PluginSiteRuns";
 import PluginTransferWorkspace from "./pluginEngine/PluginTransferWorkspace";
+import { isTransferFence, TRANSFER_FENCE_NOTICE } from "./pluginEngine/runState";
 import SiteEngineControl from "./pluginEngine/SiteEngineControl";
 import type { PullRecord } from "./pluginEngine/records";
 
@@ -69,8 +71,10 @@ export default function WordPressConnect({ siteId, siteName, label = "Connect Zo
           ? <PluginTransferWorkspace siteId={siteId} siteName={siteName} connection={connection} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} onLocalCopy={pull => { setPluginCopyPull(pull); setCopyPull(null); setCopyOpen(true); }} />
           : <TransferWorkspace siteId={siteId} connection={connection} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} busy={busy} onLocalCopy={id => { setCopyPull(id); setCopyOpen(true); }} />)}
         {connection && !replacing && <Btn onClick={() => { setCopyPull(null); setPluginCopyPull(null); setCopyOpen(true); }}>View local copies</Btn>}
-        {loadError && <div className="space-y-2"><p>Could not check saved source access. Retry when Zoer is reachable; this does not mean the site needs pairing again.</p><Btn disabled={busy} onClick={()=>void conn.refetch()}>Retry connection check</Btn></div>}
-        {error && <p role="alert" className="text-status-error">{error}</p>}
+        {loadError && <div className="space-y-2"><p>{isTransferFence(loadError) ? TRANSFER_FENCE_NOTICE : "Could not check saved source access. Retry when Zoer is reachable; this does not mean the site needs pairing again."}</p><Btn disabled={busy} onClick={()=>void conn.refetch()}>Retry connection check</Btn></div>}
+        {/* The site may be fenced by a running push or rollback: its runs still need to be followed and controlled. */}
+        {!connection && loadError && plugin && <PluginSiteRuns siteId={siteId} />}
+        {error && !(loadError && isTransferFence(error)) && <p role="alert" className="text-status-error">{error}</p>}
         <p className="text-xs text-text-secondary">The key is stored encrypted on the Zoer server and is not returned to this form. Transfers run on the Zoer server, so you can close this dialog while they continue.</p>
       </div>
     </Modal>}

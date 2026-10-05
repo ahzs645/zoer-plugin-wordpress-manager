@@ -16,9 +16,9 @@ import { ACTION_LABELS } from "../wordpressTransfer/transferLabels";
 import { initialAction, initialDraft, switchAction, type DraftUpdate, type TransferDraft } from "../wordpressTransfer/draft";
 import PluginPulls from "./PluginPulls";
 import PluginPushFlow from "./PluginPushFlow";
-import PluginRunCard from "./PluginRunCard";
+import PluginSiteRuns from "./PluginSiteRuns";
 import PluginTransferHistory from "./PluginTransferHistory";
-import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput, runsOfSite, SITE_RUN_ACTIONS, type RecentRun } from "./runState";
+import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runsOfSite, SITE_RUN_ACTIONS } from "./runState";
 import type { PullRecord } from "./records";
 
 const ICONS: Record<TransferAction, React.ReactNode> = {
@@ -27,17 +27,8 @@ const ICONS: Record<TransferAction, React.ReactNode> = {
   export: <Archive className="h-4 w-4" aria-hidden="true" />,
 };
 /** Actions sharing the `site-transfer` lock group: one may run per site at a time. */
-const RUN_TITLES: Record<string, string> = { [ENGINE_ACTIONS.pull]: "Pull", [ENGINE_ACTIONS.localExport]: "Local export", [ENGINE_ACTIONS.push]: "Push", [ENGINE_ACTIONS.replace]: "Find & Replace", [ENGINE_ACTIONS.copy]: "Local copy" };
-const CONTROL_TITLES: Record<string, string> = { approve: "Approve import", finish: "Finish import", rollback: "Roll back import", cleanup: "Clean up import" };
 /** Dry run starts on for the actions that write to the site. */
 const DRY_RUN_DEFAULTS: Record<TransferAction, boolean> = { pull: false, backup: false, export: false, push: true, replace: true };
-
-function runTitle(run: RecentRun) {
-  const input = runInput(run);
-  if (run.actionId === ENGINE_ACTIONS.pull && (input.action === "backup" || input.action === "export")) return input.action === "backup" ? "Backup" : "Export";
-  if (run.actionId === ENGINE_ACTIONS.control) return CONTROL_TITLES[String(input.control)] ?? "Import control";
-  return RUN_TITLES[run.actionId] ?? run.actionId;
-}
 
 function PullStart({ siteId, connection, diagnostics, diagnosticsLoading, draft, update, dryRun, onDryRun, busy }: {
   siteId: string; connection: ZoerConnectConnection; diagnostics: WordPressDiagnostics | null | undefined; diagnosticsLoading: boolean;
@@ -166,7 +157,6 @@ export default function PluginTransferWorkspace({ siteId, siteName, connection, 
   const runs = useRecentRuns(SITE_RUN_ACTIONS);
   const siteRuns = runsOfSite(runs.data ?? [], siteId);
   const active = siteRuns.filter(run => !isTerminalStatus(run.status));
-  const recent = siteRuns.filter(run => isTerminalStatus(run.status)).slice(0, 5);
   const busy = active.length > 0;
   const finished = useRef(new Set<string>());
   useEffect(() => {
@@ -175,7 +165,6 @@ export default function PluginTransferWorkspace({ siteId, siteName, connection, 
     for (const run of done) finished.current.add(run.runId);
     void client.invalidateQueries({ queryKey: engineKeys.catalog("pull") });
   }, [siteRuns, client]);
-  const card = (run: RecentRun) => <PluginRunCard key={run.runId} recent={run} siteId={siteId} title={runTitle(run)} kind={run.actionId === ENGINE_ACTIONS.push ? "push" : run.actionId === ENGINE_ACTIONS.replace ? "replace" : "other"} />;
 
   return <div className="min-w-0 space-y-4">
     <fieldset className="min-w-0">
@@ -198,15 +187,7 @@ export default function PluginTransferWorkspace({ siteId, siteName, connection, 
       {action === "replace" && <ReplaceStart siteId={siteId} connection={connection} diagnostics={diagnostics} diagnosticsLoading={diagnosticsLoading} draft={draft} update={update} busy={busy} {...dryRunFor("replace")} />}
     </>}
 
-    <section className="min-w-0 space-y-2" aria-label="Plugin-engine transfers of this site">
-      <h4 className="text-sm font-semibold text-text-heading">Transfers</h4>
-      {runs.isLoading && <p className="text-sm text-text-secondary">Loading transfers…</p>}
-      {runs.error && <p role="alert" className="text-sm text-status-error">Could not load transfers: {engineErrorMessage(runs.error)} <Btn size="sm" onClick={() => void runs.refetch()}>Retry</Btn></p>}
-      {active.length > 0 && <p className="text-xs text-text-secondary">Transfers run on the Zoer server. You can close this dialog or leave the page.</p>}
-      {active.map(card)}
-      {recent.length > 0 && <details data-zoer-disclosure open={!active.length || undefined}><summary className="flex min-h-11 cursor-pointer items-center text-sm text-text-secondary">Recent transfers ({recent.length})</summary><div className="mt-2 space-y-2">{recent.map(card)}</div></details>}
-      {runs.data && !siteRuns.length && <p className="text-sm text-text-secondary">No plugin-engine transfers of this site yet.</p>}
-    </section>
+    <PluginSiteRuns siteId={siteId} />
     <PluginPulls siteId={siteId} siteName={siteName} onLocalCopy={onLocalCopy} />
     <PluginTransferHistory siteId={siteId} disclosure />
   </div>;

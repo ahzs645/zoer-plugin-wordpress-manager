@@ -187,3 +187,12 @@ export const SITE_RUN_ACTIONS = [ENGINE_ACTIONS.pull, ENGINE_ACTIONS.localExport
 export function runsOfSite<T extends Pick<RecentRun, "input" | "actionId">>(runs: readonly T[], siteId: string): T[] {
   return runs.filter(run => (SITE_RUN_ACTIONS as readonly string[]).includes(run.actionId) && (runInput(run).siteId === siteId || runInput(run).replaceSiteId === siteId));
 }
+
+/**
+ * Zoer Connect's request fence while a transfer holds the site (WriteFence answers every
+ * request with "zoer_transfer_paused" during a push's activation or a rollback).
+ */
+export function isTransferFence(message: string | null | undefined) {
+  return /zoer_transfer_paused|transfer recovery is required|request is still draining/i.test(message ?? "");
+}
+export const TRANSFER_FENCE_NOTICE = "This site is paused by a transfer: a push or rollback holds it until it finishes. Its plugin list, connection check and the other parts that need the site come back then; follow the transfer below.";

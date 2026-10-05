@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { describeRun, engineErrorMessage, isBusyError, needsUserKind, newHexId, progressView, runsOfSite, runTransferId, type ResumableSummary } from "./runState";
+import { describeRun, engineErrorMessage, isBusyError, isTransferFence, needsUserKind, newHexId, progressView, runsOfSite, runTransferId, type ResumableSummary } from "./runState";
 
 const resumable = (patch: Partial<ResumableSummary> = {}): ResumableSummary => ({ state: "running", slices: 3, progress: null, nextStepAt: null, lastError: null, consecutiveFailures: 0, lockKey: "resumable:wordpress-manager:site-transfer:ep_1", ...patch });
 const run = (status: string, patch: Record<string, unknown> = {}) => ({ status, error: null, statusReason: null, output: null, ...patch });
@@ -99,4 +99,11 @@ test("a push the site refused shows as failed with the site's message", () => {
   const view = describeRun(run("succeeded", { output: { status: "failed", error: { code: "transfer_failed", message: "Every imported core or plugin table requires an existing matching destination schema." }, cancelledImport: true } }), "push");
   expect(view).toMatchObject({ label: "Failed", tone: "error", terminal: true, buttons: [] });
   expect(view.reason).toBe("Every imported core or plugin table requires an existing matching destination schema. The staged import was cancelled; nothing was activated.");
+});
+
+test("Zoer Connect's transfer fence is recognised in a failed site request", () => {
+  expect(isTransferFence('HTTP 503: {"code":"zoer_transfer_paused","message":"WordPress transfer recovery is required or a request is still draining."}')).toBe(true);
+  expect(isTransferFence("WordPress transfer recovery is required or a request is still draining.")).toBe(true);
+  expect(isTransferFence("WordPress rejected this key.")).toBe(false);
+  expect(isTransferFence(null)).toBe(false);
 });
