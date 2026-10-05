@@ -4,7 +4,7 @@
  * `action.request`, `run`, `run.pause`, `run.resume`, `cancel`, `runs.recent`) and file sets
  * (`filesets.*`). Nothing here calls `/wordpress-manager/*`.
  */
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { hostRequest } from "../../host/bridge";
 import { waitForRun } from "../../host/actions";
 import { wordpressKeys } from "./wordpress";
@@ -127,15 +127,47 @@ export function useEngineRun<T = unknown>(id: string | null | undefined) {
     refetchInterval: query => { const run = query.state.data as EngineRun | undefined; return !run || !isTerminalStatus(run.status) ? 2_000 : false; } });
 }
 
-/** Recent runs of the given actions (newest first), polled while any is active. */
+/** Runs one `runs.recent` call returns (the host's maximum). */
+export const RECENT_RUNS_LIMIT = 50;
+/** Finished runs seen earlier on this page stay listed this long after they no longer come back. */
+const KEEP_FINISHED_MS = 7 * 24 * 3_600_000;
+const MAX_KEPT_RUNS = 200;
+export const recentRunsKey = () => [...engineKeys.all(), "recent"] as const;
+
+/**
+ * The newest runs win; finished runs seen earlier on this page that no longer come back (more
+ * than 50 newer runs of any action) stay with their last state for seven days, so a failure
+ * stays pinned under Recent transfers and a rolled-back import keeps its card state. Runs that
+ * were still active are not kept: their cards follow them through `run`. Newest first.
+ */
+export function mergeRecentRuns(fresh: RecentRun[], previous: RecentRun[] | undefined, now = Date.now()): RecentRun[] {
+  const seen = new Set(fresh.map(run => run.runId));
+  const kept = (previous ?? []).filter(run => !seen.has(run.runId) && isTerminalStatus(run.status) && now - Date.parse(run.finishedAt ?? run.createdAt) <= KEEP_FINISHED_MS);
+  return [...fresh, ...kept].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, Math.max(MAX_KEPT_RUNS, fresh.length));
+}
+
+/** Poll interval of the shared run list: 3 s while a run is active, otherwise 30 s; none while the page is hidden. */
+export function recentRunsInterval(runs: RecentRun[] | undefined) {
+  return runs?.some(run => !isTerminalStatus(run.status)) ? 3_000 : 30_000;
+}
+
+/**
+ * Recent runs of the given actions (newest first). Every component shares one query: one
+ * `runs.recent` call for the whole plugin per poll (no action filter, 50 runs), filtered here.
+ * Zoer parses its whole run store for each call and once more per returned run, so the plugin
+ * must not fan out one call per action and component.
+ */
 export function useRecentRuns(actionIds: readonly EngineActionId[], { enabled = true }: { enabled?: boolean } = {}) {
-  const query = useQuery({ queryKey: [...engineKeys.all(), "recent", ...actionIds], enabled, retry: false, staleTime: 2_000,
-    queryFn: async () => {
-      const lists = await Promise.all(actionIds.map(actionId => hostRequest<{ runs: RecentRun[] }>("runs.recent", { actionId, limit: 50 }).then(r => r.runs ?? [])));
-      return lists.flat().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    },
-    refetchInterval: query => (query.state.data as RecentRun[] | undefined)?.some(run => !isTerminalStatus(run.status)) ? 3_000 : 30_000 });
-  return query;
+  return useQuery(recentRunsQuery(useQueryClient(), actionIds, enabled));
+}
+
+/** The shared query's options; `actionIds` only filters what a component sees. */
+export function recentRunsQuery(client: QueryClient, actionIds: readonly string[], enabled = true) {
+  return { queryKey: recentRunsKey(), enabled, retry: false, staleTime: 2_000,
+    queryFn: async () => mergeRecentRuns((await hostRequest<{ runs: RecentRun[] }>("runs.recent", { limit: RECENT_RUNS_LIMIT })).runs ?? [], client.getQueryData<RecentRun[]>(recentRunsKey())),
+    select: (runs: RecentRun[]) => runs.filter(run => actionIds.includes(run.actionId)),
+    // React Query does not poll while the page is hidden (refetchIntervalInBackground is off).
+    refetchInterval: (query: { state: { data?: RecentRun[] } }) => recentRunsInterval(query.state.data) };
 }
 
 // ---------------------------------------------------------------------------
