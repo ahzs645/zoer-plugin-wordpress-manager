@@ -8,7 +8,7 @@ import { formatTransferBytes } from "../wordpressPullProgress";
 import { engineErrorMessage } from "./runState";
 import { isReadyPull, parsePullRecord, pullHasDatabase, type PullRecord } from "./records";
 
-const STATUS: Record<string, string> = { ready: "Verified", "dry-run": "Dry run · no files kept", downloading: "Downloading", cancelled: "Cancelled" };
+const STATUS: Record<string, string> = { ready: "Verified", "dry-run": "Dry run · no files kept", downloading: "Downloading", cancelled: "Cancelled", failed: "Failed · nothing kept" };
 
 /** Plugin-engine pulls, backups and local exports of one site: download, delete, or copy locally. */
 export default function PluginPulls({ siteId, siteName, onLocalCopy }: { siteId: string; siteName: string; onLocalCopy?: (pull: PullRecord) => void }) {

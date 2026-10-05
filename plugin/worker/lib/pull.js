@@ -421,8 +421,25 @@ export async function cancelPull(state, input, ctx) {
 }
 
 /** History record of a failed pull or local export (also when it failed before its first checkpoint). */
+/**
+ * A failed run leaves nothing behind, like a cancelled one (cancelPull): the partial file set,
+ * the export on the source (which would block the site's next export) and a record stuck at
+ * "downloading", which becomes "failed" with the error.
+ */
+async function cleanUpFailedPull(state, ctx, error) {
+  const { host } = ctx;
+  if (state.phase !== "recording") await deleteSet(host, state.setId).catch(() => {});
+  if (state.remoteCreated && !(state.dryRun && state.phase === "recording")) await removeRemoteExport(state, ctx).catch(() => null);
+  const record = await readRecord(host, `pull:${state.pullId}`).catch(() => null);
+  if (record?.data?.status === "downloading") {
+    await commitRecords(host, [pullRecord(state, "failed", { source: record.data.source, skipped: record.data.skipped ?? [], skippedCount: record.data.skippedCount ?? 0,
+      lastError: String(error?.message || "The transfer failed.").slice(0, 500), finishedAt: new Date(ctx.now()).toISOString() })]).catch(() => {});
+  }
+}
+
 export async function failedPull(kind, state, input, ctx, error) {
   if (input.remove === true || state?.phase === "removing") return; // a delete is not a transfer
+  if (state) await cleanUpFailedPull(state, ctx, error);
   const startedAt = state?.startedAt ?? new Date(ctx.now()).toISOString();
   const options = state?.options ?? (() => { try { return pullOptionsFrom(input.exportOptions); } catch { return null; } })();
   const files = state?.total ?? state?.declared ?? 0;

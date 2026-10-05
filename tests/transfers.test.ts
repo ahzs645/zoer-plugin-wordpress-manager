@@ -608,6 +608,23 @@ describe("transfer.local-export", () => {
     expect(result.envelopes[0]).toMatchObject({ resumable: "retry", error: { code: "database_query_failed", message: "DDEV bridge request failed (502)." } });
   });
 
+  test("a failed export cleans up its partial set, its record and the bridge export", async () => {
+    const w = new FakeWorld();
+    const content = sampleSite("https://shop.ddev.site", { singleExport: true });
+    w.ddev.add("ddev-shop", "shop", content);
+    w.catalog.engine("ddev-shop");
+    w.services["transfer.download"] = () => { throw Object.assign(new Error("The peer refused the request."), { name: "HostCallError", code: "transfer_rejected" }); };
+    const failed = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
+    expect((failed as any).error.message).toBe("The peer refused the request.");
+    expect(w.sets.sets.has(`fs_${PULL}`)).toBe(false);
+    expect(w.catalog.records.get(`pull:${PULL}`)!.data).toMatchObject({ status: "failed", lastError: "The peer refused the request.", setId: null });
+    expect(content.exports.get(PULL)!.status).toBe("cancelled");
+    expect(w.catalog.records.get(`history:local-export:${PULL}`)!.data.status).toBe("failed");
+    // The site accepts the next export.
+    delete w.services["transfer.download"];
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 })).status).toBe("succeeded");
+  });
+
   test("an export without the database is refused before anything starts", async () => {
     const w = new FakeWorld();
     w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
