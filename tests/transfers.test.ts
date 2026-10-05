@@ -5,6 +5,8 @@ import { writeZip } from "./fakes/zip";
 import { createTicketHost } from "../plugin/worker/lib/host.js";
 import { mapConnectResponse } from "../plugin/worker/lib/zoer-connect.js";
 import { validatePullFiles } from "../plugin/worker/lib/files.js";
+import { defaultExportOptions } from "../plugin/worker/lib/options.js";
+import { EXPORT_CREATE_INPUT_SCHEMA, schemaIssues } from "./fakes/ddev-schemas";
 
 const PULL = "a".repeat(32), PULL2 = "b".repeat(32), IMPORT = "c".repeat(32), COPY = "d".repeat(32), PREVIEW = "e".repeat(32), RESTORE = "f".repeat(32);
 
@@ -406,6 +408,47 @@ describe("transfer.local-export", () => {
     expect((result as any).output).toMatchObject({ kind: "local-export", status: "ready", fileCount: 7 });
     expect(w.calls.filter(c => c.method === "runtime.invoke").map(c => c.input.operation)).toEqual(["runtime.inspect.v1", "export.create.v1"]);
     expect(w.calls.find(c => c.method === "transfer.download")!.input.source).toEqual({ runtime: { alias: "wordpress_site", resourceId: "ddev-shop", operation: "export.chunk.v1", args: { exportId: PULL } } });
+  });
+
+  test("default options send the host engine's body, valid against Zoer's export.create.v1 schema", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    w.catalog.engine("ddev-shop");
+    // The UI sends the default export options (PluginPushFlow); omitting them means the same.
+    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, exportOptions: defaultExportOptions() });
+    expect(result.status).toBe("succeeded");
+    const args = w.ddev.invocations.find(i => i.operation === "export.create.v1")!.args;
+    expect(schemaIssues(EXPORT_CREATE_INPUT_SCHEMA, args)).toEqual([]);
+    // requestLocalExport's { id, sourceUrl, profile, database } with the full snapshot as filters.
+    expect(args).toEqual({ clientId: PULL, sourceUrl: "https://shop.wp.example", database: { postTypes: null, excludeRevisions: false, excludeSpam: false, excludeTransients: true },
+      profile: { name: "Zoer remote pull", excludes: [], themes: true, plugins: true, media: true, muplugins: false, core: false } });
+    expect((result as any).output.source).toEqual({ url: "https://shop.wp.example", prefix: "wp_" });
+    // The host engine's `database: true` is what the schema refuses.
+    expect(schemaIssues(EXPORT_CREATE_INPUT_SCHEMA, { ...args, database: true })).toEqual(["/database must be object"]);
+  });
+
+  test("database filters reach the bridge as filters", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    w.catalog.engine("ddev-shop");
+    const options = defaultExportOptions();
+    options.database.excludeRevisions = true;
+    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, exportOptions: options });
+    expect(result.status).toBe("succeeded");
+    const args = w.ddev.invocations.find(i => i.operation === "export.create.v1")!.args;
+    expect(schemaIssues(EXPORT_CREATE_INPUT_SCHEMA, args)).toEqual([]);
+    expect(args.database).toEqual({ postTypes: null, excludeRevisions: true, excludeSpam: false, excludeTransients: true });
+  });
+
+  test("an export without the database is refused before anything starts", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    w.catalog.engine("ddev-shop");
+    const options = defaultExportOptions();
+    options.resources.database = false;
+    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, exportOptions: options });
+    expect((result as any).error.message).toBe("Local exports include the database on this Zoer release. Select the database and start the export again.");
+    expect(w.ddev.invocations.some(i => i.operation === "export.create.v1")).toBe(false);
   });
 });
 

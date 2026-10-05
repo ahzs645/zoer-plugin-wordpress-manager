@@ -52,17 +52,55 @@ function localSource(host, state) {
   };
   const normalize = (raw) => { const job = raw?.job ?? raw; if (job && ["pending", "running"].includes(job.status)) job.status = "preparing"; return job; };
   return {
-    create: async (body) => normalize(await invoke("export.create.v1", { clientId: body.clientId, profile: body.profile, database: body.database })),
+    create: async (body) => normalize(await invoke("export.create.v1", localExportArgs(state, body))),
     step: async (id) => normalize(await invoke("export.step.v1", { exportId: id })),
     peer: (id) => ({ runtime: { alias: RUNTIME_ALIAS, resourceId: state.siteId, operation: "export.chunk.v1", args: { exportId: id } } }),
     protocol: "chunked-json-v1",
     remove: (id) => invoke("export.cancel.v1", { exportId: id }),
-    // The bridge is Zoer's own DDEV agent: it names the site's canonical home.
-    sameSource: (url) => typeof url === "string" && /^https?:\/\//i.test(url) && url.length < 2048,
+    // The bridge echoes the source URL it was given: the site's Zoer address, like the host engine
+    // (checkpoints from before 0.7.0 sent none and accept the bridge's own address).
+    sameSource: (url) => {
+      if (!state.sourceUrl) return typeof url === "string" && /^https?:\/\//i.test(url) && url.length < 2048;
+      try { return normalizeConnectUrl(String(url)) === state.sourceUrl; } catch { return false; }
+    },
   };
 }
 
+/**
+ * The full-snapshot filters: the DDEV bridge's export worker writes exactly the same SQL for
+ * this object as for the host engine's `database: true` (transients and Zoer Connect secrets
+ * skipped, every table and row kept). See `connect-export-worker.php` in Zoer's ddev-bridge.
+ */
+export const FULL_DATABASE_FILTERS = Object.freeze({ postTypes: null, excludeRevisions: false, excludeSpam: false, excludeTransients: true });
+
+/**
+ * `export.create.v1` args: the body the host engine's local-export route sends to the bridge
+ * (`requestLocalExport` in Zoer `backend/src/wordpress-local-export.ts`: id, sourceUrl, profile,
+ * database), shaped for the operation's input schema (`EXPORT_CREATE_INPUT_SCHEMA` in Zoer
+ * `backend/src/connectors/ddev.ts`), which takes `database` only as an object.
+ */
+export function localExportArgs(state, body) {
+  if (!body.database) fail(LOCAL_EXPORT_NEEDS_DATABASE);
+  return { clientId: body.clientId, ...(state.sourceUrl ? { sourceUrl: state.sourceUrl } : {}), profile: body.profile, database: body.database === true ? { ...FULL_DATABASE_FILTERS } : body.database };
+}
+const LOCAL_EXPORT_NEEDS_DATABASE = "Local exports include the database on this Zoer release. Select the database and start the export again.";
+
 const sourceOf = (host, request, state) => state.kind === "local-export" ? localSource(host, state) : remoteSource(host, request, state);
+
+/**
+ * The DDEV site's Zoer address (its `wp` route, the host engine's `managedUrl`), sent as the
+ * export's source URL like the host engine does. Without it the bridge falls back to the DDEV
+ * router address, which carries a port and is refused ("Invalid source URL.").
+ */
+async function localSiteAddress(host, siteId, resource) {
+  let route;
+  try { ({ route } = await host.call("routes.assign", { runtimeAlias: RUNTIME_ALIAS, resourceId: siteId, port: 80, name: String(resource?.name || siteId).slice(0, 100) })); }
+  catch (error) {
+    if (error?.name !== "HostCallError" || error.code === "ZOER_PAUSED") throw error;
+    throw new TransferError(error.message || "This local site has no Zoer address.", { code: error.code });
+  }
+  return normalizeConnectUrl(String(route?.url ?? ""));
+}
 
 // ---------------------------------------------------------------------------------------------
 // Start: options, capability checks and the pull record skeleton.
@@ -106,6 +144,9 @@ export async function startPull(kind, input, ctx) {
   } else {
     const { resource } = await host.call("runtime.invoke", { alias: RUNTIME_ALIAS, operation: "runtime.inspect.v1", resourceId: input.siteId, args: {} });
     if (resource?.status !== "running") fail("Choose a running managed DDEV source.");
+    // The operation schema has no "no database" form (database must be an object).
+    if (!options.database) fail(LOCAL_EXPORT_NEEDS_DATABASE);
+    state.sourceUrl = await localSiteAddress(host, input.siteId, resource);
     state.paged = false;
   }
   return state;

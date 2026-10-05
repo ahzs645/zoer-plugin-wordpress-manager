@@ -8,6 +8,7 @@
 import { createHash } from "node:crypto";
 import { runTransferAction } from "../../plugin/worker/lib/actions.js";
 import { BLOCK, blockDigests, blocksRoot, FakeZoerConnect, sha, type FakeResponse } from "./zoer-connect";
+import { DDEV_OPERATION_SCHEMAS, schemaIssues } from "./ddev-schemas";
 import { readZip } from "./zip";
 
 export class FakeHostError extends Error {
@@ -111,16 +112,32 @@ export class FakeDdev {
     this.sites.set(id, { id, name, status, state: "active", files: new Map(), database: null, home: null, stage: new Map(), pending: new Set(), backups: 0, content, inspections: 0 });
   }
   site(id: string) { const s = this.sites.get(id); if (!s) refuse("Runtime resource is unavailable or outside this grant.", "resource_unbound"); return s!; }
+  /** Every args object the bridge operations received, in order (after the schema check). */
+  readonly invocations: Array<{ operation: string; args: any }> = [];
   invoke(input: any) {
     const args = input.args ?? {};
+    // Zoer checks args against the connector's input schema before the driver runs.
+    const schema = DDEV_OPERATION_SCHEMAS[input.operation];
+    const issues = schema ? schemaIssues(schema, args) : [];
+    if (issues.length) refuse(`Runtime operation args are invalid: ${issues.join("; ")}`, "invalid_request");
+    this.invocations.push({ operation: input.operation, args });
     switch (input.operation) {
       case "runtime.list.v1": return { resources: [...this.sites.values()].filter(s => s.state === "active").map(s => ({ id: s.id, name: s.name, status: s.status, connectorId: "ddev", state: s.state })) };
       case "runtime.inspect.v1": { const s = this.site(input.resourceId); if (s.status === "starting" && ++s.inspections > 1) s.status = "running"; return { resource: { id: s.id, name: s.name, status: s.status, connectorId: "ddev", state: s.state } }; }
       case "runtime.create.v1": { const id = `ddev-${String(args.name).toLowerCase().replace(/[^a-z0-9-]+/g, "-")}`; this.add(id, args.name, undefined, "starting"); return { resource: { id, name: args.name, status: "starting", connectorId: "ddev", ownerPluginId: "wordpress-manager" } }; }
       case "runtime.archive.v1": { const s = this.site(input.resourceId); s.state = "archived"; return { archived: true, archivedAt: "2026-10-04T00:00:00Z", scheduledPurgeAt: "2026-10-11T00:00:00Z", recovery: "" }; }
       case "backup.create.v1": { const s = this.site(input.resourceId); s.backups++; return { backup: { id: `backup-${s.backups}` } }; }
-      case "export.create.v1": return this.contentOf(input.resourceId).handle({ method: "POST", path: "/exports", body: Buffer.from(JSON.stringify(args)) }).body.toString() && JSON.parse(this.contentOf(input.resourceId).handle({ method: "POST", path: `/exports/${args.clientId}/step`, body: Buffer.alloc(0) }).body.toString()).job;
-      case "export.step.v1": return JSON.parse(this.contentOf(input.resourceId).handle({ method: "POST", path: `/exports/${args.exportId}/step` }).body.toString()).job;
+      case "export.create.v1": {
+        // Zoer's driver sends the site's DDEV router address when no sourceUrl is given; the
+        // bridge refuses it (a port), and Zoer reports the driver's plain Error under this code.
+        const sourceUrl = args.sourceUrl ?? `https://${this.site(input.resourceId).name}.ddev.site:8443`;
+        if (new URL(sourceUrl).port) refuse("Invalid source URL.", "database_query_failed");
+        if (typeof args.database !== "boolean" && (typeof args.database !== "object" || args.database === null)) refuse("Invalid export selections.", "database_query_failed");
+        this.exportSources.set(args.clientId, sourceUrl);
+        this.contentOf(input.resourceId).handle({ method: "POST", path: "/exports", body: Buffer.from(JSON.stringify(args)) });
+        return this.bridgeJob(JSON.parse(this.contentOf(input.resourceId).handle({ method: "POST", path: `/exports/${args.clientId}/step`, body: Buffer.alloc(0) }).body.toString()).job);
+      }
+      case "export.step.v1": return this.bridgeJob(JSON.parse(this.contentOf(input.resourceId).handle({ method: "POST", path: `/exports/${args.exportId}/step` }).body.toString()).job);
       case "export.cancel.v1": return JSON.parse(this.contentOf(input.resourceId).handle({ method: "DELETE", path: `/exports/${args.exportId}` }).body.toString());
       case "files.stage.v1": {
         const s = this.site(input.resourceId); const stage = s.stage.get(args.copyId);
@@ -138,6 +155,9 @@ export class FakeDdev {
       default: return refuse("Runtime connector action is unavailable.", "capability_denied");
     }
   }
+  /** Source URL each bridge export was created with (the bridge echoes it as `source.url`). */
+  readonly exportSources = new Map<string, string>();
+  private bridgeJob(job: any) { return job?.source ? { ...job, source: { ...job.source, url: this.exportSources.get(job.id) ?? job.source.url } } : job; }
   private contentOf(id: string) { const content = this.site(id).content; if (!content) refuse("No content.", "invalid_request"); return content!; }
   /** Bridge export chunk (runtime peer of `export.chunk.v1`). */
   exportChunk(id: string, args: any): FakeResponse { return this.contentOf(id).handle({ method: "GET", path: `/exports/${args.exportId}/chunks?index=${args.index}&offset=${args.offset}` }); }
