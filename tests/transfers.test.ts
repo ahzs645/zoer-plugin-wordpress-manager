@@ -4,7 +4,7 @@ import { BLOCK, FakeZoerConnect, sampleSite, sha } from "./fakes/zoer-connect";
 import { writeZip } from "./fakes/zip";
 import { createTicketHost } from "../plugin/worker/lib/host.js";
 import { mapConnectResponse } from "../plugin/worker/lib/zoer-connect.js";
-import { validatePullFiles } from "../plugin/worker/lib/files.js";
+import { connectRefusal, validatePullFiles } from "../plugin/worker/lib/files.js";
 import { defaultExportOptions } from "../plugin/worker/lib/options.js";
 import { preparationMessage } from "../plugin/worker/lib/pull.js";
 import { runtimeError } from "../plugin/worker/lib/slices.js";
@@ -348,7 +348,9 @@ describe("transfer.preview and transfer.push", () => {
     w.catalog.engine("external:dest");
     const result = await w.run("transfer.preview", { siteId: "external:dest", setId: `fs_${PULL}`, previewId: PREVIEW });
     expect(result.status).toBe("succeeded");
-    expect((result as any).output.counts).toEqual({ new: 4, changed: 1, unchanged: 1, blocked: 0, database: 1 });
+    // The theme's .gitignore and the uploads index.php are files Zoer Connect refuses: blocked, never compared.
+    expect((result as any).output.counts).toEqual({ new: 2, changed: 1, unchanged: 1, blocked: 2, database: 1 });
+    expect(destination.log.filter(l => l.route === "/files/compare")).toHaveLength(1);
     const page = w.catalog.records.get(`preview-page:${PREVIEW}:0`)!.data.files;
     expect(page.find((f: any) => f.path === "wp-content/plugins/akismet/akismet.php").state).toBe("changed");
     expect(destination.log.filter(l => l.route === "/files/compare")).toHaveLength(1);
@@ -360,9 +362,11 @@ describe("transfer.preview and transfer.push", () => {
     w.catalog.engine("external:dest");
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
     expect(result.status).toBe("succeeded");
-    expect((result as any).output).toMatchObject({ status: "complete", importId: IMPORT, fileCount: 7 });
+    expect((result as any).output).toMatchObject({ status: "complete", importId: IMPORT, fileCount: 5,
+      skipped: { count: 2, reason: "not accepted by Zoer Connect", files: [{ path: "wp-content/themes/twentyone/.gitignore", reason: "hidden file or folder" }, { path: "wp-content/uploads/2024/index.php", reason: "executable upload" }] } });
     for (const [path, data] of Object.entries(source.options.files)) {
       if (path === "database.sql") expect(sha(destination.database!)).toBe(sha(Buffer.from(data)));
+      else if (path.endsWith(".gitignore") || path.endsWith("index.php")) expect(destination.site.has(path)).toBe(false);
       else expect(sha(destination.site.get(path)!)).toBe(sha(Buffer.from(data)));
     }
     const manifest = destination.imports.get(IMPORT)!.manifest;
@@ -437,7 +441,9 @@ describe("transfer.preview and transfer.push", () => {
     await pulled(w);
     w.catalog.engine("external:dest");
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, dryRun: true, ...confirm });
-    expect((result as any).output).toMatchObject({ status: "dry-run", plan: { files: 6, database: true, batchUpload: true } });
+    // Files Zoer Connect would refuse are reported in the plan, before anything is sent.
+    expect((result as any).output).toMatchObject({ status: "dry-run", plan: { files: 4, database: true, batchUpload: true, skipped: { count: 2, reason: "not accepted by Zoer Connect" },
+      warnings: ["2 files skipped: not accepted by Zoer Connect (wp-content/themes/twentyone/.gitignore, wp-content/uploads/2024/index.php). The destination keeps its own copies."] } });
     expect(destination.log.map(l => l.route)).toEqual(["/status"]);
     expect(destination.imports.size).toBe(0);
   });
@@ -673,6 +679,42 @@ describe("backup.restore-local", () => {
     const setId = w.sets.sealed("Updraft", { "backup_x-db.gz": "x" });
     const result = await w.run("backup.restore-local", { uploadSetId: setId, restoreId: RESTORE, name: "Restored" });
     expect((result as any).error.message).toBe("select one database, plugins, themes, uploads, and others backup file");
+  });
+});
+
+describe("files Zoer Connect refuses", () => {
+  const corpus = [
+    "wp-content/plugins/akismet/.htaccess", "wp-content/uploads/.htaccess", "wp-content/themes/t/.gitignore", "wp-content/plugins/a/.github/workflows/ci.yml",
+    "wp-content/plugins/a/.trash/x.php", "wp-content/uploads/2024/index.php", "wp-content/uploads/shell.php5", "wp-content/uploads/a.phtml.jpg",
+    "wp-content/plugins/zoer-connect/zoer-connect.php", "wp-content/plugins/ZOER-CONNECT/x.php", "wp-content/plugins/a/wp-config.php", "wp-content/mu-plugins/x.php",
+    "wp-content/uploads/a%20b.jpg", "wp-content/uploads/a\\b.jpg", `wp-content/uploads/${"x".repeat(490)}.jpg`,
+    "wp-content/themes/t/style.css", "wp-content/plugins/a/a.php", "wp-content/uploads/2024/01/photo (1).jpg", "wp-content/uploads/é-ü.jpg",
+    "wp-content/uploads/[x]~!&'=#+@,.jpg", "wp-content/plugins/a/index.php", "wp-content/uploads/archive.tar.gz",
+  ];
+
+  test("match the plugin's own rules (StageStore::validateManifest, run with PHP when available)", async () => {
+    const php = Bun.which("php");
+    if (!php) return;
+    const script = `require ${JSON.stringify(new URL("../wordpress-plugins/zoer-connect/includes/StageStore.php", import.meta.url).pathname)};$out=[];foreach(json_decode(stream_get_contents(STDIN),true) as $p){try{\\ZoerConnect\\StageStore::validateManifest(['version'=>1,'target'=>'t','files'=>[['path'=>$p,'bytes'=>0,'sha256'=>hash('sha256','')]]],'t');$out[]=null;}catch(\\Throwable $e){$out[]=$e->getMessage();}}echo json_encode($out);`;
+    const run = Bun.spawnSync([php, "-r", script], { stdin: Buffer.from(JSON.stringify(corpus)) });
+    const plugin = JSON.parse(run.stdout.toString()) as (string | null)[];
+    expect(corpus.map(path => connectRefusal(path) !== null)).toEqual(plugin.map(message => message !== null));
+    expect(plugin[0]).toBe("Unsafe file path.");
+  });
+
+  test("a pull with a plugin's .htaccess pushes without it and says so before review", async () => {
+    const w = new FakeWorld();
+    const source = w.addSite("hostinger-1", sampleSite("https://source.example"));
+    source.options.files["wp-content/plugins/akismet/.htaccess"] = "Deny from all";
+    const destination = w.addSite("external:dest", new FakeZoerConnect({ origin: "https://dest.example", files: {} }));
+    await pulled(w);
+    expect(w.sets.get(`fs_${PULL}`).entries.some(e => e.path === "wp-content/plugins/akismet/.htaccess")).toBe(true);
+    w.catalog.engine("external:dest");
+    const options = { replacements: { automatic: true, variants: false, paths: false, custom: [] }, fence: "activation", review: true };
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, importOptions: options, confirmTarget: "https://dest.example", replacementAccepted: true });
+    expect(result.status).toBe("needs-user");
+    expect((result as any).reason).toContain("3 files skipped: not accepted by Zoer Connect.");
+    expect(destination.imports.get(IMPORT)!.manifest.files.map((f: any) => f.path)).not.toContain("wp-content/plugins/akismet/.htaccess");
   });
 });
 

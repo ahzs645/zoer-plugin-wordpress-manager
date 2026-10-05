@@ -76,6 +76,15 @@ export function decodeBatch(body: Buffer, contentType = "application/octet-strea
 
 class ExportRefused extends Error {}
 
+/** The messages of Zoer Connect's per-file import rules (StageStore::validateManifest), for paths the fakes see. */
+function refusedPath(path: string): string | null {
+  if (!/^wp-content\/(themes|plugins|uploads)\//.test(path)) return "Unsupported file path.";
+  if (path.split("/").some(part => !part || part === "." || part === ".." || part.startsWith("."))) return "Unsafe file path.";
+  if (/^wp-content\/plugins\/zoer-connect(\/|$)/i.test(path) || /(^|\/)(wp-config\.php|\.htaccess)$/i.test(path)) return "Protected file.";
+  if (path.startsWith("wp-content/uploads/") && /\.(php\d*|phtml|phar|cgi|pl|sh)(\.|$)/i.test(path)) return "Executable upload rejected.";
+  return null;
+}
+
 export class FakeZoerConnect {
   readonly log: LogEntry[] = [];
   readonly exports = new Map<string, ExportJob>();
@@ -112,6 +121,8 @@ export class FakeZoerConnect {
     let m: RegExpExecArray | null;
     if (route === "/status" && request.method === "GET") return json(200, this.status());
     if (route === "/files/compare" && request.method === "POST") {
+      const refused = (body().files as { path: string }[]).map(({ path }) => refusedPath(path)).find(Boolean);
+      if (refused) return json(400, { code: "zoer_invalid", message: refused });
       return json(200, { files: (body().files as { path: string }[]).map(({ path }) => (this.options.blocked ?? []).includes(path) ? { path, blocked: true, sha256: null } : { path, sha256: this.site.has(path) ? sha(this.site.get(path)!) : null }) });
     }
     if ((m = /^\/exports(\/paged)?$/.exec(route)) && request.method === "POST") {
@@ -194,6 +205,9 @@ export class FakeZoerConnect {
   }
 
   private createImport(manifest: any) {
+    // TransferImport::create validates every file (StageStore::validateManifest) and refuses the whole import.
+    const refused = (manifest.files ?? []).map((f: any) => refusedPath(f.path)).find(Boolean);
+    if (refused) return json(400, { code: "zoer_invalid", message: refused });
     const existing = this.imports.get(manifest.id);
     if (existing) return json(200, this.summary(existing));
     const entries = [...(manifest.database ? [manifest.database] : []), ...(manifest.files ?? [])];

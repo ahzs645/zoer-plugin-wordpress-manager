@@ -38,7 +38,7 @@ export default function PreviewSelection({ files, selected, onChange, disabled }
       {filtered.slice(0, VISIBLE).map(file => <li key={file.path} className="border-b border-border-muted last:border-b-0">
         <label className={`flex min-h-11 min-w-0 items-start gap-2 px-3 py-2 text-xs ${selectable(file) ? "cursor-pointer" : "opacity-60"}`}>
           <input type="checkbox" className={`${checkboxClass} mt-0.5`} disabled={disabled || !selectable(file)} checked={selected.has(file.path)} onChange={event => toggle(file.path, event.target.checked)} />
-          <span className="min-w-0 flex-1"><span className="block break-all text-text-primary">{file.path}</span><span className="block text-text-secondary">{STATE_LABELS[file.state]} · {formatTransferBytes(file.bytes)}</span></span>
+          <span className="min-w-0 flex-1"><span className="block break-all text-text-primary">{file.path}</span><span className="block text-text-secondary">{file.state === "blocked" && file.reason ? `Skipped: ${file.reason}` : STATE_LABELS[file.state]} · {formatTransferBytes(file.bytes)}</span></span>
         </label>
       </li>)}
       {!filtered.length && <li className="p-3 text-xs text-text-secondary">No files match.</li>}

@@ -7,7 +7,7 @@ import { assertPluginEngine, commitRecords, readRecord, readRecords } from "./ca
 import { listEntries } from "./filesets.js";
 import { capabilityFlags, importOptionsToPlugin, legacyImportOptions, replaceOptionsToPlugin, validateImportOptions, validateTableSuffixes } from "./options.js";
 import { HEX32, pullOfSet, runHex } from "./pull.js";
-import { normalizeConnectUrl } from "./files.js";
+import { connectRefusal, normalizeConnectUrl, NOT_ACCEPTED } from "./files.js";
 import { fail, OUTPUT_RESERVE, TransferError } from "./slices.js";
 import { connectClient, parseStatus, siteEndpoint } from "./zoer-connect.js";
 
@@ -72,12 +72,14 @@ async function previewPage(state, ctx, client) {
   const files = [];
   while (state.cursor + files.length < state.total && files.length < PREVIEW_PAGE && ctx.timeLeft() > 5_000 && ctx.outputLeft() > Buffer.byteLength(JSON.stringify(files)) + PREVIEW_BATCH_OUTPUT) {
     const batch = (await listEntries(host, state.setId, { from: state.cursor + files.length, limit: PREVIEW_BATCH })).slice(0, PREVIEW_BATCH);
-    const ordinary = batch.filter(f => f.path !== "database.sql");
+    // Files Zoer Connect refuses (it would also refuse to compare them) are blocked without asking.
+    const ordinary = batch.filter(f => f.path !== "database.sql" && !connectRefusal(f.path));
     const result = ordinary.length ? await client.request("/files/compare", "POST", { files: ordinary.map(f => ({ path: f.path })) }) : { files: [] };
     let resultIndex = 0; const before = files.length;
     for (const file of batch) {
       const entry = { path: file.path, bytes: file.bytes, sha256: file.sha256, state: "database" };
-      if (file.path !== "database.sql") {
+      if (file.path !== "database.sql" && connectRefusal(file.path)) Object.assign(entry, { state: "blocked", reason: NOT_ACCEPTED });
+      else if (file.path !== "database.sql") {
         const r = result.files?.[resultIndex++];
         if (!r) break;
         if (r.path !== file.path || (!r.blocked && r.sha256 !== null && !/^[a-f0-9]{64}$/.test(r.sha256))) fail("Invalid comparison response.");
@@ -173,9 +175,12 @@ async function buildManifest(state, input, status, ctx) {
       return file;
     });
   }
+  // Files Zoer Connect refuses would fail the whole import; they stay out of it, reported up front.
+  const skipped = [];
+  selected = selected.filter(f => { const reason = f.path === "database.sql" ? null : connectRefusal(f.path); if (reason) skipped.push({ path: f.path, reason }); return !reason; });
   const database = pull.options?.database;
   const partialDatabase = selected.some(f => f.path === "database.sql") && !!database && typeof database === "object" && Array.isArray(database.tables);
-  const warnings = [];
+  const warnings = skipped.length ? [skippedWarning(skipped)] : [];
   const pluginOptions = importOptionsToPlugin(state.options, caps, { partialDatabase });
   const recorded = pull.source?.abspath;
   // eslint-disable-next-line no-control-regex -- rejects control characters in untrusted input
@@ -195,8 +200,17 @@ async function buildManifest(state, input, status, ctx) {
     resources: reviewed ? { ...pullProfile(pull.options.profile), plugins: false, themes: false } : pullProfile(pull.options.profile),
     ...(pluginOptions ? { options: pluginOptions } : {}), ...(pluginOptions?.replacements?.paths && abspath ? { sourcePath: abspath } : {}),
   };
-  return { manifest, order: ordered.map(f => f.index), caps, warnings, totalBytes: ordered.reduce((sum, f) => sum + f.bytes, 0) };
+  return { manifest, order: ordered.map(f => f.index), caps, warnings, skipped, totalBytes: ordered.reduce((sum, f) => sum + f.bytes, 0) };
 }
+
+const plural = (n, word) => `${n.toLocaleString("en-US")} ${word}${n === 1 ? "" : "s"}`;
+/** "2 files skipped: not accepted by Zoer Connect (wp-content/plugins/akismet/.htaccess, …)." */
+function skippedWarning(skipped) {
+  const examples = skipped.slice(0, 3).map(f => f.path).join(", ");
+  return `${plural(skipped.length, "file")} skipped: ${NOT_ACCEPTED} (${examples}${skipped.length > 3 ? ", …" : ""}). The destination keeps its own copies.`.slice(0, 600);
+}
+/** Bounded list for the plan, the checkpoint and the result. */
+const skippedSummary = (skipped, max) => ({ count: skipped.length, reason: NOT_ACCEPTED, files: skipped.slice(0, max).map(f => ({ path: f.path.slice(0, 300), reason: f.reason })) });
 
 /** Maps a Zoer Connect import summary onto the local phase (applyRemotePhase). */
 function applyRemotePhase(state, remote) {
@@ -233,7 +247,7 @@ async function uploadOrder(state, input, ctx) {
   const entries = (await listEntries(ctx.host, state.setId)).map((entry, index) => ({ ...entry, index }));
   const byPath = new Map(entries.map(entry => [entry.path, entry]));
   // Same order as the manifest: the selection's order when a preview chose paths, else the set's.
-  const selected = state.previewId ? input.selectedPaths.map(path => byPath.get(path)).filter(Boolean) : entries;
+  const selected = (state.previewId ? input.selectedPaths.map(path => byPath.get(path)).filter(Boolean) : entries).filter(entry => entry.path === "database.sql" || !connectRefusal(entry.path));
   return [...selected].sort((a, b) => Number(b.path === "database.sql") - Number(a.path === "database.sql")).map(entry => entry.index);
 }
 
@@ -286,10 +300,11 @@ export async function stepPush(state, input, ctx) {
       state.totalBytes = built.totalBytes ?? 0;
       state.fileCount = built.order.length;
       if (built.warnings.length) state.warnings = built.warnings;
+      if (built.skipped?.length) state.skipped = skippedSummary(built.skipped, 20);
       if (state.dryRun) {
         return ctx.done({ importId: state.importId, kind: state.kind, status: "dry-run", phase: "planned",
           plan: { target: status.target, files: built.manifest.files?.length ?? 0, database: !!built.manifest.database, bytes: state.totalBytes, batchUpload: built.caps.batchUpload === true && built.order.length > 0,
-            options: built.manifest.options ?? null, resources: built.manifest.resources ?? null, warnings: built.warnings },
+            options: built.manifest.options ?? null, resources: built.manifest.resources ?? null, warnings: built.warnings, ...(built.skipped?.length ? { skipped: skippedSummary(built.skipped, 50) } : {}) },
           summary: `Dry run: ${state.fileCount} artifacts (${state.totalBytes.toLocaleString("en-US")} bytes) would be sent to ${status.target}. Nothing was changed.` });
       }
       state.batchUpload = built.order.length > 0 && built.caps.batchUpload === true;
@@ -326,10 +341,10 @@ export async function stepPush(state, input, ctx) {
     applyRemotePhase(state, remote);
   }
   if (["importing", "rolling_back", "uploading"].includes(state.phase)) return ctx.continue(state, progressOf(state));
-  if (state.phase === "review_required") return ctx.needsUser(state, `Review the import before it is activated.${state.stats ? ` ${statsText(state.stats)}` : ""} Approve or roll back in WordPress Manager.`, progressOf(state));
+  if (state.phase === "review_required") return ctx.needsUser(state, `Review the import before it is activated.${state.stats ? ` ${statsText(state.stats)}` : ""}${state.skipped ? ` ${plural(state.skipped.count, "file")} skipped: ${NOT_ACCEPTED}.` : ""} Approve or roll back in WordPress Manager.`, progressOf(state));
   if (state.phase === "verification_required") return ctx.needsUser(state, "Verify the destination site, then finish or roll back the import in WordPress Manager.", progressOf(state));
   return ctx.done({ importId: state.importId, kind: state.kind, status: state.phase, phase: state.remotePhase ?? state.phase, fileCount: state.fileCount ?? 0, totalBytes: state.totalBytes ?? 0,
-    ...(state.stats ? { stats: state.stats } : {}), ...(state.transfer ? { transfer: state.transfer } : {}), ...(state.warnings ? { warnings: state.warnings } : {}), cleanedUp: state.cleanedUp === true,
+    ...(state.stats ? { stats: state.stats } : {}), ...(state.transfer ? { transfer: state.transfer } : {}), ...(state.warnings ? { warnings: state.warnings } : {}), ...(state.skipped ? { skipped: state.skipped } : {}), cleanedUp: state.cleanedUp === true,
     summary: state.phase === "complete" ? `Import complete on ${client.endpoint.origin}.` : `Import rolled back on ${client.endpoint.origin}; nothing was activated.` }, { phase: state.phase });
 }
 

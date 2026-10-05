@@ -45,6 +45,19 @@ const KEY = "zc_" + "1".repeat(64);
 const PULL = "a".repeat(32), IMPORT = "c".repeat(32), PREVIEW = "e".repeat(32);
 
 /** Tolerated differences, each with its reason. */
+/**
+ * The sample site without the two files Zoer Connect refuses in an import (a theme .gitignore and
+ * an uploads index.php). The host engine sends them and its push fails ("Unsafe file path.");
+ * the plugin engine leaves them out and reports them (tests/transfers.test.ts), so push and
+ * preview parity is compared on content both engines can import.
+ */
+function pushableSite() {
+  const site = sampleSite();
+  delete site.options.files["wp-content/themes/twentyone/.gitignore"];
+  delete site.options.files["wp-content/uploads/2024/index.php"];
+  return site;
+}
+
 export const ALLOWED: Array<{ scenario: string; check: string; reason: string }> = [
   { scenario: "push-transient", check: "remote calls in order", reason: "After a transient failure S1 runs the next slice in a new worker execution, and S3 re-reads the destination cursor (GET imports/<id>?view=upload) at the start of every execution (remote cursor authority, docs section 6). The host engine's in-process runner retried the same batch without re-reading. Same batches, same bytes; one extra read per retried slice." },
 ];
@@ -194,7 +207,7 @@ async function pushScenario() {
   const destination = () => new FakeZoerConnect({ origin: "https://dest.example", files: {}, existing: { "wp-content/themes/twentyone/style.css": "body{color:red}", "wp-content/plugins/akismet/akismet.php": "old" } });
   const root = join(DATA, name);
   // Legacy: pull from the source, then push that pull.
-  const legacySource = sampleSite(), legacyDestination = destination();
+  const legacySource = pushableSite(), legacyDestination = destination();
   const sites = new Map([["site-1", legacySource], ["dest", legacyDestination]]);
   const legacyPulls = (await legacyPull(sites, "site-1", join(root, "legacy-pulls"))).pulls;
   const pushes = new WordPressPushStore(join(root, "legacy-pushes"), legacyRemote(sites), async (site: string) => ({ url: sites.get(site)!.options.origin, generation: "g1" }), legacyPulls, legacyPulls, {
@@ -210,7 +223,7 @@ async function pushScenario() {
   job = await pushes.resume("dest", IMPORT);
   for (let i = 0; i < 1000 && isActivePush(job); i++) job = await pushes.step("dest", IMPORT);
   // Plugin: pull, then push the sealed set.
-  const pluginSource = sampleSite(), pluginDestination = destination();
+  const pluginSource = pushableSite(), pluginDestination = destination();
   const { world } = await pluginWorld({ "site-1": pluginSource, dest: pluginDestination }, join(root, "plugin"));
   const pulled = await world.run("transfer.pull", { siteId: "site-1", pullId: PULL });
   if (pulled.status !== "succeeded") throw new Error(`push: plugin pull ${pulled.status}`);
@@ -226,7 +239,7 @@ async function pushScenario() {
 async function pushTransientScenario() {
   const name = "push-transient";
   const root = join(DATA, name);
-  const content = () => { const site = sampleSite(); const big = Buffer.alloc(3 * 1024 * 1024 + 777); for (let i = 0; i < big.length; i++) big[i] = (i * 7 + 3) % 253; site.options.files["wp-content/uploads/2024/02/video.mp4"] = big; return site; };
+  const content = () => { const site = pushableSite(); const big = Buffer.alloc(3 * 1024 * 1024 + 777); for (let i = 0; i < big.length; i++) big[i] = (i * 7 + 3) % 253; site.options.files["wp-content/uploads/2024/02/video.mp4"] = big; return site; };
   const destination = () => { const site = new FakeZoerConnect({ origin: "https://dest.example", files: {}, batchLimits: { maxBatchBytes: 1024 * 1024 } }); site.failNext(/\/batch$/, 503, 1, "0"); return site; };
   const legacySource = content(), legacyDestination = destination();
   const sites = new Map([["site-1", legacySource], ["dest", legacyDestination]]);
@@ -260,7 +273,7 @@ async function previewScenario() {
   const name = "preview+selective push";
   const root = join(DATA, "preview");
   const destination = () => new FakeZoerConnect({ origin: "https://dest.example", files: {}, existing: { "wp-content/themes/twentyone/style.css": "body{color:red}", "wp-content/plugins/akismet/akismet.php": "old" }, blocked: ["wp-content/uploads/empty.txt"] });
-  const legacySource = sampleSite(), legacyDestination = destination();
+  const legacySource = pushableSite(), legacyDestination = destination();
   const sites = new Map([["site-1", legacySource], ["dest", legacyDestination]]);
   const legacyPulls = (await legacyPull(sites, "site-1", join(root, "legacy-pulls"))).pulls;
   const pushes = new WordPressPushStore(join(root, "legacy-pushes"), legacyRemote(sites), async (site: string) => ({ url: sites.get(site)!.options.origin, generation: "g1" }), legacyPulls, legacyPulls, { limits: new PushUploadLimits(join(root, "limits.json")), clock: Date.now, random: () => 0.5,
@@ -269,7 +282,7 @@ async function previewScenario() {
   let preview: any = await pushes.preview("dest", { source: { kind: "pull", sourceSiteId: "site-1", pullId: PULL } });
   const legacyPreviewId = preview.id;
   for (let i = 0; i < 100 && !preview.complete; i++) preview = await pushes.preview("dest", { source: { kind: "pull", sourceSiteId: "site-1", pullId: PULL }, previewId: legacyPreviewId });
-  const pluginSource = sampleSite(), pluginDestination = destination();
+  const pluginSource = pushableSite(), pluginDestination = destination();
   const { world } = await pluginWorld({ "site-1": pluginSource, dest: pluginDestination }, join(root, "plugin"));
   await world.run("transfer.pull", { siteId: "site-1", pullId: PULL });
   const run = await world.run("transfer.preview", { siteId: "dest", setId: `fs_${PULL}`, previewId: PREVIEW });

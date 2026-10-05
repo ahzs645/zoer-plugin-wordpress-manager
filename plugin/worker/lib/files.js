@@ -95,3 +95,22 @@ export function isUploadPlaceholder(path, content) {
 }
 
 export const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+/** Why Zoer Connect refuses a pushed file, or null when it accepts it. */
+const CONNECT_PATH = /^wp-content\/(themes|plugins|uploads)\/[\p{L}\p{N}\p{M}\p{Zs}_./ ,()@+~!&'=[\]#-]+$/u;
+export const NOT_ACCEPTED = "not accepted by Zoer Connect";
+
+/**
+ * Zoer Connect's per-file rules for imports (`StageStore::validateManifest`, run by
+ * `TransferImport::create` over every file of the manifest): a refused file fails the whole
+ * push ("Unsafe file path.", "Protected file.", ...). Mirrored here so a push can leave those
+ * files out up front and say so, instead of failing; the WordPress-side rule is unchanged.
+ * Returns the reason, or null for an accepted path. `database.sql` is not a file entry.
+ */
+export function connectRefusal(path) {
+  if (typeof path !== "string" || Buffer.byteLength(path) > 500 || !CONNECT_PATH.test(path)) return "unsupported path";
+  for (const part of path.split("/")) if (!part || part === "." || part === ".." || part.startsWith(".")) return "hidden file or folder";
+  if (/^wp-content\/plugins\/zoer-connect(?:\/|$)/i.test(path) || /(?:^|\/)(?:wp-config\.php|\.htaccess)$/i.test(path)) return "protected file";
+  if (path.startsWith("wp-content/uploads/") && /\.(?:php\d*|phtml|phar|cgi|pl|sh)(?:\.|$)/i.test(path)) return "executable upload";
+  return null;
+}

@@ -99,3 +99,9 @@ test("a failed run's history record shows its error", () => {
   const item = parseHistoryRecord({ id: "history:local-export:x", kind: "transfer-history", data: { v: 1, kind: "local-export", id: "x", siteId: "ddev-shop", status: "failed", startedAt: "2026-10-04T00:00:00Z", summary: "Local export: Database", lastError: "Invalid source URL.", errorCode: "database_query_failed", engine: "plugin" } });
   expect(item).toMatchObject({ status: "failed", error: "Invalid source URL.", engine: "plugin" });
 });
+
+test("a preview file Zoer Connect refuses keeps its reason", () => {
+  const files = previewFiles([{ id: "preview-page:p:0", kind: "preview-page", data: { previewId: "p", page: 0, files: [{ path: "wp-content/plugins/akismet/.htaccess", bytes: 13, sha256: "a".repeat(64), state: "blocked", reason: "not accepted by Zoer Connect" }] } }], "p");
+  expect(files).toEqual([{ path: "wp-content/plugins/akismet/.htaccess", bytes: 13, sha256: "a".repeat(64), state: "blocked", expectedDestinationSha256: null, reason: "not accepted by Zoer Connect" }]);
+  expect(defaultSelection(files)).toEqual([]);
+});

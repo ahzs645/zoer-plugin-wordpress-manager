@@ -94,7 +94,7 @@ export function refreshCandidates(copies: LocalCopyRecord[], sourceSiteId: strin
 // preview:<previewId> and preview-page:<previewId>:<n>
 
 export type PreviewState = "new" | "changed" | "unchanged" | "blocked" | "database";
-export interface PreviewFile { path: string; bytes: number; sha256?: string; state: PreviewState; expectedDestinationSha256?: string | null }
+export interface PreviewFile { path: string; bytes: number; sha256?: string; state: PreviewState; expectedDestinationSha256?: string | null; /** Why a blocked file is blocked, e.g. "not accepted by Zoer Connect". */ reason?: string }
 export interface PreviewSummary { previewId: string; siteId: string; setId: string; total: number; pages: number; complete: boolean; expiresAt: string; counts: Record<PreviewState, number> }
 
 const PREVIEW_STATES: PreviewState[] = ["new", "changed", "unchanged", "blocked", "database"];
@@ -121,7 +121,8 @@ export function previewFiles(records: Raw[], previewId: string): PreviewFile[] {
     const file = obj(raw);
     const path = str(file?.path), state = str(file?.state) as PreviewState | undefined;
     if (!file || !path || !state || !PREVIEW_STATES.includes(state)) continue;
-    out.push({ path, bytes: num(file.bytes) ?? 0, state, sha256: str(file.sha256), expectedDestinationSha256: str(file.expectedDestinationSha256) ?? null });
+    const reason = str(file.reason);
+    out.push({ path, bytes: num(file.bytes) ?? 0, state, sha256: str(file.sha256), expectedDestinationSha256: str(file.expectedDestinationSha256) ?? null, ...(reason ? { reason: reason.slice(0, 120) } : {}) });
   }
   return out;
 }
