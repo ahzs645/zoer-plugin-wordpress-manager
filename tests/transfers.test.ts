@@ -6,6 +6,7 @@ import { createTicketHost } from "../plugin/worker/lib/host.js";
 import { mapConnectResponse } from "../plugin/worker/lib/zoer-connect.js";
 import { validatePullFiles } from "../plugin/worker/lib/files.js";
 import { defaultExportOptions } from "../plugin/worker/lib/options.js";
+import { runtimeError } from "../plugin/worker/lib/slices.js";
 import { EXPORT_CREATE_INPUT_SCHEMA, schemaIssues } from "./fakes/ddev-schemas";
 
 const PULL = "a".repeat(32), PULL2 = "b".repeat(32), IMPORT = "c".repeat(32), COPY = "d".repeat(32), PREVIEW = "e".repeat(32), RESTORE = "f".repeat(32);
@@ -440,6 +441,28 @@ describe("transfer.local-export", () => {
     expect(args.database).toEqual({ postTypes: null, excludeRevisions: true, excludeSpam: false, excludeTransients: true });
   });
 
+  test("a bridge refusal fails at once with the bridge's message and Zoer's code", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    w.catalog.engine("ddev-shop");
+    w.ddev.failOperation = { operation: "export.create.v1", message: "Invalid export selections.", code: "database_query_failed", count: 99 };
+    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
+    expect(result.status).toBe("failed");
+    expect((result as any).error).toMatchObject({ message: "Invalid export selections.", code: "database_query_failed" });
+    expect(result.envelopes).toHaveLength(0);
+    expect(w.ddev.invocations.filter(i => i.operation === "export.create.v1")).toHaveLength(1);
+  });
+
+  test("a bridge transport failure retries with the bridge's message and code", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    w.catalog.engine("ddev-shop");
+    w.ddev.failOperation = { operation: "export.create.v1", message: "DDEV bridge request failed (502).", code: "database_query_failed", count: 1 };
+    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
+    expect(result.status).toBe("succeeded");
+    expect(result.envelopes[0]).toMatchObject({ resumable: "retry", error: { code: "database_query_failed", message: "DDEV bridge request failed (502)." } });
+  });
+
   test("an export without the database is refused before anything starts", async () => {
     const w = new FakeWorld();
     w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
@@ -491,6 +514,19 @@ describe("backup.restore-local", () => {
 });
 
 describe("line protocol and response mapping", () => {
+  test("runtime refusals keep Zoer's message and code; only transport failures retry", () => {
+    const refusal = (message: string, code: string) => runtimeError(Object.assign(new Error(message), { name: "HostCallError", code }));
+    expect(refusal("Runtime operation args are invalid: /database must be object", "invalid_request")).toMatchObject({ message: "Runtime operation args are invalid: /database must be object", code: "invalid_request" });
+    expect(refusal("Runtime operation args are invalid: /database must be object", "invalid_request").transient).toBeUndefined();
+    expect(refusal("Invalid source URL.", "database_query_failed").transient).toBeUndefined();
+    expect(refusal("Export expired. Start a new export.", "database_query_failed").transient).toBeUndefined();
+    expect(refusal("Runtime RPC budget exhausted.", "capability_denied").transient).toBeUndefined();
+    for (const message of ["DDEV bridge request failed (502).", "DDEV bridge request failed (429).", "fetch failed", "Unable to connect. Is the computer able to access the url?", "The operation timed out."]) {
+      expect(refusal(message, "database_query_failed")).toMatchObject({ message, code: "database_query_failed", transient: true });
+    }
+    expect(refusal("", "ECONNRESET")).toMatchObject({ message: "The DDEV bridge could not complete this operation.", transient: true });
+  });
+
   test("tickets rotate per grant, including after a refusal", async () => {
     const seen: string[] = [];
     const host = createTicketHost({ grants: { network: { ticket: "n0" }, filesets: { ticket: "f0" }, runtimes: [{ alias: "wordpress_site", ticket: "w0" }] } }, async (message: any) => {

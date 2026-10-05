@@ -42,6 +42,28 @@ export function stopIfPaused(ctx) {
   if (ctx.pauseRequested?.()) throw new TransferError("Paused by Zoer.", { code: PAUSED });
 }
 
+/** Host refusals of a runtime call itself: Zoer's checks, the operation's input schema, grants. */
+const PERMANENT_RUNTIME_CODES = new Set(["capability_denied", "resource_unbound", "invalid_request", "runtime_permission", "not_implemented", "endpoint_route_denied"]);
+/**
+ * Zoer passes a runtime driver's plain errors on with a generic code and the driver's message.
+ * For the DDEV bridge those are its refusals (HTTP 400: validation, missing or expired jobs),
+ * except transport failures: no answer, 5xx and 429, which the host engine retried too.
+ */
+const BRIDGE_TRANSIENT = /DDEV bridge request failed \((?:5\d\d|429)\)|DDEV bridge did not respond|fetch failed|Unable to connect|ECONN(?:RESET|REFUSED|ABORTED)|ETIMEDOUT|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|socket hang up|timed out|timeout/i;
+
+/**
+ * A `runtime.invoke` refusal as a TransferError that keeps the host's message and code, retried
+ * only when it is a transport failure. Validation and schema refusals fail at once.
+ */
+export function runtimeError(error, fallback = "The DDEV bridge could not complete this operation.") {
+  const message = typeof error?.message === "string" && error.message.trim() ? error.message.trim() : fallback;
+  const code = typeof error?.code === "string" && CODE.test(error.code) ? error.code : undefined;
+  const transient = !PERMANENT_RUNTIME_CODES.has(code) && (TRANSIENT_CODES.has(code) || BRIDGE_TRANSIENT.test(message));
+  return new TransferError(message, { code: code ?? (transient ? "transfer_transient" : "transfer_failed"), transient });
+}
+
+const CODE = /^[A-Za-z0-9_.-]{1,64}$/;
+
 export function isTransient(error) {
   return !!error && (error.transient === true || TRANSIENT_CODES.has(error.code));
 }
@@ -98,7 +120,8 @@ export async function runResumable(request, host, spec, clock = Date.now) {
       return {
         resumable: "retry",
         ...(state !== null ? { checkpoint: state } : {}),
-        error: { code: TRANSIENT_CODES.has(error.code) ? error.code : "transfer_transient", message: bounded(error.message) },
+        // The cause's own code (a host or bridge code) stays visible in the run's last error.
+        error: { code: typeof error.code === "string" && CODE.test(error.code) ? error.code : "transfer_transient", message: bounded(error.message) },
         ...(Number.isFinite(error.retryAfterMs) ? { retryAfterMs: Math.max(0, Math.min(300_000, Math.round(error.retryAfterMs))) } : {}),
       };
     }
@@ -116,6 +139,6 @@ export function cleanProgress(progress) {
 
 /** Runner response for an error that escaped a slice (or a non-resumable action). */
 export function failure(error) {
-  const code = typeof error?.code === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(error.code) ? error.code : "transfer_failed";
+  const code = typeof error?.code === "string" && CODE.test(error.code) ? error.code : "transfer_failed";
   return { ok: false, error: { code, message: bounded(error?.message), ...(isTransient(error) ? { retryable: true } : {}) } };
 }

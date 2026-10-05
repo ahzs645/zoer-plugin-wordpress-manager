@@ -7,7 +7,7 @@ import { assertPluginEngine, commitRecords, historyRecord, listKind, readRecord 
 import { checkSelection, normalizeConnectUrl, parsePullSource, parseSkipped, validatePullFiles } from "./files.js";
 import { declareEntries, deleteSet, describeSet, setIdFor } from "./filesets.js";
 import { assertExportCapabilities, pullOptionsFrom } from "./options.js";
-import { fail, stopIfPaused, TransferError } from "./slices.js";
+import { fail, runtimeError, stopIfPaused, TransferError } from "./slices.js";
 import { connectClient, parseStatus, siteEndpoint } from "./zoer-connect.js";
 
 export const HEX32 = /^[a-f0-9]{32}$/;
@@ -46,8 +46,7 @@ function localSource(host, state) {
     try { return await host.call("runtime.invoke", { alias: RUNTIME_ALIAS, operation, resourceId: state.siteId, args }); }
     catch (error) {
       if (error?.name !== "HostCallError" || error.code === "ZOER_PAUSED") throw error;
-      if (["capability_denied", "resource_unbound", "invalid_request", "runtime_permission"].includes(error.code)) throw new TransferError(error.message, { code: error.code });
-      throw new TransferError("The local export worker could not complete this operation. Retrying.", { code: error.code, transient: true });
+      throw runtimeError(error, "The local export worker could not complete this operation.");
     }
   };
   const normalize = (raw) => { const job = raw?.job ?? raw; if (job && ["pending", "running"].includes(job.status)) job.status = "preparing"; return job; };

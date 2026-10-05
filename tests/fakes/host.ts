@@ -112,6 +112,8 @@ export class FakeDdev {
     this.sites.set(id, { id, name, status, state: "active", files: new Map(), database: null, home: null, stage: new Map(), pending: new Set(), backups: 0, content, inspections: 0 });
   }
   site(id: string) { const s = this.sites.get(id); if (!s) refuse("Runtime resource is unavailable or outside this grant.", "resource_unbound"); return s!; }
+  /** Forced refusals of the next calls of one operation (code as Zoer reports it). */
+  failOperation?: { operation: string; message: string; code: string; count: number };
   /** Every args object the bridge operations received, in order (after the schema check). */
   readonly invocations: Array<{ operation: string; args: any }> = [];
   invoke(input: any) {
@@ -121,6 +123,8 @@ export class FakeDdev {
     const issues = schema ? schemaIssues(schema, args) : [];
     if (issues.length) refuse(`Runtime operation args are invalid: ${issues.join("; ")}`, "invalid_request");
     this.invocations.push({ operation: input.operation, args });
+    const forced = this.failOperation;
+    if (forced && forced.operation === input.operation && forced.count-- > 0) refuse(forced.message, forced.code);
     switch (input.operation) {
       case "runtime.list.v1": return { resources: [...this.sites.values()].filter(s => s.state === "active").map(s => ({ id: s.id, name: s.name, status: s.status, connectorId: "ddev", state: s.state })) };
       case "runtime.inspect.v1": { const s = this.site(input.resourceId); if (s.status === "starting" && ++s.inspections > 1) s.status = "running"; return { resource: { id: s.id, name: s.name, status: s.status, connectorId: "ddev", state: s.state } }; }
