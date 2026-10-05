@@ -64,9 +64,20 @@ export const previewSpec = {
       if (!(await previewPage(state, ctx, client))) break;
     }
     const progress = { phase: "comparing", done: state.cursor, total: state.total, unit: "files" };
-    return state.cursor >= state.total ? ctx.done({ previewId: state.previewId, complete: true, total: state.total, counts: state.counts }, progress) : ctx.continue(state, progress);
+    if (state.cursor < state.total) return ctx.continue(state, progress);
+    // The result is the preview's summary (the same as its catalog record), never empty.
+    return ctx.done({ previewId: state.previewId, siteId: state.siteId, setId: state.setId, pullId: state.pullId ?? null, complete: true, total: state.total, pages: state.page, counts: state.counts,
+      createdAt: state.createdAt, expiresAt: state.expiresAt, summary: previewSummaryText(state) }, progress);
   },
 };
+
+/** "Compared 452 files: 12 new, 3 changed, 430 unchanged, 6 blocked, database." */
+function previewSummaryText(state) {
+  const c = state.counts ?? {};
+  const parts = ["new", "changed", "unchanged", "blocked"].filter(key => c[key]).map(key => `${c[key].toLocaleString("en-US")} ${key}`);
+  if (c.database) parts.push("database");
+  return `Compared ${state.total.toLocaleString("en-US")} ${state.total === 1 ? "file" : "files"}${parts.length ? `: ${parts.join(", ")}` : ""}.`;
+}
 
 /** Compares up to one page of files with the destination and commits it with the summary; returns the files added. */
 async function previewPage(state, ctx, client) {

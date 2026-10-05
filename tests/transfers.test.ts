@@ -351,6 +351,11 @@ describe("transfer.preview and transfer.push", () => {
     expect(result.status).toBe("succeeded");
     // The theme's .gitignore and the uploads index.php are files Zoer Connect refuses: blocked, never compared.
     expect((result as any).output.counts).toEqual({ new: 2, changed: 1, unchanged: 1, blocked: 2, database: 1 });
+    // The run's result is the preview summary, the same as its catalog record.
+    const record = w.catalog.records.get(`preview:${PREVIEW}`)!.data;
+    expect((result as any).output).toEqual({ previewId: PREVIEW, siteId: "external:dest", setId: `fs_${PULL}`, pullId: PULL, complete: true, total: 7, pages: record.pages, counts: record.counts,
+      createdAt: record.createdAt, expiresAt: record.expiresAt, summary: "Compared 7 files: 2 new, 1 changed, 1 unchanged, 2 blocked, database." });
+    expect(record).toMatchObject({ complete: true, cursor: 7, total: 7 });
     expect(destination.log.filter(l => l.route === "/files/compare")).toHaveLength(1);
     const page = w.catalog.records.get(`preview-page:${PREVIEW}:0`)!.data.files;
     expect(page.find((f: any) => f.path === "wp-content/plugins/akismet/akismet.php").state).toBe("changed");
