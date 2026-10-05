@@ -200,6 +200,18 @@ export async function runResumable(request, host, spec, clock = Date.now, { outp
       };
     }
     await recordFailure(error);
+    // External-write actions: Zoer turns every worker failure into "outcome unknown" (it cannot
+    // know whether the remote write happened). A TransferError that is not transient is a
+    // definite answer: the site refused with an HTTP error, or the worker refused before
+    // sending anything. Such a run ends with a clean failure result instead; only an error
+    // without an answer (a crash, a lost connection that ran out of retries) stays unknown.
+    if (spec.definiteFailures && error instanceof TransferError) {
+      if (spec.onDefiniteFailure) { try { await spec.onDefiniteFailure(state, input, ctx, error); } catch { /* best effort */ } }
+      const code = typeof error.code === "string" && CODE.test(error.code) ? error.code : "transfer_failed";
+      const remote = typeof error.details?.code === "string" && CODE.test(error.details.code) ? error.details.code : undefined;
+      return ctx.done({ ...(spec.failureOutput ? spec.failureOutput(state, input) : {}), status: "failed", error: { code, message: bounded(error.message), ...(remote ? { remoteCode: remote } : {}), ...(Number.isInteger(error.status) ? { httpStatus: error.status } : {}) },
+        summary: bounded(error.message) }, { phase: "failed", message: bounded(error.message) });
+    }
     throw error;
   }
 }

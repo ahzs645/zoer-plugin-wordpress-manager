@@ -200,7 +200,24 @@ async function buildManifest(state, input, status, ctx) {
     resources: reviewed ? { ...pullProfile(pull.options.profile), plugins: false, themes: false } : pullProfile(pull.options.profile),
     ...(pluginOptions ? { options: pluginOptions } : {}), ...(pluginOptions?.replacements?.paths && abspath ? { sourcePath: abspath } : {}),
   };
-  return { manifest, order: ordered.map(f => f.index), caps, warnings, skipped, totalBytes: ordered.reduce((sum, f) => sum + f.bytes, 0) };
+  return { manifest, order: ordered.map(f => f.index), caps, warnings, skipped, sourceTables: Array.isArray(pull.source?.tables) ? pull.source.tables : null, totalBytes: ordered.reduce((sum, f) => sum + f.bytes, 0) };
+}
+
+/**
+ * Source tables the destination lacks while "Create missing tables" is off: Zoer Connect refuses
+ * such an import while scanning the database ("Every imported core or plugin table requires an
+ * existing matching destination schema."). Read from /diagnostics; [] when it cannot be told
+ * (no database, older plugins, no table list). Schema differences are only found by the import.
+ */
+async function missingDestinationTables(built, client) {
+  if (!built.manifest.database || built.manifest.options?.createTables === true || !built.sourceTables?.length) return [];
+  let diagnostics;
+  try { diagnostics = await client.request("/diagnostics"); } catch { return []; }
+  const tables = diagnostics?.database?.tables;
+  if (!Array.isArray(tables)) return [];
+  const present = new Set(tables.filter(t => t?.prefixed && typeof t.suffix === "string").map(t => t.suffix.toLowerCase()));
+  // Zoer Connect never imports users and usermeta (the destination keeps its own).
+  return built.sourceTables.filter(table => !["users", "usermeta"].includes(table) && !present.has(table.toLowerCase()));
 }
 
 const plural = (n, word) => `${n.toLocaleString("en-US")} ${word}${n === 1 ? "" : "s"}`;
@@ -302,9 +319,12 @@ export async function stepPush(state, input, ctx) {
       if (built.warnings.length) state.warnings = built.warnings;
       if (built.skipped?.length) state.skipped = skippedSummary(built.skipped, 20);
       if (state.dryRun) {
+        const missingTables = await missingDestinationTables(built, client);
+        if (missingTables.length) built.warnings.push(`The destination has no ${missingTables.length === 1 ? "table" : "tables"} for ${missingTables.slice(0, 10).join(", ")}${missingTables.length > 10 ? ", …" : ""}. Turn on “Create missing tables”, or Zoer Connect will refuse the import.`);
         return ctx.done({ importId: state.importId, kind: state.kind, status: "dry-run", phase: "planned",
           plan: { target: status.target, files: built.manifest.files?.length ?? 0, database: !!built.manifest.database, bytes: state.totalBytes, batchUpload: built.caps.batchUpload === true && built.order.length > 0,
-            options: built.manifest.options ?? null, resources: built.manifest.resources ?? null, warnings: built.warnings, ...(built.skipped?.length ? { skipped: skippedSummary(built.skipped, 50) } : {}) },
+            options: built.manifest.options ?? null, resources: built.manifest.resources ?? null, warnings: built.warnings, ...(built.skipped?.length ? { skipped: skippedSummary(built.skipped, 50) } : {}),
+            ...(missingTables.length ? { missingTables: missingTables.slice(0, 100) } : {}) },
           summary: `Dry run: ${state.fileCount} artifacts (${state.totalBytes.toLocaleString("en-US")} bytes) would be sent to ${status.target}. Nothing was changed.` });
       }
       state.batchUpload = built.order.length > 0 && built.caps.batchUpload === true;
@@ -360,7 +380,30 @@ export async function cancelPush(state, input, ctx) {
   }
 }
 
-export const pushSpec = (kind) => ({ start: (input, ctx) => startPush(kind, input, ctx), step: stepPush, cancel: cancelPush, changed: CHANGED });
+/** Import phases before the fence: a rollback there only cancels (nothing live has changed). */
+const PRE_FENCE = ["uploading", "reusing_artifacts", "checking_artifacts", "scanning_database", "mapping_authors", "snapshotting"];
+
+/**
+ * After a definite refusal, an import still before the fence is cancelled so it does not stay
+ * staged on the site; one past the fence is left for the user to roll back or finish.
+ */
+async function cancelRefusedImport(state, input, ctx) {
+  if (!state?.importId || !["uploading", "importing"].includes(state.phase)) return;
+  const client = connectClient(ctx.host, endpointOf(ctx.request, state.siteId), state.generation);
+  const current = await client.request(`/imports/${state.importId}`);
+  if (!PRE_FENCE.includes(current?.phase ?? current?.status)) return;
+  const remote = await client.request(`/imports/${state.importId}/rollback`, "POST");
+  if (["cancelled", "rolled_back"].includes(remote?.phase ?? remote?.status)) state.cancelledImport = true;
+}
+
+export const pushSpec = (kind) => ({
+  start: (input, ctx) => startPush(kind, input, ctx), step: stepPush, cancel: cancelPush, changed: CHANGED,
+  definiteFailures: true,
+  onDefiniteFailure: cancelRefusedImport,
+  failureOutput: (state, input) => ({ importId: state?.importId ?? input.importId ?? null, kind, phase: state?.remotePhase ?? state?.phase ?? "creating",
+    ...(state?.fileCount !== undefined ? { fileCount: state.fileCount, totalBytes: state.totalBytes ?? 0 } : {}), ...(state?.skipped ? { skipped: state.skipped } : {}),
+    ...(state?.cancelledImport ? { cancelledImport: true } : {}) }),
+});
 
 // ---------------------------------------------------------------------------------------------
 // Controls of a remote import (approve after review, finish after verification, roll back, clean up)

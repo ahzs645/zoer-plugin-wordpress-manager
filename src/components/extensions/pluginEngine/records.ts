@@ -188,12 +188,15 @@ export function runHistoryItem(run: RecentRun): EngineHistoryItem | null {
   const id = runTransferId(run);
   const siteId = str(input.siteId) ?? "";
   const active = !isTerminalStatus(run.status);
-  const status = run.status === "succeeded" ? (input.dryRun === true ? "dry-run" : "complete") : active ? (run.resumable?.state ?? run.status) : run.status;
+  // A push the site refused ends "succeeded" with a failure result; its last progress says so.
+  const refused = run.status === "succeeded" && run.resumable?.progress?.phase === "failed";
+  const status = refused ? "failed" : run.status === "succeeded" ? (input.dryRun === true ? "dry-run" : "complete") : active ? (run.resumable?.state ?? run.status) : run.status;
   const label = ENGINE_HISTORY_LABELS[kind];
-  const summary = run.status === "succeeded" ? `${label} finished${input.dryRun === true ? " (dry run)" : ""}.` : active ? `${label} in progress.` : `${label} ${run.status === "cancelled" ? "cancelled" : "stopped"}.`;
+  const summary = refused ? `${label} refused by the site.` : run.status === "succeeded" ? `${label} finished${input.dryRun === true ? " (dry run)" : ""}.` : active ? `${label} in progress.` : `${label} ${run.status === "cancelled" ? "cancelled" : "stopped"}.`;
+  const error = refused ? run.resumable?.progress?.message : run.error;
   return {
     key: `${kind}:${id}`, kind, id, siteId, sourceSiteId: str(input.sourceSiteId), status, startedAt: run.createdAt,
-    finishedAt: run.finishedAt, summary, ...(run.error ? { error: run.error } : {}), engine: "plugin", runId: run.runId, active,
+    finishedAt: run.finishedAt, summary, ...(error ? { error } : {}), engine: "plugin", runId: run.runId, active,
   };
 }
 

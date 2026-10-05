@@ -432,8 +432,47 @@ describe("transfer.preview and transfer.push", () => {
     await pulled(w);
     w.catalog.engine("external:dest");
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm }, { onSlice: (_e, slice) => { if (slice === 1) w.catalog.records.get(`pull:${PULL}`)!.data.source.prefix = "wp2_"; } });
-    expect((result as any).error.message).toBe("The download, the destination or the selection changed before the import was created. Start the push again.");
+    // A definite refusal ends the external-write run with a failure result, not "outcome unknown".
+    expect(result.status).toBe("succeeded");
+    expect((result as any).output).toMatchObject({ status: "failed", importId: IMPORT, error: { message: "The download, the destination or the selection changed before the import was created. Start the push again." } });
     expect(destination.imports.size).toBe(0);
+  });
+
+  test("a refused import fails cleanly with the site's message and cancels the staged import", async () => {
+    const { w, destination } = world();
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    const message = "Every imported core or plugin table requires an existing matching destination schema.";
+    (destination.options as any).refuseImport = { phase: "scanning_database", message };
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
+    expect(result.status).toBe("succeeded");
+    expect((result as any).output).toMatchObject({ status: "failed", importId: IMPORT, cancelledImport: true, error: { message, remoteCode: "zoer_import_failed", httpStatus: 409 } });
+    expect(result.envelopes.at(-1)).toMatchObject({ resumable: "done", progress: { phase: "failed", message } });
+    // Before the fence a rollback only cancels: nothing stays staged.
+    expect(destination.imports.get(IMPORT)!.phase).toBe("cancelled");
+  });
+
+  test("a lost answer is not a refusal: the step is retried", async () => {
+    const { w } = world();
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    w.loseResponses.push({ method: "POST", pattern: /\/step$/, count: 1 });
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
+    expect(result.status).toBe("succeeded");
+    expect((result as any).output.status).toBe("complete");
+    expect(result.envelopes.some((e: any) => e.resumable === "retry")).toBe(true);
+  });
+
+  test("the dry run names tables the destination lacks and suggests Create missing tables", async () => {
+    const { w, destination } = world();
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    (destination.options as any).tables = ["options"];
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, dryRun: true, ...confirm });
+    expect((result as any).output.plan.missingTables).toEqual(["posts"]);
+    expect((result as any).output.plan.warnings).toContain("The destination has no table for posts. Turn on “Create missing tables”, or Zoer Connect will refuse the import.");
+    const create = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: PULL2, dryRun: true, importOptions: { replacements: { automatic: true, variants: false, paths: false, custom: [] }, createTables: true }, ...confirm });
+    expect((create as any).output.plan.missingTables).toBeUndefined();
   });
 
   test("dry run plans the push and sends nothing that writes", async () => {
@@ -444,7 +483,8 @@ describe("transfer.preview and transfer.push", () => {
     // Files Zoer Connect would refuse are reported in the plan, before anything is sent.
     expect((result as any).output).toMatchObject({ status: "dry-run", plan: { files: 4, database: true, batchUpload: true, skipped: { count: 2, reason: "not accepted by Zoer Connect" },
       warnings: ["2 files skipped: not accepted by Zoer Connect (wp-content/themes/twentyone/.gitignore, wp-content/uploads/2024/index.php). The destination keeps its own copies."] } });
-    expect(destination.log.map(l => l.route)).toEqual(["/status"]);
+    // Only reads: status, then diagnostics for the missing-table check.
+    expect(destination.log.map(l => l.route)).toEqual(["/status", "/diagnostics"]);
     expect(destination.imports.size).toBe(0);
   });
 
@@ -462,12 +502,12 @@ describe("transfer.preview and transfer.push", () => {
     await pulled(w);
     w.catalog.engine("external:dest");
     const wrong = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, confirmTarget: "https://other.example", replacementAccepted: true });
-    expect((wrong as any).error.message).toBe("Confirm the exact destination address.");
+    expect((wrong as any).output.error.message).toBe("Confirm the exact destination address.");
     const noPolicy = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, confirmTarget: "https://dest.example" });
-    expect((noPolicy as any).error.message).toContain("confirm the destination replacement policy");
+    expect((noPolicy as any).output.error.message).toContain("confirm the destination replacement policy");
     w.catalog.engine("hostinger-1");
     const same = await w.run("transfer.push", { siteId: "hostinger-1", setId: `fs_${PULL}`, importId: IMPORT, confirmTarget: "https://source.example", replacementAccepted: true });
-    expect((same as any).error.message).toContain("Choose a different source");
+    expect((same as any).output.error.message).toContain("Choose a different source");
   });
 });
 

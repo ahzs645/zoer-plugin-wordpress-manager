@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import {
-  defaultSelection, filterEngineHistory, historyEmptyText, historySummaryHint, mergeEngineHistory, parseHistoryRecord, parseLocalCopyRecord, parsePreviewSummary, parsePullRecord,
+  defaultSelection, filterEngineHistory, historyEmptyText, historySummaryHint, mergeEngineHistory, parseHistoryRecord, runHistoryItem, parseLocalCopyRecord, parsePreviewSummary, parsePullRecord,
   previewExpired, previewFiles, pullHasDatabase, pushSources, refreshCandidates, type LocalCopyRecord, type PullRecord,
 } from "./records";
 import type { RecentRun } from "./runState";
@@ -104,4 +104,10 @@ test("a preview file Zoer Connect refuses keeps its reason", () => {
   const files = previewFiles([{ id: "preview-page:p:0", kind: "preview-page", data: { previewId: "p", page: 0, files: [{ path: "wp-content/plugins/akismet/.htaccess", bytes: 13, sha256: "a".repeat(64), state: "blocked", reason: "not accepted by Zoer Connect" }] } }], "p");
   expect(files).toEqual([{ path: "wp-content/plugins/akismet/.htaccess", bytes: 13, sha256: "a".repeat(64), state: "blocked", expectedDestinationSha256: null, reason: "not accepted by Zoer Connect" }]);
   expect(defaultSelection(files)).toEqual([]);
+});
+
+test("a refused push run is listed as failed in the history", () => {
+  const item = runHistoryItem({ runId: "r1", actionId: "transfer.push", status: "succeeded", createdAt: "2026-10-04T00:00:00Z", input: { siteId: "external:dest", importId: "c".repeat(32) },
+    resumable: { state: "running", slices: 3, progress: { phase: "failed", message: "Every imported core or plugin table requires an existing matching destination schema." }, nextStepAt: null, lastError: null, consecutiveFailures: 0, lockKey: "k" } } as any);
+  expect(item).toMatchObject({ status: "failed", summary: "Push refused by the site.", error: "Every imported core or plugin table requires an existing matching destination schema." });
 });

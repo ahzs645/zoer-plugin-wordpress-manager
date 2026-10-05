@@ -27,7 +27,9 @@ export type FakeResponse = { status: number; headers: Record<string, string>; bo
 export type LogEntry = { method: string; route: string; body?: string };
 
 type ExportJob = { id: string; input: any; paged: boolean; steps: number; status: "preparing" | "ready" | "cancelled"; files: { path: string; bytes: number; sha256: string; digestFormat?: "sha256-blocks-v1"; data: Buffer }[] };
-type ImportJob = { id: string; manifest: any; phase: string; spans: Buffer[]; sizes: number[]; blocks: (string[] | undefined)[]; offsets: number[]; review: boolean; stepped: number; cleanedUp: boolean; rollbackRefused?: boolean };
+type ImportJob = { id: string; manifest: any; phase: string; spans: Buffer[]; sizes: number[]; blocks: (string[] | undefined)[]; offsets: number[]; review: boolean; stepped: number; cleanedUp: boolean; rollbackRefused?: boolean;
+  /** Rollback cursor and the site before activation (restored when the rollback ends). */
+  cursor: number; before?: { site: Map<string, Buffer>; database: Buffer | null }; cleanupCalls?: number; requests: Record<string, number> };
 
 export interface FakeSiteOptions {
   origin: string;
@@ -43,6 +45,14 @@ export interface FakeSiteOptions {
   pageSize?: number;
   /** Export steps before "ready". */
   exportSteps?: number;
+  /** Tables the destination has (GET /diagnostics). */
+  tables?: string[];
+  /** The first import step fails like Zoer Connect's scan of a database with missing tables. */
+  refuseImport?: { phase: string; message: string };
+  /** Tables an import stages (rollback walks them; Zoer Connect: one per source table). */
+  importTables?: number;
+  /** POST /imports/<id>/cleanup calls before cleanedUp (Zoer Connect cleans in 2 s batches). */
+  cleanupCalls?: number;
   /** Refuse a new export while another one exists (the DDEV bridge and Zoer Connect's private storage). */
   singleExport?: boolean;
   batchLimits?: Record<string, number>;
@@ -120,6 +130,10 @@ export class FakeZoerConnect {
     const q = (key: string) => Number(url.searchParams.get(key));
     let m: RegExpExecArray | null;
     if (route === "/status" && request.method === "GET") return json(200, this.status());
+    if (route === "/diagnostics" && request.method === "GET") {
+      if (!this.options.tables) return json(404, {});
+      return json(200, { database: { tables: this.options.tables.map(suffix => ({ name: `wp_${suffix}`, suffix, prefixed: true, engine: "InnoDB", rows: 1, bytes: 1 })) } });
+    }
     if (route === "/files/compare" && request.method === "POST") {
       const refused = (body().files as { path: string }[]).map(({ path }) => refusedPath(path)).find(Boolean);
       if (refused) return json(400, { code: "zoer_invalid", message: refused });
@@ -212,7 +226,7 @@ export class FakeZoerConnect {
     if (existing) return json(200, this.summary(existing));
     const entries = [...(manifest.database ? [manifest.database] : []), ...(manifest.files ?? [])];
     const job: ImportJob = { id: manifest.id, manifest, phase: entries.length && manifest.kind !== "replace" ? "uploading" : "importing", spans: entries.map(() => Buffer.alloc(0)), sizes: entries.map((e: any) => e.bytes),
-      blocks: entries.map((e: any) => e.chunkSha256), offsets: entries.map(() => 0), review: manifest.options?.review === true || manifest.kind === "replace", stepped: 0, cleanedUp: false };
+      blocks: entries.map((e: any) => e.chunkSha256), offsets: entries.map(() => 0), review: manifest.options?.review === true || manifest.kind === "replace", stepped: 0, cleanedUp: false, cursor: 0, requests: {} };
     this.imports.set(job.id, job);
     return json(201, this.summary(job));
   }
@@ -242,6 +256,19 @@ export class FakeZoerConnect {
   }
   private control(id: string, action: string) {
     const job = this.imports.get(id); if (!job) return json(404, {});
+    job.requests[action] = (job.requests[action] ?? 0) + 1;
+    if (action === "step" && job.phase === "importing" && this.options.refuseImport) {
+      // TransferImport::step throws while scanning; the answer is safeError() with HTTP 409.
+      job.phase = this.options.refuseImport.phase;
+      return json(409, { code: "zoer_import_failed", message: this.options.refuseImport.message, phase: job.phase });
+    }
+    if (action === "rollback") return this.rollbackStep(job);
+    if (action === "cleanup") {
+      if (!["complete", "rolled_back", "cancelled"].includes(job.phase)) return json(409, { code: "zoer_import_failed", message: "Only complete, rolled back or cancelled imports can be cleaned up." });
+      job.cleanupCalls = (job.cleanupCalls ?? 0) + 1;
+      if (job.cleanupCalls >= (this.options.cleanupCalls ?? 1)) job.cleanedUp = true;
+      return json(200, this.summary(job));
+    }
     if (action === "step") {
       if (job.phase === "importing") {
         job.stepped++;
@@ -250,11 +277,39 @@ export class FakeZoerConnect {
       }
     } else if (action === "approve") { if (job.phase !== "review_required") return json(409, { code: "zoer_import_state", message: "Not in review." }); job.manifest.approved = true; job.phase = "importing"; }
     else if (action === "finish") { job.phase = "complete"; this.activate(job); }
-    else if (action === "rollback") { if (job.rollbackRefused) return json(409, { code: "zoer_import_rollback_refused", message: "refused" }); job.phase = "rolled_back"; }
-    else if (action === "cleanup") job.cleanedUp = true;
+
     return json(200, this.summary(job));
   }
+  /**
+   * One rollback tick per request, through Zoer Connect's phases (TransferImport::tick):
+   * rollback_reset (tables) → rollback_reset_files (artifacts) → rollback_preflight_tables →
+   * rollback_preflight_files → rollback_tables (backwards) → rollback_files (backwards) →
+   * rollback_ready → rolled_back. Before the fence a rollback only cancels.
+   */
+  private rollbackStep(job: ImportJob) {
+    if (job.rollbackRefused) return json(409, { code: "zoer_import_rollback_refused", message: "refused" });
+    if (["rolled_back", "cancelled"].includes(job.phase)) return json(200, this.summary(job));
+    if (["uploading", "importing", "scanning_database", "review_required"].includes(job.phase) && !job.before) { job.phase = "cancelled"; return json(200, this.summary(job)); }
+    const tables = this.options.importTables ?? (job.manifest.database ? 3 : 0), artifacts = job.sizes.length;
+    if (!job.phase.startsWith("rollback")) { job.phase = "rollback_reset"; job.cursor = 0; }
+    const next = (phase: string, cursor = 0) => { job.phase = phase; job.cursor = cursor; };
+    switch (job.phase) {
+      case "rollback_reset": if (job.cursor >= tables) next("rollback_reset_files"); else job.cursor++; break;
+      case "rollback_reset_files": if (job.cursor >= artifacts) next("rollback_preflight_tables"); else job.cursor++; break;
+      case "rollback_preflight_tables": if (job.cursor >= tables) next("rollback_preflight_files"); else job.cursor++; break;
+      case "rollback_preflight_files": if (job.cursor >= artifacts) next("rollback_tables", tables - 1); else job.cursor++; break;
+      case "rollback_tables": if (job.cursor < 0) next("rollback_files", artifacts - 1); else job.cursor--; break;
+      case "rollback_files": if (job.cursor < 0) next("rollback_ready"); else job.cursor--; break;
+      case "rollback_ready": {
+        if (job.before) { this.site.clear(); for (const [path, data] of job.before.site) this.site.set(path, data); this.database = job.before.database; }
+        next("rolled_back"); break;
+      }
+    }
+    return json(200, this.summary(job));
+  }
+
   private activate(job: ImportJob) {
+    job.before ??= { site: new Map(this.site), database: this.database };
     const entries = [...(job.manifest.database ? [{ path: "database.sql" }] : []), ...(job.manifest.files ?? [])];
     entries.forEach((entry: any, index: number) => {
       if (entry.path === "database.sql") this.database = job.spans[index]!;

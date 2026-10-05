@@ -103,7 +103,7 @@ export interface RunView {
   dryRun: boolean;
 }
 
-type PushOutput = { status?: string; cleanedUp?: boolean; summary?: string };
+type PushOutput = { status?: string; cleanedUp?: boolean; summary?: string; error?: { code?: string; message?: string }; cancelledImport?: boolean };
 
 /** Label, tone, progress and the buttons that apply to one run. `kind` picks push/replace-only controls. */
 export function describeRun(run: Pick<EngineRun<unknown>, "status" | "error" | "statusReason" | "output" | "resumable">, kind: "push" | "replace" | "other" = "other"): RunView {
@@ -113,6 +113,11 @@ export function describeRun(run: Pick<EngineRun<unknown>, "status" | "error" | "
   const remote = kind === "push" || kind === "replace";
   const base = { progress, dryRun, needsUser: null as NeedsUserKind | null };
   if (run.status === "succeeded") {
+    // A definite refusal: the worker ended the run with the site's answer (see slices.js).
+    if (output.status === "failed") {
+      const message = typeof output.error?.message === "string" ? output.error.message : output.summary ?? "The transfer failed.";
+      return { ...base, label: "Failed", tone: "error", terminal: true, working: false, reason: output.cancelledImport ? `${message} The staged import was cancelled; nothing was activated.` : message, buttons: [] };
+    }
     if (output.status === "rolled_back") return { ...base, label: "Rolled back · nothing was activated", tone: "neutral", terminal: true, working: false, reason: output.summary ?? null, buttons: [] };
     const cleanup = remote && output.status === "complete" && output.cleanedUp !== true;
     return { ...base, label: dryRun ? "Dry run complete · nothing was changed" : "Complete", tone: "success", terminal: true, working: false, reason: null, buttons: cleanup ? ["rollback", "cleanup"] : [] };

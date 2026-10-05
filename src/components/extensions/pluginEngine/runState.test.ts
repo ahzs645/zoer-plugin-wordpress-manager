@@ -94,3 +94,9 @@ test("a site's Transfers list counts its runs in every status, local exports inc
   expect(runsOfSite(runs, "ddev-shop").map(run => run.runId)).toEqual(["transfer.local-export-failed", "transfer.pull-cancelled", "copy.local-failed"]);
   expect(runsOfSite(runs.slice(0, 1), "ddev-shop")).toHaveLength(1);
 });
+
+test("a push the site refused shows as failed with the site's message", () => {
+  const view = describeRun(run("succeeded", { output: { status: "failed", error: { code: "transfer_failed", message: "Every imported core or plugin table requires an existing matching destination schema." }, cancelledImport: true } }), "push");
+  expect(view).toMatchObject({ label: "Failed", tone: "error", terminal: true, buttons: [] });
+  expect(view.reason).toBe("Every imported core or plugin table requires an existing matching destination schema. The staged import was cancelled; nothing was activated.");
+});
