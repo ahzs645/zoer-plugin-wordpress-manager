@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { describeRun, engineErrorMessage, isBusyError, isTransferFence, needsUserKind, newHexId, progressView, runsOfSite, runTransferId, type ResumableSummary } from "./runState";
+import { describeRun, engineErrorMessage, importStateFromControls, isBusyError, isTransferFence, needsUserKind, newHexId, progressView, runsOfSite, runTransferId, type ResumableSummary } from "./runState";
 
 const resumable = (patch: Partial<ResumableSummary> = {}): ResumableSummary => ({ state: "running", slices: 3, progress: null, nextStepAt: null, lastError: null, consecutiveFailures: 0, lockKey: "resumable:wordpress-manager:site-transfer:ep_1", ...patch });
 const run = (status: string, patch: Record<string, unknown> = {}) => ({ status, error: null, statusReason: null, output: null, ...patch });
@@ -106,4 +106,19 @@ test("Zoer Connect's transfer fence is recognised in a failed site request", () 
   expect(isTransferFence("WordPress transfer recovery is required or a request is still draining.")).toBe(true);
   expect(isTransferFence("WordPress rejected this key.")).toBe(false);
   expect(isTransferFence(null)).toBe(false);
+});
+
+test("a finished push card follows a later rollback and cleanup of its import", () => {
+  const importId = "c".repeat(32);
+  const control = (control: string, status = "succeeded", phase = "done") => ({ actionId: "transfer.push.control", status, input: { siteId: "s", importId, control }, resumable: resumable({ progress: { phase } }) });
+  const pushed = run("succeeded", { output: { status: "complete", cleanedUp: false } });
+  expect(describeRun(pushed, "push").buttons).toEqual(["rollback", "cleanup"]);
+  const rolledBack = importStateFromControls([control("rollback")], importId);
+  expect(rolledBack).toEqual({ rolledBack: true });
+  expect(describeRun(pushed, "push", rolledBack)).toMatchObject({ label: "Rolled back", buttons: ["cleanup"] });
+  const both = importStateFromControls([control("rollback"), control("cleanup")], importId);
+  expect(describeRun(pushed, "push", both)).toMatchObject({ label: "Rolled back", buttons: [], reason: "The import was rolled back and its backups and staged files were cleaned up." });
+  expect(describeRun(pushed, "push", importStateFromControls([control("cleanup")], importId))).toMatchObject({ label: "Complete", buttons: [] });
+  // A refused or running control, or one for another import, changes nothing.
+  expect(importStateFromControls([control("rollback", "succeeded", "failed"), control("rollback", "running"), { ...control("cleanup"), input: { importId: "d".repeat(32), control: "cleanup" } }], importId)).toEqual({});
 });

@@ -105,8 +105,27 @@ export interface RunView {
 
 type PushOutput = { status?: string; cleanedUp?: boolean; summary?: string; error?: { code?: string; message?: string }; cancelledImport?: boolean };
 
+/** What happened to a finished push's import later, through the import controls. */
+export interface ImportState { rolledBack?: boolean; cleanedUp?: boolean }
+
+/**
+ * The later state of `importId` from its control runs: a rollback that ended (rolled back or
+ * cancelled) and a cleanup that ended. A control the site refused (failure result) changes nothing.
+ */
+export function importStateFromControls(runs: readonly Pick<RecentRun, "actionId" | "status" | "input" | "resumable">[], importId: string | null): ImportState {
+  const state: ImportState = {};
+  if (!importId) return state;
+  for (const run of runs) {
+    const input = runInput(run);
+    if (run.actionId !== ENGINE_ACTIONS.control || input.importId !== importId || run.status !== "succeeded" || run.resumable?.progress?.phase === "failed") continue;
+    if (input.control === "rollback") state.rolledBack = true;
+    if (input.control === "cleanup") state.cleanedUp = true;
+  }
+  return state;
+}
+
 /** Label, tone, progress and the buttons that apply to one run. `kind` picks push/replace-only controls. */
-export function describeRun(run: Pick<EngineRun<unknown>, "status" | "error" | "statusReason" | "output" | "resumable">, kind: "push" | "replace" | "other" = "other"): RunView {
+export function describeRun(run: Pick<EngineRun<unknown>, "status" | "error" | "statusReason" | "output" | "resumable">, kind: "push" | "replace" | "other" = "other", later: ImportState = {}): RunView {
   const output = (run.output && typeof run.output === "object" ? run.output : {}) as PushOutput;
   const dryRun = output.status === "dry-run";
   const progress = progressView(run.resumable?.progress);
@@ -118,8 +137,14 @@ export function describeRun(run: Pick<EngineRun<unknown>, "status" | "error" | "
       const message = typeof output.error?.message === "string" ? output.error.message : output.summary ?? "The transfer failed.";
       return { ...base, label: "Failed", tone: "error", terminal: true, working: false, reason: output.cancelledImport ? `${message} The staged import was cancelled; nothing was activated.` : message, buttons: [] };
     }
-    if (output.status === "rolled_back") return { ...base, label: "Rolled back · nothing was activated", tone: "neutral", terminal: true, working: false, reason: output.summary ?? null, buttons: [] };
-    const cleanup = remote && output.status === "complete" && output.cleanedUp !== true;
+    if (output.status === "rolled_back") return { ...base, label: "Rolled back · nothing was activated", tone: "neutral", terminal: true, working: false, reason: output.summary ?? null, buttons: remote && !later.cleanedUp && output.cleanedUp !== true ? ["cleanup"] : [] };
+    const cleanedUp = output.cleanedUp === true || later.cleanedUp === true;
+    if (remote && output.status === "complete" && later.rolledBack) {
+      return { ...base, label: "Rolled back", tone: "neutral", terminal: true, working: false, buttons: cleanedUp ? [] : ["cleanup"],
+        reason: cleanedUp ? "The import was rolled back and its backups and staged files were cleaned up." : "The import was rolled back; the site is back to its earlier content. Clean up removes the import's backups and staged files." };
+    }
+    if (remote && output.status === "complete" && cleanedUp) return { ...base, label: "Complete", tone: "success", terminal: true, working: false, reason: "Backups were cleaned up, so this import can no longer be rolled back.", buttons: [] };
+    const cleanup = remote && output.status === "complete" && !cleanedUp;
     return { ...base, label: dryRun ? "Dry run complete · nothing was changed" : "Complete", tone: "success", terminal: true, working: false, reason: null, buttons: cleanup ? ["rollback", "cleanup"] : [] };
   }
   if (run.status === "failed") return { ...base, label: "Failed", tone: "error", terminal: true, working: false, reason: run.error || run.resumable?.lastError?.message || "The transfer failed.", buttons: [] };

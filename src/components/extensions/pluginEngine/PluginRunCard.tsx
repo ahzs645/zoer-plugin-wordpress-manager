@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Eraser, Loader2, Pause, Play, ShieldCheck, Undo2, X } from "lucide-react";
 import { Btn, StatusBadge, useDialogs } from "@zoer/plugin-ui/controls";
-import { cancelRun, controlImport, engineKeys, pauseRun, resumeRun, useEngineRun } from "../../../lib/queries/plugin-engine";
+import { cancelRun, controlImport, engineKeys, pauseRun, resumeRun, useEngineRun, useRecentRuns } from "../../../lib/queries/plugin-engine";
 import { formatTransferBytes } from "../wordpressPullProgress";
 import { formatDuration } from "../wordpressTransfer/transferLabels";
-import { describeRun, engineErrorMessage, runInput, type RecentRun, type RunButton } from "./runState";
+import { describeRun, ENGINE_ACTIONS, engineErrorMessage, importStateFromControls, runInput, type RecentRun, type RunButton } from "./runState";
 
 type Output = Record<string, unknown>;
 const num = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -96,9 +96,12 @@ export default function PluginRunCard({ recent, title, kind = "other", siteId }:
   const client = useQueryClient();
   const detail = useEngineRun<Output>(recent.runId);
   const run = detail.data ?? { id: recent.runId, status: recent.status, resumable: recent.resumable, error: recent.error, statusReason: null, output: null };
-  const view = describeRun(run, kind);
   const input = runInput(recent);
   const importId = typeof input.importId === "string" ? input.importId : typeof (run.output as Output | null)?.importId === "string" ? (run.output as Output).importId as string : null;
+  // A finished push's import may have been rolled back or cleaned up later by the import controls.
+  const controls = useRecentRuns([ENGINE_ACTIONS.control], { enabled: kind === "push" || kind === "replace" });
+  const later = importStateFromControls(controls.data ?? [], importId);
+  const view = describeRun(run, kind, later);
   const target = typeof input.siteId === "string" ? input.siteId : siteId;
   const [pending, setPending] = useState<RunButton | null>(null);
   const [error, setError] = useState("");
@@ -157,7 +160,7 @@ export default function PluginRunCard({ recent, title, kind = "other", siteId }:
     {view.needsUser === "review" && <p className="text-xs text-text-secondary">Everything is staged and the site is still online. Approve to activate the changes, or roll back to discard them. Each decision asks for Zoer's approval.</p>}
     {view.needsUser === "verify" && <p className="text-xs text-text-secondary">The new content is active and WordPress is paused for visitors. Check the site, then finish to reopen it, or roll back.</p>}
     {output && view.terminal && <RunOutput output={output} />}
-    {view.terminal && output?.status === "complete" && output.cleanedUp !== true && (kind === "push" || kind === "replace") && <p className="text-xs text-text-secondary">Backups are kept on the destination so you can roll back. Clean them up when you are satisfied.</p>}
+    {view.terminal && output?.status === "complete" && output.cleanedUp !== true && !later.rolledBack && !later.cleanedUp && (kind === "push" || kind === "replace") && <p className="text-xs text-text-secondary">Backups are kept on the destination so you can roll back. Clean them up when you are satisfied.</p>}
 
     {view.buttons.length > 0 && <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
       {view.buttons.map(button => <Btn key={button} size="sm" className="w-full sm:w-auto" variant={BUTTONS[button].variant} icon={BUTTONS[button].icon} disabled={pending !== null} loading={pending === button} onClick={() => void act(button)}>{BUTTONS[button].label}</Btn>)}
