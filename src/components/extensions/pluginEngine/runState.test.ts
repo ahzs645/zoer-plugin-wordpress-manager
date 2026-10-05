@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { describeRun, engineErrorMessage, importStateFromControls, isBusyError, isTransferFence, needsUserKind, newHexId, progressView, runsOfSite, runTransferId, type ResumableSummary } from "./runState";
+import { describeRun, engineErrorMessage, importStateFromControls, isBusyError, isTransferFence, recentTransferRuns, needsUserKind, newHexId, progressView, runsOfSite, runTransferId, type ResumableSummary } from "./runState";
 
 const resumable = (patch: Partial<ResumableSummary> = {}): ResumableSummary => ({ state: "running", slices: 3, progress: null, nextStepAt: null, lastError: null, consecutiveFailures: 0, lockKey: "resumable:wordpress-manager:site-transfer:ep_1", ...patch });
 const run = (status: string, patch: Record<string, unknown> = {}) => ({ status, error: null, statusReason: null, output: null, ...patch });
@@ -121,4 +121,13 @@ test("a finished push card follows a later rollback and cleanup of its import", 
   expect(describeRun(pushed, "push", importStateFromControls([control("cleanup")], importId))).toMatchObject({ label: "Complete", buttons: [] });
   // A refused or running control, or one for another import, changes nothing.
   expect(importStateFromControls([control("rollback", "succeeded", "failed"), control("rollback", "running"), { ...control("cleanup"), input: { importId: "d".repeat(32), control: "cleanup" } }], importId)).toEqual({});
+});
+
+test("Recent transfers keeps the five newest and pins failures of the last seven days", () => {
+  const now = Date.parse("2026-10-05T12:00:00Z");
+  const at = (days: number) => new Date(now - days * 86_400_000).toISOString();
+  const entry = (runId: string, status: string, days: number, phase?: string) => ({ runId, status, createdAt: at(days), finishedAt: at(days), ...(phase ? { resumable: resumable({ progress: { phase } }) } : {}) });
+  const runs = [entry("new1", "succeeded", 0.1), entry("new2", "succeeded", 0.2), entry("new3", "succeeded", 0.3), entry("new4", "succeeded", 0.4), entry("new5", "succeeded", 0.5),
+    entry("failed", "failed", 3), entry("unknown", "outcome_unknown", 4), entry("refused", "succeeded", 5, "failed"), entry("old-failed", "failed", 9), entry("older-ok", "succeeded", 2), entry("running", "running", 0)];
+  expect(recentTransferRuns(runs, now).map(run => run.runId)).toEqual(["new1", "new2", "new3", "new4", "new5", "failed", "unknown", "refused"]);
 });

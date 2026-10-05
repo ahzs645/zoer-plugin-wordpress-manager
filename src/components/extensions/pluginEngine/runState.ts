@@ -221,3 +221,19 @@ export function isTransferFence(message: string | null | undefined) {
   return /zoer_transfer_paused|transfer recovery is required|request is still draining/i.test(message ?? "");
 }
 export const TRANSFER_FENCE_NOTICE = "This site is paused by a transfer: a push or rollback holds it until it finishes. Its plugin list, connection check and the other parts that need the site come back then; follow the transfer below.";
+
+const RECENT_LIMIT = 5;
+const PIN_FAILED_MS = 7 * 24 * 3_600_000;
+/** A run that ended badly: failed, outcome unknown, or refused by the site (failure result). */
+export const endedBadly = (run: Pick<RecentRun, "status" | "resumable">) => run.status === "failed" || run.status === "outcome_unknown" || (run.status === "succeeded" && run.resumable?.progress?.phase === "failed");
+
+/**
+ * The finished runs a site's "Recent transfers" shows: the five newest, plus every run from the
+ * last seven days that ended badly, so a failure does not drop out behind newer runs. Newest first.
+ */
+export function recentTransferRuns<T extends Pick<RecentRun, "runId" | "status" | "createdAt" | "finishedAt" | "resumable">>(runs: readonly T[], now = Date.now()): T[] {
+  const finished = runs.filter(run => isTerminalStatus(run.status)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const shown = new Set(finished.slice(0, RECENT_LIMIT).map(run => run.runId));
+  for (const run of finished) if (endedBadly(run) && now - Date.parse(run.finishedAt ?? run.createdAt) <= PIN_FAILED_MS) shown.add(run.runId);
+  return finished.filter(run => shown.has(run.runId));
+}
