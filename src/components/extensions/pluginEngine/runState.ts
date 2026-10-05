@@ -171,3 +171,14 @@ export function runTransferId(run: Pick<RecentRun, "runId" | "input">) {
 export function runInput(run: Pick<RecentRun, "input">): Record<string, unknown> {
   return run.input && typeof run.input === "object" ? run.input as Record<string, unknown> : {};
 }
+
+/** Actions whose runs a site's Transfers list shows (a local export runs on the DDEV site it exports). */
+export const SITE_RUN_ACTIONS = [ENGINE_ACTIONS.pull, ENGINE_ACTIONS.localExport, ENGINE_ACTIONS.push, ENGINE_ACTIONS.replace, ENGINE_ACTIONS.copy] as const;
+
+/**
+ * A site's runs in every status (failed, cancelled and finished ones too): started for the site,
+ * or refreshing it as a local copy.
+ */
+export function runsOfSite<T extends Pick<RecentRun, "input" | "actionId">>(runs: readonly T[], siteId: string): T[] {
+  return runs.filter(run => (SITE_RUN_ACTIONS as readonly string[]).includes(run.actionId) && (runInput(run).siteId === siteId || runInput(run).replaceSiteId === siteId));
+}

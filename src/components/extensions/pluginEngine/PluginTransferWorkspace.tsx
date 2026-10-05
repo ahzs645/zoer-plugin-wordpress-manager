@@ -18,7 +18,7 @@ import PluginPulls from "./PluginPulls";
 import PluginPushFlow from "./PluginPushFlow";
 import PluginRunCard from "./PluginRunCard";
 import PluginTransferHistory from "./PluginTransferHistory";
-import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput, type RecentRun } from "./runState";
+import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput, runsOfSite, SITE_RUN_ACTIONS, type RecentRun } from "./runState";
 import type { PullRecord } from "./records";
 
 const ICONS: Record<TransferAction, React.ReactNode> = {
@@ -27,7 +27,6 @@ const ICONS: Record<TransferAction, React.ReactNode> = {
   export: <Archive className="h-4 w-4" aria-hidden="true" />,
 };
 /** Actions sharing the `site-transfer` lock group: one may run per site at a time. */
-const SITE_ACTIONS = [ENGINE_ACTIONS.pull, ENGINE_ACTIONS.push, ENGINE_ACTIONS.replace, ENGINE_ACTIONS.copy] as const;
 const RUN_TITLES: Record<string, string> = { [ENGINE_ACTIONS.pull]: "Pull", [ENGINE_ACTIONS.push]: "Push", [ENGINE_ACTIONS.replace]: "Find & Replace", [ENGINE_ACTIONS.copy]: "Local copy" };
 /** Dry run starts on for the actions that write to the site. */
 const DRY_RUN_DEFAULTS: Record<TransferAction, boolean> = { pull: false, backup: false, export: false, push: true, replace: true };
@@ -162,8 +161,8 @@ export default function PluginTransferWorkspace({ siteId, siteName, connection, 
   const [dryRuns, setDryRuns] = useState(DRY_RUN_DEFAULTS);
   const action = draft.action;
   const dryRunFor = (key: TransferAction) => ({ dryRun: dryRuns[key], onDryRun: (value: boolean) => setDryRuns(current => ({ ...current, [key]: value })) });
-  const runs = useRecentRuns(SITE_ACTIONS);
-  const siteRuns = (runs.data ?? []).filter(run => runInput(run).siteId === siteId);
+  const runs = useRecentRuns(SITE_RUN_ACTIONS);
+  const siteRuns = runsOfSite(runs.data ?? [], siteId);
   const active = siteRuns.filter(run => !isTerminalStatus(run.status));
   const recent = siteRuns.filter(run => isTerminalStatus(run.status)).slice(0, 5);
   const busy = active.length > 0;

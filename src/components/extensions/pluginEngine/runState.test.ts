@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { describeRun, engineErrorMessage, isBusyError, needsUserKind, newHexId, progressView, runTransferId, type ResumableSummary } from "./runState";
+import { describeRun, engineErrorMessage, isBusyError, needsUserKind, newHexId, progressView, runsOfSite, runTransferId, type ResumableSummary } from "./runState";
 
 const resumable = (patch: Partial<ResumableSummary> = {}): ResumableSummary => ({ state: "running", slices: 3, progress: null, nextStepAt: null, lastError: null, consecutiveFailures: 0, lockKey: "resumable:wordpress-manager:site-transfer:ep_1", ...patch });
 const run = (status: string, patch: Record<string, unknown> = {}) => ({ status, error: null, statusReason: null, output: null, ...patch });
@@ -80,4 +80,17 @@ test("request IDs are 32 hex and runs expose their transfer ID", () => {
   expect(runTransferId({ runId: "run_1", input: { siteId: "ep_1", importId: "b".repeat(32) } })).toBe("b".repeat(32));
   expect(runTransferId({ runId: "run_1", input: { restoreId: "c".repeat(32) } })).toBe("c".repeat(32));
   expect(runTransferId({ runId: "run_1", input: null })).toBe("run_1");
+});
+
+test("a site's Transfers list counts its runs in every status, local exports included", () => {
+  const recent = (actionId: string, status: string, input: Record<string, unknown>) => ({ runId: `${actionId}-${status}`, actionId, status, createdAt: "2026-10-04T00:00:00Z", input });
+  const runs = [
+    recent("transfer.local-export", "failed", { siteId: "ddev-shop", pullId: "a".repeat(32) }),
+    recent("transfer.pull", "cancelled", { siteId: "ddev-shop" }),
+    recent("copy.local", "failed", { siteId: "hostinger-1", replaceSiteId: "ddev-shop" }),
+    recent("transfer.pull", "succeeded", { siteId: "other" }),
+    recent("transfer.preview", "succeeded", { siteId: "ddev-shop" }),
+  ];
+  expect(runsOfSite(runs, "ddev-shop").map(run => run.runId)).toEqual(["transfer.local-export-failed", "transfer.pull-cancelled", "copy.local-failed"]);
+  expect(runsOfSite(runs.slice(0, 1), "ddev-shop")).toHaveLength(1);
 });

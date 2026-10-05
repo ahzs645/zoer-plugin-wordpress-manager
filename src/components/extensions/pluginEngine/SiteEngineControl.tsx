@@ -3,9 +3,8 @@ import { FlaskConical, Server } from "lucide-react";
 import { Btn, Modal, StatusBadge, checkboxClass, controlClass, useDialogs } from "@zoer/plugin-ui/controls";
 import { useRecentRuns, useSiteEngine } from "../../../lib/queries/plugin-engine";
 import { confirmationHost, ENGINE_LABELS, pluginSwitchConfirmed } from "./engineRecord";
-import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, runInput } from "./runState";
+import { engineErrorMessage, isTerminalStatus, runsOfSite, SITE_RUN_ACTIONS } from "./runState";
 
-const SITE_ACTIONS = [ENGINE_ACTIONS.pull, ENGINE_ACTIONS.localExport, ENGINE_ACTIONS.push, ENGINE_ACTIONS.replace, ENGINE_ACTIONS.copy] as const;
 
 /** Shown wherever a site's transfers are reached; renders nothing for legacy sites. */
 export function SiteEngineBadge({ siteId, className = "" }: { siteId: string | null | undefined; className?: string }) {
@@ -32,8 +31,8 @@ export default function SiteEngineControl({ siteId, siteName, origin, production
   const host = confirmationHost(origin);
   const plugin = site.engine === "plugin";
   // Import controls (approve, finish, roll back) refuse legacy sites, so keep the engine while work is open.
-  const runs = useRecentRuns(SITE_ACTIONS, { enabled: plugin });
-  const openRuns = (runs.data ?? []).filter(run => runInput(run).siteId === siteId && !isTerminalStatus(run.status)).length;
+  const runs = useRecentRuns(SITE_RUN_ACTIONS, { enabled: plugin });
+  const openRuns = runsOfSite(runs.data ?? [], siteId).filter(run => !isTerminalStatus(run.status)).length;
   const ready = pluginSwitchConfirmed({ host, typed, acknowledged });
 
   const close = () => { if (saving) return; setOpen(false); setTyped(""); setAcknowledged(false); setError(""); };
