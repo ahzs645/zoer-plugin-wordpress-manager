@@ -55,6 +55,8 @@ function localSource(host, state) {
     step: async (id) => normalize(await invoke("export.step.v1", { exportId: id })),
     peer: (id) => ({ runtime: { alias: RUNTIME_ALIAS, resourceId: state.siteId, operation: "export.chunk.v1", args: { exportId: id } } }),
     protocol: "chunked-json-v1",
+    /** Steps and chunk reads are runtime calls (the slice's runtime call budget). */
+    runtime: true,
     remove: (id) => invoke("export.cancel.v1", { exportId: id }),
     // The bridge echoes the source URL it was given: the site's Zoer address, like the host engine
     // (checkpoints from before 0.7.0 sent none and accept the bridge's own address).
@@ -185,10 +187,9 @@ function pullRecord(state, status, extra = {}) {
  */
 const PREPARE_TIME_LEFT_MS = 10_000;
 /**
- * At most this many remote export steps per slice. Zoer allows 250 `runtime.invoke` calls per
- * worker execution ("Runtime RPC budget exhausted.", a permanent refusal) and a DDEV bridge step
- * only reads the job status, so a fast bridge would reach it within seconds. The pull's network
- * budget (2,000 requests per slice) leaves the same room for Zoer Connect.
+ * At most this many remote export steps per slice, within the pull's network budget (2,000
+ * requests per slice) for Zoer Connect. DDEV bridge steps are runtime calls and also stop when
+ * the slice's shared runtime call budget (`ctx.runtimeLeft()`) runs out.
  */
 const PREPARE_MAX_STEPS = 200;
 
@@ -230,7 +231,7 @@ async function prepare(state, ctx, source) {
   let current, slowest = 0;
   for (let steps = 0; ; steps++) {
     if (steps > 0) {
-      if (steps >= PREPARE_MAX_STEPS || ctx.timeLeft() <= PREPARE_TIME_LEFT_MS + slowest) return false;
+      if (steps >= PREPARE_MAX_STEPS || ctx.timeLeft() <= PREPARE_TIME_LEFT_MS + slowest || (source.runtime && ctx.runtimeLeft() < 1)) return false;
       stopIfPaused(ctx);
     }
     const started = ctx.now();
@@ -292,9 +293,12 @@ async function validateSource(state, current, source) {
 async function download(state, ctx, source) {
   const { host } = ctx;
   while (ctx.timeLeft() > 5_000) {
+    // Each chunk read from a runtime peer (the DDEV bridge) is one runtime call.
+    const maxChunks = source.runtime ? Math.min(8, ctx.runtimeLeft()) : state.paged ? 32 : 8;
+    if (maxChunks < 1) return false;
     let result;
     try {
-      result = await host.call("transfer.download", { transferId: `pull-${state.pullId}`, setId: state.setId, source: source.peer(state.pullId), protocol: source.protocol, cursor: state.cursor, maxChunks: state.paged ? 32 : 8 });
+      result = await host.call("transfer.download", { transferId: `pull-${state.pullId}`, setId: state.setId, source: source.peer(state.pullId), protocol: source.protocol, cursor: state.cursor, maxChunks });
     } catch (error) {
       if (error?.code === "transfer_integrity") throw new TransferError("Export file integrity check failed. Resume to retry this file.", { needsUser: true, code: error.code });
       throw error;

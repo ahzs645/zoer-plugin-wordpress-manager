@@ -8,7 +8,7 @@ import { EMPTY_SHA256, hasOnlyMacMetadataExclusions, isUploadPlaceholder } from 
 import { deleteSet, describeSet, listEntries, readText } from "./filesets.js";
 import { defaultExportOptions } from "./options.js";
 import { HEX32, pullOfSet, pullSpec, runHex } from "./pull.js";
-import { fail, TransferError } from "./slices.js";
+import { fail, TransferError, UPLOAD_RUNTIME_REQUESTS } from "./slices.js";
 import { validateUpdraftSet } from "./updraft.js";
 
 export const RUNTIME_ALIAS = "wordpress_site";
@@ -190,7 +190,8 @@ async function ensureSite(state, ctx) {
 
 async function stage(state, ctx) {
   const { host } = ctx;
-  while (ctx.timeLeft() > 5_000) {
+  // Each batch to the runtime peer is a runtime call (the slice's shared runtime call budget).
+  while (ctx.timeLeft() > 5_000 && ctx.runtimeLeft() >= UPLOAD_RUNTIME_REQUESTS) {
     let result;
     try {
       result = await host.call("transfer.upload", { transferId: `copy-${state.copyId}`, setId: state.setId,
@@ -212,7 +213,7 @@ async function stage(state, ctx) {
 async function placeFiles(state, ctx) {
   const { host } = ctx;
   let entries = null;
-  while (state.fileOffset < state.fileCount && ctx.timeLeft() > 30_000) {
+  while (state.fileOffset < state.fileCount && ctx.timeLeft() > 30_000 && ctx.runtimeLeft() >= 1) {
     if (state.kind === "restore") {
       await execCommand(host, state.targetId, "wordpress.copy.files", { id: state.copyId, fromPrepared: true, offset: state.fileOffset, limit: FILE_BATCH });
     } else {

@@ -20,6 +20,27 @@ export const SLICE_RESERVE_MS = 8_000;
  * more records the failure first.
  */
 export const MAX_CONSECUTIVE_RETRIES = 8;
+/**
+ * Runtime calls one slice may make. Zoer refuses the 251st `runtime.invoke`/`adapter.invoke` of a
+ * worker execution, and separately the 251st runtime-peer request of `transfer.*`
+ * ("Runtime RPC budget exhausted.", capability_denied, which fails the run). The workers count
+ * both kinds together against this one budget, which leaves a margin for the single calls a
+ * phase makes after its loop (cleanup, sealing).
+ */
+export const RUNTIME_CALL_BUDGET = 200;
+/** Peer requests one `transfer.upload` call to a runtime peer can make (resync, batch, one retry). */
+export const UPLOAD_RUNTIME_REQUESTS = 3;
+/** Chunk requests of one `transfer.download` call without `maxChunks` (Zoer's default). */
+const DEFAULT_DOWNLOAD_CHUNKS = 8;
+
+/** Runtime calls a host call can cost, counted the way Zoer counts them (upper bound for transfers). */
+export function runtimeCost(method, input) {
+  if (method === "runtime.invoke" || method === "adapter.invoke") return 1;
+  if (method === "transfer.download" && input?.source?.runtime) return Number.isSafeInteger(input.maxChunks) ? input.maxChunks : DEFAULT_DOWNLOAD_CHUNKS;
+  if (method === "transfer.upload" && input?.target?.runtime) return UPLOAD_RUNTIME_REQUESTS;
+  return 0;
+}
+
 /** `run.progress` calls closer together are dropped here (the host keeps at most one per second). */
 const PROGRESS_INTERVAL_MS = 1_000;
 
@@ -90,8 +111,15 @@ export async function runResumable(request, host, spec, clock = Date.now) {
   const input = request.input ?? {};
   const deadlineAt = Date.parse(context.deadlineAt);
   let progressAt = -Infinity;
+  let runtimeUsed = 0;
+  // Every host call of the slice goes through here, so the runtime budget sees all phases.
+  const counted = {
+    request: host.request,
+    get pauseRequested() { return host.pauseRequested ?? null; },
+    call(method, input) { runtimeUsed += runtimeCost(method, input); return host.call(method, input); },
+  };
   const ctx = {
-    request, host, input, resumable: context,
+    request, host: counted, input, resumable: context,
     now: clock,
     deadlineAt,
     /** Milliseconds left before the slice must return (never negative). */
@@ -111,6 +139,8 @@ export async function runResumable(request, host, spec, clock = Date.now) {
      * responses; null while none arrived. Long slices check it between remote calls.
      */
     pauseRequested: () => host.pauseRequested ?? null,
+    /** Runtime calls this slice may still make (see RUNTIME_CALL_BUDGET). */
+    runtimeLeft: () => Math.max(0, RUNTIME_CALL_BUDGET - runtimeUsed),
   };
   if (context.cancelling) {
     if (spec.cancel) await spec.cancel(context.checkpoint ?? null, input, ctx);

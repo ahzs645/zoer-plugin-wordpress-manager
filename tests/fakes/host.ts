@@ -246,12 +246,25 @@ export class FakeWorld {
     };
   }
 
+  /**
+   * Runtime calls per worker execution, counted like Zoer: `runtime.invoke`/`adapter.invoke`
+   * (runtime-operations.ts) and runtime-peer requests of `transfer.*` (transfers/peers.ts) each
+   * refuse their 251st call with "Runtime RPC budget exhausted.".
+   */
+  readonly executions: Array<{ actionId: string; runtime: number; peer: number }> = [];
+  private current: { actionId: string; runtime: number; peer: number } | null = null;
+  private countPeer() { if (this.current && ++this.current.peer > 250) refuse("Runtime RPC budget exhausted.", "capability_denied"); }
+
   host(actionId: string, runId: string, effect: string, execution: number) {
     const world = this;
+    const counters = { actionId, runtime: 0, peer: 0 };
+    this.executions.push(counters);
     return {
       get pauseRequested() { return world.pause; },
       call: async (method: string, input: any = {}) => {
         this.calls.push({ method, input });
+        this.current = counters;
+        if ((method === "runtime.invoke" || method === "adapter.invoke") && ++counters.runtime > 250) refuse("Runtime RPC budget exhausted.", "capability_denied");
         if (this.pause && ["network.fetch", "runtime.invoke"].includes(method)) refuse("Paused for Zoer update", "ZOER_PAUSED");
         const service = this.services[method];
         if (service) return service(input, { actionId, runId, effect, execution });
@@ -262,6 +275,7 @@ export class FakeWorld {
 
   private fetchPeer(peer: any, method: string, query: Record<string, string | number>, body?: Buffer, contentType?: string): FakeResponse {
     if (peer.runtime) {
+      this.countPeer();
       if (peer.runtime.operation === "export.chunk.v1") return this.ddev.exportChunk(peer.runtime.resourceId, { ...peer.runtime.args, ...query });
       throw new Error("unsupported runtime peer in fake GET");
     }
@@ -375,6 +389,7 @@ export class FakeWorld {
     const chunked = input.protocol === "chunks-json-v1" || state.unverifiable.has(spans[0]!.index);
     if (input.target.runtime) {
       if (input.target.runtime.operation !== "files.stage.v1") refuse("unsupported runtime peer", "transfer_rejected");
+      this.countPeer();
       this.ddev.invoke({ operation: "files.stage.v1", resourceId: input.target.runtime.resourceId, args: { ...input.target.runtime.args, spans: spans.map(s => ({ index: s.index, offset: s.offset, data: s.data.toString("base64"), sha256: sha(s.data) })) } });
       const last = spans.at(-1)!; const end = last.offset + last.data.length;
       state.cursor = end >= files[last.index]!.bytes ? { index: last.index + 1, offset: 0 } : { index: last.index, offset: end };

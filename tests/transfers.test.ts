@@ -180,14 +180,25 @@ describe("export preparation pacing", () => {
     w.ddev.add("ddev-shop", "shop", content);
     w.catalog.engine("ddev-shop");
     const clock = timed(content, 20);
-    const runtimeCalls: number[] = [];
-    let before = 0;
-    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { clock, onSlice: () => { const now = w.calls.filter(c => c.method === "runtime.invoke").length; runtimeCalls.push(now - before); before = now; } });
+    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { clock });
     expect(result.status).toBe("succeeded");
     expect(result.envelopes.slice(0, 2)).toMatchObject([{ resumable: "continue", waitMs: 0 }, { resumable: "continue", waitMs: 0 }]);
-    // Zoer refuses the 251st runtime.invoke of one worker execution.
-    expect(Math.max(...runtimeCalls)).toBeLessThanOrEqual(250);
-    expect(runtimeCalls.slice(0, 2)).toEqual([202, 200]);
+    // Counted like Zoer (the fake refuses the 251st call); the slices stop at the 200-call budget.
+    expect(w.executions.slice(0, 2).map(e => e.runtime)).toEqual([200, 200]);
+  });
+
+  test("a large local export stays within Zoer's runtime call limits in every phase", async () => {
+    const w = new FakeWorld();
+    const files: Record<string, string> = { "database.sql": "-- db\n" };
+    for (let i = 0; i < 450; i++) files[`wp-content/uploads/2024/01/f${i}.txt`] = `file ${i}`;
+    w.ddev.add("ddev-shop", "shop", new FakeZoerConnect({ origin: "https://shop.ddev.site", files, exportSteps: 120 }));
+    w.catalog.engine("ddev-shop");
+    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
+    expect(result.status).toBe("succeeded");
+    expect((result as any).output.fileCount).toBe(451);
+    // Preparation steps, chunk reads (one runtime-peer request per file here) and cleanup together.
+    for (const execution of w.executions) expect(execution.runtime + execution.peer).toBeLessThanOrEqual(200 + 2);
+    expect(w.executions.length).toBeGreaterThan(2);
   });
 
   test("a slow step shortens the slice so the next step cannot overrun the deadline", async () => {
