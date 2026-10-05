@@ -2,6 +2,7 @@
 // Connect import state machine of the legacy host engine (`WordPressPushStore` in Zoer
 // `backend/src/wordpress-push.ts`) over S1 slices, S3 uploads (`zbt1-v1`, remote cursor
 // authority) and S7b endpoint auth (docs/plugin-shared-services.md Appendix A).
+import { createHash } from "node:crypto";
 import { assertPluginEngine, commitRecords, readRecord, readRecords } from "./catalog.js";
 import { listEntries } from "./filesets.js";
 import { capabilityFlags, importOptionsToPlugin, legacyImportOptions, replaceOptionsToPlugin, validateImportOptions, validateTableSuffixes } from "./options.js";
@@ -269,8 +270,10 @@ async function uploadSlice(state, input, ctx, client) {
 export async function stepPush(state, input, ctx) {
   const { host, request } = ctx;
   const client = connectClient(host, endpointOf(request, state.siteId), state.generation);
-  if (state.phase === "creating") {
-    const status = await client.request("/status");
+  if (state.phase === "creating" || state.phase === "submitting") {
+    // Submitting rebuilds the manifest from the destination status seen while planning, so the
+    // retried request is byte-identical (only a changed download can alter it; see the digest).
+    const status = state.phase === "submitting" && state.destination ? state.destination : await client.request("/status");
     if (!status.permissions?.push || !status.capabilities?.databaseImport || typeof status.target !== "string") fail(state.kind === "replace" ? "This site needs a verified plugin supporting imports and Push permission." : "The destination needs a verified plugin supporting imports and Push permission.");
     const built = await buildManifest(state, input, status, ctx);
     const body = JSON.stringify(built.manifest);
@@ -278,23 +281,38 @@ export async function stepPush(state, input, ctx) {
     // The manifest leaves the worker base64-encoded in one host call (counted as output).
     const manifestOutput = Buffer.byteLength(body) * 4 / 3 + 4096;
     if (manifestOutput > ctx.outputLimit - OUTPUT_RESERVE - 64 * 1024) fail("The import manifest is too large for one request from this worker. Compare first and push a smaller selection.");
-    state.totalBytes = built.totalBytes ?? 0;
-    state.fileCount = built.order.length;
-    if (built.warnings.length) state.warnings = built.warnings;
-    if (state.dryRun) {
-      return ctx.done({ importId: state.importId, kind: state.kind, status: "dry-run", phase: "planned",
-        plan: { target: status.target, files: built.manifest.files?.length ?? 0, database: !!built.manifest.database, bytes: state.totalBytes, batchUpload: built.caps.batchUpload === true && built.order.length > 0,
-          options: built.manifest.options ?? null, resources: built.manifest.resources ?? null, warnings: built.warnings },
-        summary: `Dry run: ${state.fileCount} artifacts (${state.totalBytes.toLocaleString("en-US")} bytes) would be sent to ${status.target}. Nothing was changed.` });
+    const digest = createHash("sha256").update(body).digest("hex");
+    if (state.phase === "creating") {
+      state.totalBytes = built.totalBytes ?? 0;
+      state.fileCount = built.order.length;
+      if (built.warnings.length) state.warnings = built.warnings;
+      if (state.dryRun) {
+        return ctx.done({ importId: state.importId, kind: state.kind, status: "dry-run", phase: "planned",
+          plan: { target: status.target, files: built.manifest.files?.length ?? 0, database: !!built.manifest.database, bytes: state.totalBytes, batchUpload: built.caps.batchUpload === true && built.order.length > 0,
+            options: built.manifest.options ?? null, resources: built.manifest.resources ?? null, warnings: built.warnings },
+          summary: `Dry run: ${state.fileCount} artifacts (${state.totalBytes.toLocaleString("en-US")} bytes) would be sent to ${status.target}. Nothing was changed.` });
+      }
+      state.batchUpload = built.order.length > 0 && built.caps.batchUpload === true;
+      if (state.batchUpload) state.remote = { batchUpload: true, ...(Array.isArray(status.batchTransports) ? { transports: status.batchTransports } : {}), deflate: built.caps.batchDeflate === true, ...(status.batchLimits && typeof status.batchLimits === "object" ? { limits: status.batchLimits } : {}) };
+      if (built.order.length <= 4000) state.order = built.order; // larger orders are recomputed per slice
+      // Checkpoint the import ID and the manifest's digest before anything is sent: whatever
+      // happens to the slice that creates the import, a retry or resume posts the same manifest
+      // for the same ID, which Zoer Connect answers with the existing import (the host engine
+      // persisted its job before submitting, for the same reason).
+      state.manifestSha256 = digest;
+      state.destination = { target: status.target, ...(typeof status.migrationMode === "string" ? { migrationMode: status.migrationMode.slice(0, 40) } : {}),
+        permissions: { push: status.permissions?.push === true }, capabilities: capabilityFlags(status) };
+      state.phase = "submitting";
+      return ctx.continue(state, { phase: "submitting", message: "Sending the import manifest to the destination." });
     }
-    state.batchUpload = built.order.length > 0 && built.caps.batchUpload === true;
-    if (state.batchUpload) state.remote = { batchUpload: true, ...(Array.isArray(status.batchTransports) ? { transports: status.batchTransports } : {}), deflate: built.caps.batchDeflate === true, ...(status.batchLimits && typeof status.batchLimits === "object" ? { limits: status.batchLimits } : {}) };
-    if (built.order.length <= 4000) state.order = built.order; // larger orders are recomputed per slice
+    if (state.manifestSha256 && digest !== state.manifestSha256) fail("The download, the destination or the selection changed before the import was created. Start the push again.");
     const remote = await client.request("/imports", "POST", built.manifest);
     if (remote?.id !== state.importId) fail("Destination import identity mismatch.");
     applyRemotePhase(state, remote);
     state.phase = (remote.phase ?? remote.status) === "uploading" ? "uploading" : "importing";
     if (state.kind === "replace" || !built.order.length) state.phase = state.phase === "uploading" ? "importing" : state.phase;
+    // The import exists: checkpoint it before uploading anything.
+    return ctx.continue(state, progressOf(state));
   }
   if (["review_required", "verification_required"].includes(state.phase)) {
     // Resumed after the user acted through transfer.push.control: read where the import is now.
@@ -317,6 +335,8 @@ export async function stepPush(state, input, ctx) {
 
 /** Cleanup slice after a cancel: roll the remote import back (best effort, bounded). */
 export async function cancelPush(state, input, ctx) {
+  // "submitting": the import may exist if the creating slice was lost; a rollback of a missing
+  // import is a harmless 404.
   if (!state || state.phase === "creating" || TERMINAL.includes(state.phase)) return;
   const client = connectClient(ctx.host, endpointOf(ctx.request, state.siteId), state.generation);
   for (let calls = 0; calls < 10 && ctx.timeLeft() > 5_000; calls++) {

@@ -347,6 +347,31 @@ describe("transfer.preview and transfer.push", () => {
     expect(destination.site.get("wp-content/uploads/2024/01/photo.jpg")!.length).toBe(BLOCK * 2 + 12345);
   });
 
+  test("the import ID is checkpointed before the import is created; a lost answer picks up the same import", async () => {
+    const { w, destination } = world();
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    w.loseResponses.push({ method: "POST", pattern: /^\/imports$/, count: 1 });
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
+    expect(result.status).toBe("succeeded");
+    // Slice 1 plans and checkpoints; slice 2 posts (the answer is lost) and retries from that
+    // checkpoint; slice 3 posts the same manifest and gets the existing import.
+    expect(result.envelopes[0]).toMatchObject({ resumable: "continue", checkpoint: { phase: "submitting", importId: IMPORT, manifestSha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect(result.envelopes[1]).toMatchObject({ resumable: "retry", error: { code: "ECONNRESET" }, checkpoint: { phase: "submitting", importId: IMPORT } });
+    expect(result.envelopes[2]).toMatchObject({ resumable: "continue", checkpoint: { phase: "uploading", importId: IMPORT } });
+    expect(destination.log.filter(l => l.method === "POST" && l.route === "/imports")).toHaveLength(2);
+    expect(destination.imports.size).toBe(1);
+  });
+
+  test("a manifest that changed between planning and creation is refused", async () => {
+    const { w, destination } = world();
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm }, { onSlice: (_e, slice) => { if (slice === 1) w.catalog.records.get(`pull:${PULL}`)!.data.source.prefix = "wp2_"; } });
+    expect((result as any).error.message).toBe("The download, the destination or the selection changed before the import was created. Start the push again.");
+    expect(destination.imports.size).toBe(0);
+  });
+
   test("dry run plans the push and sends nothing that writes", async () => {
     const { w, destination } = world();
     await pulled(w);

@@ -230,6 +230,8 @@ export class FakeWorld {
   /** Optional overrides (the parity harness plugs Zoer's real S2/S3 here). */
   services: Partial<Record<string, (input: any, context: { actionId: string; runId: string; effect: string; execution: number }) => Promise<any> | any>> = {};
   networkRequests = 0;
+  /** Requests whose response is lost after the site handled them. */
+  loseResponses: Array<{ method: string; pattern: RegExp; count: number }> = [];
   /** Called with every slice envelope (the harness checks them with Zoer's own parser). */
   envelopeCheck?: (envelope: unknown, actionId: string) => void;
   /**
@@ -308,6 +310,9 @@ export class FakeWorld {
         if (/^\/imports/.test(String(input.url).slice(prefix.length)) && !["external_write", "destructive"].includes(effect)) return refuse("Route effect exceeds the action effect.", "endpoint_route_denied");
         this.networkRequests++;
         const response = endpoint.site.handle({ method: input.method, path: String(input.url).slice(prefix.length), body: input.bodyBase64 ? Buffer.from(input.bodyBase64, "base64") : undefined, contentType: input.headers?.["content-type"] });
+        // The site handled the request but its answer never reached the worker.
+        const lost = this.loseResponses.find(rule => rule.count > 0 && rule.method === input.method && rule.pattern.test(String(input.url).slice(prefix.length)));
+        if (lost) { lost.count--; return refuse("socket hang up", "ECONNRESET"); }
         return { status: response.status, headers: response.headers, bodyBase64: response.body.toString("base64") };
       }
       case "fileset.create": if (effect !== "local_write") refuse("File set writes require a local-write action.", "capability_denied"); return this.sets.create(input);
@@ -438,10 +443,12 @@ export class FakeWorld {
     // Zoer's consecutive retry count (`attempt`); the run fails after `maxConsecutive` (default 8).
     let failures = 0;
     for (let slice = options.step ?? 1; slice <= (options.maxSlices ?? 200); slice++) {
-      const request = this.request(actionId, input, options.runId ?? "run-1", resumable ? { step: slice, checkpoint, attempt: failures, deadlineAt: new Date(clock() + (options.deadlineMs ?? 300_000)).toISOString(), ...(options.cancelling ? { cancelling: true } : {}) } : undefined);
+      const request = this.request(actionId, input, options.runId ?? "run-1", resumable ? { step: slice, checkpoint: checkpoint === null ? null : JSON.parse(JSON.stringify(checkpoint)), attempt: failures, deadlineAt: new Date(clock() + (options.deadlineMs ?? 300_000)).toISOString(), ...(options.cancelling ? { cancelling: true } : {}) } : undefined);
       let envelope: any;
       try { envelope = await runTransferAction(request, this.host(actionId, request.run.id, effect, slice), clock); }
       catch (error) { return { status: "failed" as const, error: error as Error & { code?: string }, envelopes, checkpoint }; }
+      // Zoer stores the serialized envelope: later slices never share objects with earlier ones.
+      envelope = envelope === undefined ? envelope : JSON.parse(JSON.stringify(envelope));
       const execution = this.executions.at(-1)!;
       execution.output += Buffer.byteLength(JSON.stringify({ protocolVersion: "1", runId: request.run.id, ok: true, output: envelope })) + 1;
       execution.checkpointBytes = envelope?.checkpoint === undefined ? 0 : Buffer.byteLength(JSON.stringify(envelope.checkpoint));
