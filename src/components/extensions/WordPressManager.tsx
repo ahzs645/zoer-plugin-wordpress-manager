@@ -64,6 +64,8 @@ import HostingerSiteTools from "./HostingerSiteTools";
 import WordPressTransferSummary from "./WordPressPullJobs";
 import TransferHistory from "./wordpressTransfer/TransferHistory";
 import SiteBackups from "./wordpressTransfer/SiteBackups";
+import PluginTransferHistory from "./pluginEngine/PluginTransferHistory";
+import { SiteEngineBadge } from "./pluginEngine/SiteEngineControl";
 import WordPressAddSite from "./WordPressAddSite";
 import WordPressTrash from "./WordPressTrash";
 import { runAction } from "../../host/actions";
@@ -691,6 +693,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
                       <StatusBadge tone={updating ? "info" : statusTone(selected.status)} icon={updating ? <Loader2 className="animate-spin" /> : undefined}>{updating ? "Updating" : statusLabel(selected.status)}</StatusBadge>
                       {lifecycle === "start" && !updating && <span className="text-[12px] text-text-muted">Start to inspect.</span>}
                     </span>
+                    {(connectSite?.provider === "zoer-connect" || selected.provider === "ddev") && <SiteEngineBadge siteId={connectSite?.provider === "zoer-connect" ? connectSite.id : selected.id} />}
                     <a className="min-w-0 max-w-full truncate text-[12px] underline underline-offset-2 hover:text-text-primary" href={wordpressPreviewUrl(selected) || undefined} target="_blank" rel="noreferrer">{siteDomain(selected)}</a>
                   </p>
                   {(selectedSource || selectedCopies.length > 0) && <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-text-secondary">
@@ -712,7 +715,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
             {connectSite?.provider === "zoer-connect" && tab !== "history" && !(connectionsCombined && tab === "overview") && <WordPressTransferSummary key={connectSite.id} siteId={connectSite.id} />}
             {connectionMembers.length > 1 && <section aria-label="Website connections" className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border-muted pb-3 text-sm"><p className="text-text-secondary">{connectionsCombined ? "Hostinger hosting and Zoer Connect transfers share this website view." : "Hostinger and Zoer Connect have the same website address."}</p><Btn size="sm" onClick={toggleConnections}>{connectionsCombined ? "Show connections separately" : "Combine connections"}</Btn></section>}
             {detailError && <div role="alert" className="mb-3 text-sm text-status-error">{detailError} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>}
-            {tab === "history" ? <TransferHistory sites={sites} canonicalId={identity.canonicalId} /> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
+            {tab === "history" ? <div className="min-w-0 space-y-8"><TransferHistory sites={sites} canonicalId={identity.canonicalId} /><PluginTransferHistory sites={sites} canonicalId={identity.canonicalId} /></div> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
               <>
                 {tab === "overview" && <OverviewTab site={selected} connectSite={connectSite} details={selectedDetails} loading={detailLoading} onSetup={()=>selected && void openSite(selected,true)} onRestore={openBackupImport} />}
                 {tab === "plugins" && <ExtensionsTab kind="plugin" site={selected} connectSiteId={connectSite?.id} rows={selectedDetails?.plugins || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}

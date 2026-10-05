@@ -5,8 +5,9 @@ import type { WordPressUpdraftComponent, WordPressUpdraftImportManifest } from "
 import { Select as Select } from "@zoer/plugin-ui/controls";
 import { Btn as Btn } from "@zoer/plugin-ui/controls";
 import { controlClass } from "@zoer/plugin-ui/controls";
+import { COMPONENTS, sha256 } from "./updraftFiles";
+import PluginUpdraftRestore from "./pluginEngine/PluginUpdraftRestore";
 
-const COMPONENTS: WordPressUpdraftComponent[] = ["database", "plugins", "themes", "uploads", "others"];
 const CHUNK_BYTES = 8 * 1024 * 1024;
 const suffixes: Record<WordPressUpdraftComponent, RegExp> = {
   database: /-db\.gz$/i,
@@ -38,11 +39,6 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function sha256(file: File): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
 interface Props {
   ddevAvailable?: boolean;
   onRunningChange?: (running: boolean) => void;
@@ -52,6 +48,9 @@ interface Props {
 
 export default function WordPressUpdraftImport({ onViewSite, onImported, onRunningChange, ddevAvailable = false }: Props) {
   const [runtime, setRuntime] = useState<"ddev" | "playground">(ddevAvailable ? "ddev" : "playground");
+  // Legacy (Zoer host) unless the user explicitly picks the plugin engine for this restore.
+  const [engine, setEngine] = useState<"legacy" | "plugin">("legacy");
+  const [pluginBusy, setPluginBusy] = useState(false);
   const [backupReview, setBackupReview] = useState<WordPressBackupRestore | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const runningRef = useRef(false);
@@ -60,7 +59,7 @@ export default function WordPressUpdraftImport({ onViewSite, onImported, onRunni
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  useEffect(() => { onRunningChange?.(running); }, [running, onRunningChange]);
+  useEffect(() => { onRunningChange?.(running || pluginBusy); }, [running, pluginBusy, onRunningChange]);
   const [stage, setStage] = useState("Select all five backup files to begin.");
   const [progress, setProgress] = useState(0);
   const [createdComputer, setCreatedComputer] = useState<Computer | null>(null);
@@ -73,7 +72,7 @@ export default function WordPressUpdraftImport({ onViewSite, onImported, onRunni
   const totalBytes = useMemo(() => COMPONENTS.reduce((sum, component) => sum + (files[component]?.size ?? 0), 0), [files]);
 
   const addFiles = (incoming: FileList | File[]) => {
-    if (runningRef.current || backupReview || createdComputer) return;
+    if (runningRef.current || pluginBusy || backupReview || createdComputer) return;
     setImportId(null);
     setRunError(null);
     const next = { ...files };
@@ -238,13 +237,14 @@ export default function WordPressUpdraftImport({ onViewSite, onImported, onRunni
         <span className="rounded border border-border-default bg-surface-primary/60 px-2 py-1 text-[12px] text-text-muted">Single-site backup</span>
       </div>
 
-      <label className="mt-3 block text-sm">Restore to<Select aria-label="Backup restore runtime" value={runtime} disabled={running || !!backupReview || !!createdComputer} onChange={e=>setRuntime(e.target.value as "ddev"|"playground")}><option value="ddev" disabled={!ddevAvailable}>DDEV · review and publish to Hostinger</option><option value="playground">Playground · local preview</option></Select></label>
+      {ddevAvailable && <label className="mt-3 block text-sm">Restore engine<Select aria-label="Backup restore engine" value={engine} disabled={running || pluginBusy || !!backupReview || !!createdComputer} onChange={e=>setEngine(e.target.value as "legacy"|"plugin")} optionDetails={{ legacy: { description: "Runs on the Zoer host, as before" }, plugin: { description: "WordPress Manager's resumable actions, for testing on DDEV" } }}><option value="legacy">Legacy (Zoer host)</option><option value="plugin">Use plugin engine (test)</option></Select></label>}
+      {engine === "legacy" && <label className="mt-3 block text-sm">Restore to<Select aria-label="Backup restore runtime" value={runtime} disabled={running || !!backupReview || !!createdComputer} onChange={e=>setRuntime(e.target.value as "ddev"|"playground")}><option value="ddev" disabled={!ddevAvailable}>DDEV · review and publish to Hostinger</option><option value="playground">Playground · local preview</option></Select></label>}
       <label className="mt-3 block text-sm font-medium text-text-primary" htmlFor="updraft-session-name">New site name</label>
-      <input id="updraft-session-name" value={sessionName} maxLength={100} disabled={running || Boolean(createdComputer) || !!backupReview} onChange={(event) => { setSessionName(event.target.value); if (!createdComputer) setImportId(null); }} placeholder="Name your restored site" className={controlClass("default", "mt-1 w-full sm:max-w-md")} />
+      <input id="updraft-session-name" value={sessionName} maxLength={100} disabled={running || pluginBusy || Boolean(createdComputer) || !!backupReview} onChange={(event) => { setSessionName(event.target.value); if (!createdComputer) setImportId(null); }} placeholder="Name your restored site" className={controlClass("default", "mt-1 w-full sm:max-w-md")} />
 
       <button
         type="button"
-        disabled={running || !!backupReview || !!createdComputer}
+        disabled={running || pluginBusy || !!backupReview || !!createdComputer}
         aria-label="Drop UpdraftPlus backup files or choose files"
         onClick={() => inputRef.current?.click()}
         onDragOver={(event) => event.preventDefault()}
@@ -255,7 +255,7 @@ export default function WordPressUpdraftImport({ onViewSite, onImported, onRunni
         <span className="mt-2 text-sm font-medium text-text-primary">Drop all five UpdraftPlus files here</span>
         <span className="mt-1 text-sm text-text-muted">or choose the five files from your backup folder</span>
       </button>
-      <input ref={inputRef} type="file" multiple accept=".zip,.gz" className="sr-only" aria-label="Choose UpdraftPlus backup files" disabled={running || !!backupReview || !!createdComputer} onChange={(event) => event.target.files && addFiles(event.target.files)} />
+      <input ref={inputRef} type="file" multiple accept=".zip,.gz" className="sr-only" aria-label="Choose UpdraftPlus backup files" disabled={running || pluginBusy || !!backupReview || !!createdComputer} onChange={(event) => event.target.files && addFiles(event.target.files)} />
 
       <div className="mt-3 grid gap-2 sm:grid-cols-5">
         {COMPONENTS.map((component) => {
@@ -272,12 +272,13 @@ export default function WordPressUpdraftImport({ onViewSite, onImported, onRunni
       {warnings.length > 0 && <div className="mt-3 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-5 text-amber-200">{warnings.join(" ")}</div>}
       {(running || progress > 0) && <div className="mt-3"><div className="flex justify-between text-[12px] text-text-secondary"><span>{stage}</span><span>{progress}%</span></div><div className="mt-1 h-1.5 overflow-hidden rounded bg-surface-primary"><div className="h-full bg-indigo-400 transition-all" style={{ width: `${progress}%` }} /></div></div>}
 
-      {backupReview && <div className="mt-4 space-y-2 text-sm" aria-label="Backup review"><p>Backup WordPress: <strong>{backupReview.metadata?.wordpressVersion}</strong> · {backupReview.fileCount.toLocaleString()} files · {backupReview.metadata?.tables} tables</p><p>Original address: {backupReview.metadata?.sourceUrl}</p>{backupReview.warnings.map(w=><p key={w} className="text-text-secondary">{w}</p>)}{!restored && <Btn variant="primary" loading={running} disabled={running} onClick={()=>void restoreDdev()}>{backupReview.copy ? "Resume restore" : "Restore into a new DDEV site"}</Btn>}</div>}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      {engine === "plugin" && <PluginUpdraftRestore files={files} complete={complete} name={sessionName} onBusyChange={setPluginBusy} />}
+      {engine === "legacy" && backupReview && <div className="mt-4 space-y-2 text-sm" aria-label="Backup review"><p>Backup WordPress: <strong>{backupReview.metadata?.wordpressVersion}</strong> · {backupReview.fileCount.toLocaleString()} files · {backupReview.metadata?.tables} tables</p><p>Original address: {backupReview.metadata?.sourceUrl}</p>{backupReview.warnings.map(w=><p key={w} className="text-text-secondary">{w}</p>)}{!restored && <Btn variant="primary" loading={running} disabled={running} onClick={()=>void restoreDdev()}>{backupReview.copy ? "Resume restore" : "Restore into a new DDEV site"}</Btn>}</div>}
+      {engine === "legacy" && <div className="mt-3 flex flex-wrap items-center gap-2">
         {!backupReview && <Btn variant="primary" loading={running} disabled={!complete || running || restored} onClick={() => void (runtime === "ddev" ? prepareDdev() : importBackup())}>{running ? "Preparing backup…" : runtime === "ddev" ? "Check backup before restore" : createdComputer ? "Retry restore on this site" : "Restore and start local site"}</Btn>}
         {createdComputer && !running && restored && <Btn onClick={() => onViewSite(createdComputer)}>View site in WordPress Manager</Btn>}
         {!complete && !selectionError && <span className="text-[12px] text-text-muted">Add each required component to enable import.</span>}
-      </div>
+      </div>}
     </section>
   );
 }

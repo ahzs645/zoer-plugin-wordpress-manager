@@ -58,6 +58,9 @@ const check = (scenario: string, name: string, legacy: unknown, plugin: unknown,
 // -------------------------------------------------------------------------------------------
 // Zoer modules
 // -------------------------------------------------------------------------------------------
+const protocol = await z("integration-runner-protocol.ts");
+const envelopeProblems: string[] = [];
+let envelopesChecked = 0;
 const [{ WordPressPullStore }, { WordPressConnectError }, { WordPressPushStore, isActivePush }, { PushUploadLimits }, store, filesetCalls, transfersCalls, service, stateStore, peers, caps, endpoints, contracts, runtimeOps] = await Promise.all([
   z("wordpress-pull.ts"), z("wordpress-connect.ts"), z("wordpress-push.ts"), z("wordpress-push-upload.ts"),
   z("filesets/store.ts"), z("host-calls/filesets.ts"), z("host-calls/transfers.ts"), z("transfers/service.ts"), z("transfers/state-store.ts"), z("transfers/peers.ts"),
@@ -96,6 +99,12 @@ async function legacyPull(sites: Map<string, FakeZoerConnect>, siteId: string, r
 // -------------------------------------------------------------------------------------------
 async function pluginWorld(sites: Record<string, FakeZoerConnect>, root: string) {
   const world = new FakeWorld();
+  // Every slice envelope must pass Zoer's own S1 parser (fields, progress, 64 KiB checkpoints).
+  world.envelopeCheck = (envelope, actionId) => {
+    envelopesChecked++;
+    const parsed = protocol.parseResumableStepOutput(envelope);
+    if (!parsed.ok) envelopeProblems.push(`${actionId}: ${parsed.message}`);
+  };
   for (const [id, site] of Object.entries(sites)) { world.addSite(id, site); world.catalog.engine(id); }
   const files = new store.DiskFileSetStore({ root: join(root, "filesets"), resolveRules: async () => integration.fileRules, env: {} });
   filesetCalls.setFilesetHostStoreForTests(files);
@@ -369,11 +378,13 @@ const scenarios: Array<[string, () => Promise<unknown>]> = [
   ["manifest", manifestScenario],
 ];
 let crashed = false;
+const envelopeScenario = async () => { check("envelopes", `every plugin slice envelope passes Zoer's S1 parser (${envelopesChecked} checked)`, [], envelopeProblems); };
 for (const [id, scenario] of scenarios) {
   if (ONLY && !id.includes(ONLY)) continue;
   try { await scenario(); }
   catch (error) { crashed = true; report.push({ scenario: id, check: "ran", equal: false, note: error instanceof Error ? `${error.message}\n${error.stack}` : String(error) }); }
 }
+await envelopeScenario();
 await rm(DATA, { recursive: true, force: true });
 const failures = report.filter(r => !r.equal && !ALLOWED.some(a => a.scenario === r.scenario && a.check === r.check));
 for (const row of report) console.log(`${row.equal ? "same" : ALLOWED.some(a => a.scenario === row.scenario && a.check === row.check) ? "allowed" : "DIFF"}  ${row.scenario}: ${row.check}${row.equal ? "" : `\n    legacy: ${JSON.stringify(row.legacy)?.slice(0, 2000)}\n    plugin: ${JSON.stringify(row.plugin)?.slice(0, 2000)}${row.note ? `\n    ${row.note}` : ""}`}`);

@@ -204,6 +204,8 @@ export class FakeWorld {
   /** Optional overrides (the parity harness plugs Zoer's real S2/S3 here). */
   services: Partial<Record<string, (input: any, context: { actionId: string; runId: string; effect: string; execution: number }) => Promise<any> | any>> = {};
   networkRequests = 0;
+  /** Called with every slice envelope (the harness checks them with Zoer's own parser). */
+  envelopeCheck?: (envelope: unknown, actionId: string) => void;
   addSite(id: string, site: FakeZoerConnect, generation = "g1") { this.endpoints.set(id, { id, origin: site.options.origin, label: id, generation, site }); return site; }
   rotateKey(id: string) { const e = this.endpoints.get(id)!; e.generation = e.generation + "x"; }
 
@@ -380,6 +382,7 @@ export class FakeWorld {
       try { envelope = await runTransferAction(request, this.host(actionId, request.run.id, effect, slice)); }
       catch (error) { return { status: "failed" as const, error: error as Error & { code?: string }, envelopes, checkpoint }; }
       envelopes.push(envelope);
+      if (resumable) this.envelopeCheck?.(envelope, actionId);
       await options.onSlice?.(envelope, slice);
       if (!resumable) return { status: "succeeded" as const, output: envelope, envelopes, checkpoint };
       if (envelope.paused) { checkpoint = envelope.checkpoint; continue; }

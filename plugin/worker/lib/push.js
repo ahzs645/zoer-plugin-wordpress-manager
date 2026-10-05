@@ -336,6 +336,9 @@ export async function pushControl(input, { host, request }) {
       fail("The destination changed after this import. Rollback was refused before changing data.");
     }
     if (remote?.rollbackRefused) fail("The destination changed after this import. Rollback was refused before changing data.");
+    // Step the rollback to its end here (bounded), so a finished push with no run to resume still rolls back.
+    const deadline = Date.now() + 120_000;
+    for (let calls = 0; calls < 60 && phaseOf(remote) === "rolling_back" && Date.now() < deadline; calls++) remote = await client.request(`/imports/${id}/rollback`, "POST");
     const phase = phaseOf(remote);
     return { importId: id, control: "rollback", phase: String(phase ?? "rolling_back"), summary: ["rolled_back", "cancelled"].includes(phase) ? "Import rolled back." : "Rolling back. Resume the push to finish the rollback." };
   }
