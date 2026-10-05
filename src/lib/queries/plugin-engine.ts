@@ -101,6 +101,19 @@ export async function controlImport(input: { siteId: string; importId: string; c
   throw new Error(run.status === "cancelled" ? run.error || "The request was declined or cancelled." : run.error || "The request failed.");
 }
 
+/**
+ * Deletes a plugin-engine pull or local export through its own action (`remove: true`): the
+ * file set, the `pull:` record and the export on the source. `remoteRemoved: false` carries the
+ * reason the source's export stayed.
+ */
+export async function deletePull(pull: { pullId: string; siteId: string; kind: "pull" | "local-export" }) {
+  const actionId = pull.kind === "local-export" ? "transfer.local-export" : "transfer.pull";
+  const runId = await startEngineAction(actionId, { siteId: pull.siteId, pullId: pull.pullId, remove: true });
+  const run = await waitForRun<{ remoteRemoved?: boolean; remoteError?: string }>(runId, { timeoutMs: 10 * 60_000 });
+  if (run.status === "succeeded") return run.output ?? {};
+  throw new Error(run.error || (run.status === "cancelled" ? "The delete was declined or cancelled." : "The download could not be deleted."));
+}
+
 /** One run, polled every two seconds until it is terminal. */
 export function useEngineRun<T = unknown>(id: string | null | undefined) {
   return useQuery({ queryKey: engineKeys.run(id ?? ""), enabled: !!id, retry: false, queryFn: () => getRun<T>(id!),

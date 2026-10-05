@@ -139,7 +139,8 @@ export class FakeDdev {
         if (new URL(sourceUrl).port) refuse("Invalid source URL.", "database_query_failed");
         if (typeof args.database !== "boolean" && (typeof args.database !== "object" || args.database === null)) refuse("Invalid export selections.", "database_query_failed");
         this.exportSources.set(args.clientId, sourceUrl);
-        this.contentOf(input.resourceId).handle({ method: "POST", path: "/exports", body: Buffer.from(JSON.stringify(args)) });
+        const created = this.contentOf(input.resourceId).handle({ method: "POST", path: "/exports", body: Buffer.from(JSON.stringify(args)) });
+        if (created.status >= 400) refuse(JSON.parse(created.body.toString()).message ?? "Export refused.", "database_query_failed");
         return this.bridgeJob(JSON.parse(this.contentOf(input.resourceId).handle({ method: "POST", path: `/exports/${args.clientId}/step`, body: Buffer.alloc(0) }).body.toString()).job);
       }
       case "export.step.v1": return this.bridgeJob(JSON.parse(this.contentOf(input.resourceId).handle({ method: "POST", path: `/exports/${args.exportId}/step` }).body.toString()).job);

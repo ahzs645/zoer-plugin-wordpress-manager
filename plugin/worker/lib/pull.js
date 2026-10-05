@@ -117,6 +117,7 @@ async function lastMediaDate(host, siteId) {
 export async function startPull(kind, input, ctx) {
   const { host, request } = ctx;
   if (typeof input.siteId !== "string" || !input.siteId) fail("Choose a site.");
+  if (input.remove === true) return startRemoval(kind, input, ctx);
   const pullId = input.pullId ?? runHex(request);
   if (!HEX32.test(pullId)) fail("A valid transfer request ID is required.");
   await assertPluginEngine(host, input.siteId);
@@ -174,7 +175,7 @@ function pullRecord(state, status, extra = {}) {
   return {
     id: `pull:${state.pullId}`, kind: "pull", title: `${state.kind === "local-export" ? "Local export" : "Pull"} ${state.pullId.slice(0, 8)}`,
     data: { v: 1, pullId: state.pullId, siteId: state.siteId, kind: state.kind, setId: status === "ready" ? state.setId : null, status, options: state.options,
-      ...(state.origin ? { origin: state.origin } : {}), fileCount: state.total ?? state.declared, totalBytes: state.bytes, createdAt: state.startedAt, engine: "plugin", ...extra },
+      ...(state.origin ? { origin: state.origin } : {}), ...(state.kind === "pull" ? { paged: state.paged === true } : {}), fileCount: state.total ?? state.declared, totalBytes: state.bytes, createdAt: state.startedAt, engine: "plugin", ...extra },
   };
 }
 
@@ -316,8 +317,60 @@ async function download(state, ctx, source) {
   return false;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Delete (`remove: true`): the file set, the record and the export on the source, like the host
+// engine's delete (`WordPressPullStore.remove`), which also cancels the remote export so the
+// site accepts the next one ("Cancel an existing export before starting another.").
+// ---------------------------------------------------------------------------------------------
+
+async function startRemoval(kind, input, ctx) {
+  const { host } = ctx;
+  if (!HEX32.test(input.pullId ?? "")) fail("A valid transfer request ID is required.");
+  await assertPluginEngine(host, input.siteId);
+  const data = (await readRecord(host, `pull:${input.pullId}`))?.data ?? null;
+  if (data && data.siteId !== input.siteId) fail("This download belongs to another site.");
+  if (data?.status === "downloading") fail("This transfer is still running. Cancel it instead.");
+  return { v: 1, kind, siteId: input.siteId, pullId: input.pullId, phase: "removing", setId: typeof data?.setId === "string" ? data.setId : setIdFor(input.pullId),
+    ...(typeof data?.paged === "boolean" ? { paged: data.paged } : {}), startedAt: new Date(ctx.now()).toISOString() };
+}
+
+const gone = (error) => error?.status === 404 || error?.status === 410 || /\b(not found|expired|unknown export)\b/i.test(String(error?.message ?? ""));
+
+/** Removes the source's export: `{ removed: true }`, or `{ removed: false, error }` to show the user. */
+async function removeRemoteExport(state, ctx) {
+  try {
+    if (state.kind === "local-export") {
+      await localSource(ctx.host, state).remove(state.pullId);
+      return { removed: true };
+    }
+    const endpoint = siteEndpoint(ctx.request, state.siteId);
+    if (!endpoint) return { removed: false, error: "This site's connection was removed, so its export could not be removed. Add the site again, or remove the export in WordPress → Tools → Zoer Connect." };
+    const client = connectClient(ctx.host, endpoint);
+    // Records from before 0.7.1 do not say which export API served the pull: try both.
+    for (const root of state.paged === true ? ["/exports/paged"] : state.paged === false ? ["/exports"] : ["/exports/paged", "/exports"]) {
+      try { await client.request(`${root}/${state.pullId}`, "DELETE"); return { removed: true }; }
+      catch (error) { if (!gone(error)) throw error; }
+    }
+    return { removed: true };
+  } catch (error) {
+    if (error?.code === "ZOER_PAUSED") throw error;
+    if (gone(error)) return { removed: true };
+    return { removed: false, error: String(error?.message || "The source did not answer.").slice(0, 300) };
+  }
+}
+
+async function stepRemoval(state, ctx) {
+  const { host } = ctx;
+  await deleteSet(host, state.setId);
+  const remote = await removeRemoteExport(state, ctx);
+  await commitRecords(host, [], [`pull:${state.pullId}`]);
+  return ctx.done({ pullId: state.pullId, kind: state.kind, status: "deleted", remoteRemoved: remote.removed, ...(remote.error ? { remoteError: remote.error } : {}),
+    summary: remote.removed ? "Download deleted; the export on the site was removed." : `Download deleted, but the export on the site could not be removed: ${remote.error}` }, { phase: "done" });
+}
+
 export async function stepPull(state, input, ctx) {
   const { host } = ctx;
+  if (state.phase === "removing") return stepRemoval(state, ctx);
   const source = sourceOf(host, ctx.request, state);
   if (state.phase === "preparing") {
     // The slice ran out of time: continue at once (the host engine polls without a pause too).
@@ -369,6 +422,7 @@ export async function cancelPull(state, input, ctx) {
 
 /** History record of a failed pull or local export (also when it failed before its first checkpoint). */
 export async function failedPull(kind, state, input, ctx, error) {
+  if (input.remove === true || state?.phase === "removing") return; // a delete is not a transfer
   const startedAt = state?.startedAt ?? new Date(ctx.now()).toISOString();
   const options = state?.options ?? (() => { try { return pullOptionsFrom(input.exportOptions); } catch { return null; } })();
   const files = state?.total ?? state?.declared ?? 0;

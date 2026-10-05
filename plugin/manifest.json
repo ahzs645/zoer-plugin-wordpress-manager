@@ -1879,6 +1879,9 @@
             "name": {
               "type": "string",
               "maxLength": 120
+            },
+            "remove": {
+              "type": "boolean"
             }
           }
         },
@@ -1956,6 +1959,9 @@
               "type": "object"
             },
             "dryRun": {
+              "type": "boolean"
+            },
+            "remove": {
               "type": "boolean"
             }
           }

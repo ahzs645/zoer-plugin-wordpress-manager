@@ -43,6 +43,8 @@ export interface FakeSiteOptions {
   pageSize?: number;
   /** Export steps before "ready". */
   exportSteps?: number;
+  /** Refuse a new export while another one exists (the DDEV bridge and Zoer Connect's private storage). */
+  singleExport?: boolean;
   batchLimits?: Record<string, number>;
   version?: string;
 }
@@ -71,6 +73,8 @@ export function decodeBatch(body: Buffer, contentType = "application/octet-strea
     return { index: index!, offset: offset!, data: Buffer.from(data) };
   });
 }
+
+class ExportRefused extends Error {}
 
 export class FakeZoerConnect {
   readonly log: LogEntry[] = [];
@@ -110,7 +114,10 @@ export class FakeZoerConnect {
     if (route === "/files/compare" && request.method === "POST") {
       return json(200, { files: (body().files as { path: string }[]).map(({ path }) => (this.options.blocked ?? []).includes(path) ? { path, blocked: true, sha256: null } : { path, sha256: this.site.has(path) ? sha(this.site.get(path)!) : null }) });
     }
-    if ((m = /^\/exports(\/paged)?$/.exec(route)) && request.method === "POST") return json(202, this.startExport(body(), !!m[1]));
+    if ((m = /^\/exports(\/paged)?$/.exec(route)) && request.method === "POST") {
+      try { return json(202, this.startExport(body(), !!m[1])); }
+      catch (error) { if (error instanceof ExportRefused) return json(409, { code: "zoer_export_blocked", message: error.message }); throw error; }
+    }
     if ((m = /^\/exports(?:\/paged)?\/([a-f0-9]{32})\/step$/.exec(route)) && request.method === "POST") return this.stepExport(m[1]!);
     if ((m = /^\/exports(?:\/paged)?\/([a-f0-9]{32})$/.exec(route)) && request.method === "DELETE") { const job = this.exports.get(m[1]!); if (!job) return json(404, {}); job.status = "cancelled"; return json(200, { id: job.id, status: "cancelled" }); }
     if ((m = /^\/exports\/([a-f0-9]{32})\/chunks$/.exec(route)) && request.method === "GET") return this.chunk(m[1]!, q("index"), q("offset"));
@@ -154,6 +161,7 @@ export class FakeZoerConnect {
     const id = String(input.clientId);
     const existing = this.exports.get(id);
     if (existing) return { job: this.exportView(existing) };
+    if (this.options.singleExport && [...this.exports.values()].some(job => job.status !== "cancelled")) throw new ExportRefused("Cancel an existing source export before starting another.");
     const profile = input.profile ?? {};
     const wanted = (path: string) => path === "database.sql" ? !!input.database
       : path.startsWith("wp-content/themes/") ? profile.themes : path.startsWith("wp-content/plugins/") ? profile.plugins : path.startsWith("wp-content/uploads/") ? profile.media : path.startsWith("wp-content/mu-plugins/") ? profile.muplugins : profile.core;

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Copy, Download, Trash2 } from "lucide-react";
 import { Btn, useDialogs } from "@zoer/plugin-ui/controls";
-import { commitCatalog, downloadFileSet, engineKeys, filesets, useCatalogKind } from "../../../lib/queries/plugin-engine";
+import { deletePull, downloadFileSet, engineKeys, useCatalogKind } from "../../../lib/queries/plugin-engine";
 import { pullContents } from "../../../lib/wordpress-transfer/options";
 import { formatTransferBytes } from "../wordpressPullProgress";
 import { engineErrorMessage } from "./runState";
@@ -19,6 +19,7 @@ export default function PluginPulls({ siteId, siteName, onLocalCopy }: { siteId:
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const fileBase = `${siteName.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "wordpress"}`;
 
   async function download(pull: PullRecord, part: "database" | "archive") {
@@ -31,11 +32,12 @@ export default function PluginPulls({ siteId, siteName, onLocalCopy }: { siteId:
     finally { setBusy(null); }
   }
   async function remove(pull: PullRecord) {
-    if (!await dialogs.confirm({ title: "Delete this download?", description: "Removes its files from the Zoer server. The website is unchanged. Pushes and local copies can no longer use it.", confirmLabel: "Delete download", cancelLabel: "Keep", tone: "danger" })) return;
-    setBusy(`${pull.pullId}:delete`); setError("");
+    if (!await dialogs.confirm({ title: "Delete this download?", description: "Removes its files from the Zoer server and the prepared export on the website, so the site accepts a new export. The website's content is unchanged. Pushes and local copies can no longer use it.", confirmLabel: "Delete download", cancelLabel: "Keep", tone: "danger" })) return;
+    setBusy(`${pull.pullId}:delete`); setError(""); setNotice("");
     try {
-      if (pull.setId) await filesets.remove(pull.setId).catch(caught => { if (!/not.found/i.test(engineErrorMessage(caught))) throw caught; });
-      await commitCatalog({ deletes: [`pull:${pull.pullId}`] }, "pull");
+      // The pull action deletes the file set, the record and the source's export (like the host engine's delete).
+      const result = await deletePull(pull);
+      if (result.remoteRemoved === false) setNotice(`Deleted from the Zoer server, but the export on the site could not be removed: ${result.remoteError ?? "no answer"}. Remove it in WordPress → Tools → Zoer Connect before the next export.`);
       await client.invalidateQueries({ queryKey: engineKeys.catalog("pull") });
     } catch (caught) { setError(engineErrorMessage(caught, "The download could not be deleted.")); }
     finally { setBusy(null); }
@@ -65,5 +67,6 @@ export default function PluginPulls({ siteId, siteName, onLocalCopy }: { siteId:
       </li>;
     })}</ul>
     {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
+    {notice && <p role="status" className="break-words text-sm text-status-warning">{notice}</p>}
   </section>;
 }

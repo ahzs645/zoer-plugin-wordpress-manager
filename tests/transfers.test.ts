@@ -280,6 +280,66 @@ describe("export preparation pacing", () => {
   });
 });
 
+describe("deleting a pull", () => {
+  test("removes the file set, the record and the export on the site, so the site accepts the next export", async () => {
+    const w = new FakeWorld();
+    const source = w.addSite("hostinger-1", sampleSite("https://source.example", { singleExport: true, pagedExport: true }));
+    w.catalog.engine("hostinger-1");
+    await pulled(w);
+    expect(w.catalog.records.get(`pull:${PULL}`)!.data.paged).toBe(true);
+    const blocked = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL2 });
+    expect((blocked as any).error.message).toBe("Cancel an existing source export before starting another.");
+    const removed = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL, remove: true });
+    expect((removed as any).output).toMatchObject({ pullId: PULL, status: "deleted", remoteRemoved: true });
+    expect(w.sets.sets.has(`fs_${PULL}`)).toBe(false);
+    expect(w.catalog.records.has(`pull:${PULL}`)).toBe(false);
+    expect(source.exports.get(PULL)!.status).toBe("cancelled");
+    expect(source.log.filter(l => l.method === "DELETE").map(l => l.route)).toEqual([`/exports/paged/${PULL}`]);
+    // The pull's history entry stays; a delete is not a transfer and adds none.
+    expect(w.catalog.records.get(`history:pull:${PULL}`)!.data.status).toBe("ready");
+    expect((await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL2 })).status).toBe("succeeded");
+  });
+
+  test("an older record without the export API tries both; a removed connection is reported", async () => {
+    const w = new FakeWorld();
+    const source = w.addSite("hostinger-1", sampleSite("https://source.example"));
+    w.catalog.engine("hostinger-1");
+    await pulled(w);
+    delete w.catalog.records.get(`pull:${PULL}`)!.data.paged;
+    source.failNext(/^\/exports\/paged\//, 404);
+    expect((await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL, remove: true }) as any).output.remoteRemoved).toBe(true);
+    expect(source.log.filter(l => l.method === "DELETE").map(l => l.route)).toEqual([`/exports/paged/${PULL}`, `/exports/${PULL}`]);
+
+    await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL2 });
+    w.endpoints.delete("hostinger-1");
+    const orphan = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL2, remove: true });
+    expect((orphan as any).output).toMatchObject({ remoteRemoved: false, remoteError: expect.stringContaining("connection was removed") });
+    expect(w.sets.sets.has(`fs_${PULL2}`)).toBe(false);
+    expect(w.catalog.records.has(`pull:${PULL2}`)).toBe(false);
+  });
+
+  test("a local export's delete cancels the bridge export", async () => {
+    const w = new FakeWorld();
+    const content = sampleSite("https://shop.ddev.site", { singleExport: true });
+    w.ddev.add("ddev-shop", "shop", content);
+    w.catalog.engine("ddev-shop");
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL })).status).toBe("succeeded");
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 }) as any).error.message).toBe("Cancel an existing source export before starting another.");
+    const removed = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, remove: true });
+    expect((removed as any).output).toMatchObject({ status: "deleted", remoteRemoved: true });
+    expect(w.ddev.invocations.filter(i => i.operation === "export.cancel.v1").map(i => i.args)).toContainEqual({ exportId: PULL });
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 })).status).toBe("succeeded");
+  });
+
+  test("a running transfer is not deleted", async () => {
+    const w = new FakeWorld();
+    w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 3 }));
+    w.catalog.engine("hostinger-1");
+    w.catalog.records.set(`pull:${PULL}`, { id: `pull:${PULL}`, kind: "pull", title: "p", data: { siteId: "hostinger-1", status: "downloading", setId: `fs_${PULL}` } } as any);
+    expect((await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL, remove: true }) as any).error.message).toBe("This transfer is still running. Cancel it instead.");
+  });
+});
+
 describe("transfer.preview and transfer.push", () => {
   const confirm = { confirmTarget: "https://dest.example", replacementAccepted: true };
   test("preview classifies files against the destination and stores pages", async () => {
