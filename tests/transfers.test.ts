@@ -31,6 +31,7 @@ describe("engine gate", () => {
     expect(refused.status).toBe("failed");
     expect((refused as any).error.message).toContain("legacy transfer engine");
     expect(w.calls.some(c => c.method === "network.fetch")).toBe(false);
+    expect([...w.catalog.records.keys()].some(id => id.startsWith("history:"))).toBe(false);
     w.catalog.engine("hostinger-1", "plugin", false);
     expect((await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL })).status).toBe("failed");
     w.catalog.engine("hostinger-1", "legacy", true);
@@ -412,6 +413,8 @@ describe("copy.local", () => {
     const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
     expect((result as any).error.message).toContain("executable upload");
     expect(w.ddev.sites.size).toBe(0);
+    expect(w.catalog.records.get(`history:local-copy:${COPY}`)!.data).toMatchObject({ kind: "local-copy", status: "failed", siteId: "hostinger-1", sourceSiteId: "hostinger-1", summary: `Local copy Shop-${COPY.slice(0, 8)}` });
+    expect(w.catalog.records.get(`history:local-copy:${COPY}`)!.data.lastError).toContain("executable upload");
   });
 });
 
@@ -467,6 +470,23 @@ describe("transfer.local-export", () => {
     expect((result as any).error).toMatchObject({ message: "Invalid export selections.", code: "database_query_failed" });
     expect(result.envelopes).toHaveLength(0);
     expect(w.ddev.invocations.filter(i => i.operation === "export.create.v1")).toHaveLength(1);
+    // Recorded like the host engine lists a job with lastError.
+    expect(w.catalog.records.get(`history:local-export:${PULL}`)!.data).toMatchObject({ kind: "local-export", id: PULL, siteId: "ddev-shop", status: "failed", engine: "plugin",
+      lastError: "Invalid export selections.", errorCode: "database_query_failed", summary: "Local export: Database, themes, plugins, media", runId: "run-1" });
+  });
+
+  test("a run that gives up after repeated transient failures leaves a failed history record", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    w.catalog.engine("ddev-shop");
+    w.ddev.failOperation = { operation: "export.create.v1", message: "DDEV bridge request failed (503).", code: "database_query_failed", count: 99 };
+    let recordedAt = 0;
+    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { onSlice: (_e, slice) => { if (!recordedAt && w.catalog.records.has(`history:local-export:${PULL}`)) recordedAt = slice; } });
+    expect(result.status).toBe("failed");
+    expect(result.envelopes).toHaveLength(9);
+    // Only the slice whose retry Zoer refuses (the 9th) writes it.
+    expect(recordedAt).toBe(9);
+    expect(w.catalog.records.get(`history:local-export:${PULL}`)!.data).toMatchObject({ status: "failed", lastError: "DDEV bridge request failed (503).", errorCode: "database_query_failed" });
   });
 
   test("a bridge transport failure retries with the bridge's message and code", async () => {
@@ -488,6 +508,7 @@ describe("transfer.local-export", () => {
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, exportOptions: options });
     expect((result as any).error.message).toBe("Local exports include the database on this Zoer release. Select the database and start the export again.");
     expect(w.ddev.invocations.some(i => i.operation === "export.create.v1")).toBe(false);
+    expect(w.catalog.records.get(`history:local-export:${PULL}`)!.data).toMatchObject({ status: "failed", lastError: "Local exports include the database on this Zoer release. Select the database and start the export again.", summary: "Local export: Themes, plugins, media" });
   });
 });
 

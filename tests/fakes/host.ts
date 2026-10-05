@@ -413,8 +413,10 @@ export class FakeWorld {
     let checkpoint = options.checkpoint ?? null;
     const envelopes: any[] = [];
     const resumable = actionId !== "transfer.push.control";
+    // Zoer's consecutive retry count (`attempt`); the run fails after `maxConsecutive` (default 8).
+    let failures = 0;
     for (let slice = options.step ?? 1; slice <= (options.maxSlices ?? 200); slice++) {
-      const request = this.request(actionId, input, options.runId ?? "run-1", resumable ? { step: slice, checkpoint, attempt: 0, deadlineAt: new Date(clock() + (options.deadlineMs ?? 300_000)).toISOString(), ...(options.cancelling ? { cancelling: true } : {}) } : undefined);
+      const request = this.request(actionId, input, options.runId ?? "run-1", resumable ? { step: slice, checkpoint, attempt: failures, deadlineAt: new Date(clock() + (options.deadlineMs ?? 300_000)).toISOString(), ...(options.cancelling ? { cancelling: true } : {}) } : undefined);
       let envelope: any;
       try { envelope = await runTransferAction(request, this.host(actionId, request.run.id, effect, slice), clock); }
       catch (error) { return { status: "failed" as const, error: error as Error & { code?: string }, envelopes, checkpoint }; }
@@ -423,9 +425,10 @@ export class FakeWorld {
       await options.onSlice?.(envelope, slice);
       if (!resumable) return { status: "succeeded" as const, output: envelope, envelopes, checkpoint };
       if (envelope.paused) { checkpoint = envelope.checkpoint; continue; }
-      if (envelope.resumable === "continue") { checkpoint = envelope.checkpoint; continue; }
+      if (envelope.resumable === "continue") { checkpoint = envelope.checkpoint; failures = 0; continue; }
       if (envelope.resumable === "retry") {
         if (envelope.checkpoint !== undefined) checkpoint = envelope.checkpoint;
+        if (++failures > 8) return { status: "failed" as const, error: Object.assign(new Error(`${envelope.error.message} (gave up after ${failures} consecutive failures)`), { code: envelope.error.code }), envelopes, checkpoint };
         // The S1 dispatcher waits max(backoff, Retry-After) before the next slice.
         await new Promise(done => setTimeout(done, Math.min(envelope.retryAfterMs ?? 0, 2_000)));
         continue;

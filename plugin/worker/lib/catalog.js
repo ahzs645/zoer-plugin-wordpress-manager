@@ -55,3 +55,22 @@ export async function assertPluginEngine(host, siteId) {
 export function historyRecord(entry) {
   return { id: `history:${entry.kind}:${entry.id}`, kind: "transfer-history", title: String(entry.summary).slice(0, 200), data: { v: 1, engine: "plugin", ...entry } };
 }
+
+const RESOURCE_WORDS = [["themes", "themes"], ["plugins", "plugins"], ["media", "media"], ["muplugins", "must-use plugins"], ["core", "core"]];
+/** The host engine's history summary of a pull's selections ("Database, themes, plugins, media"). */
+export function selectionWords(options) {
+  const words = [options?.database ? "database" : null, ...RESOURCE_WORDS.map(([key, word]) => options?.profile?.[key] ? word : null)].filter(Boolean).join(", ");
+  return words ? words[0].toUpperCase() + words.slice(1) : "Selected resources";
+}
+
+/**
+ * The history record of a failed run, like the host engine lists a job with `lastError`
+ * (status "failed", the error's message, plus its code). The engine gate's refusal is not a
+ * transfer and leaves no record.
+ */
+export async function recordFailedTransfer(host, entry, error, now) {
+  if (error?.code === "engine_legacy" || !entry.id || !entry.siteId) return;
+  const message = String(error?.message || "The transfer failed.").replace(/\s+/g, " ").trim().slice(0, 500);
+  const code = typeof error?.code === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(error.code) ? error.code : "transfer_failed";
+  await commitRecords(host, [historyRecord({ ...entry, status: "failed", finishedAt: new Date(now()).toISOString(), lastError: message, errorCode: code })]);
+}

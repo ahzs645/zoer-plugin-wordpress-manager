@@ -3,7 +3,7 @@
 // every check follow the legacy host engine (`WordPressPullStore.step` in Zoer
 // `backend/src/wordpress-pull.ts`); bytes move host-side (`transfer.download`), never through the
 // worker.
-import { assertPluginEngine, commitRecords, historyRecord, listKind, readRecord } from "./catalog.js";
+import { assertPluginEngine, commitRecords, historyRecord, listKind, readRecord, recordFailedTransfer, selectionWords } from "./catalog.js";
 import { checkSelection, normalizeConnectUrl, parsePullSource, parseSkipped, validatePullFiles } from "./files.js";
 import { declareEntries, deleteSet, describeSet, setIdFor } from "./filesets.js";
 import { assertExportCapabilities, pullOptionsFrom } from "./options.js";
@@ -346,10 +346,21 @@ export async function cancelPull(state, input, ctx) {
   if (record && record.data?.status === "downloading") await commitRecords(host, [pullRecord(state, "cancelled", { source: record.data.source, finishedAt: new Date(ctx.now()).toISOString() })]).catch(() => {});
 }
 
+/** History record of a failed pull or local export (also when it failed before its first checkpoint). */
+export async function failedPull(kind, state, input, ctx, error) {
+  const startedAt = state?.startedAt ?? new Date(ctx.now()).toISOString();
+  const options = state?.options ?? (() => { try { return pullOptionsFrom(input.exportOptions); } catch { return null; } })();
+  const files = state?.total ?? state?.declared ?? 0;
+  await recordFailedTransfer(ctx.host, { kind, id: state?.pullId ?? (HEX32.test(input.pullId ?? "") ? input.pullId : runHex(ctx.request)), siteId: state?.siteId ?? input.siteId, startedAt,
+    ...(state?.bytes ? { bytes: state.bytes } : {}), runId: ctx.request.run?.id,
+    summary: `${kind === "local-export" ? "Local export: " : ""}${selectionWords(options)}${files ? ` · ${files.toLocaleString("en-US")} files` : ""}` }, error, ctx.now);
+}
+
 export const pullSpec = (kind) => ({
   start: (input, ctx) => startPull(kind, input, ctx),
   step: stepPull,
   cancel: cancelPull,
+  failed: (state, input, ctx, error) => failedPull(kind, state, input, ctx, error),
   changed: "This connection changed. Cancel the old pull and start a new one.",
 });
 

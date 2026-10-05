@@ -74,3 +74,12 @@ test("file rules and command bundles ship with the package",async()=>{
  const routes=integration.requiredEndpoints[0].routes.map((r:any)=>r.path);
  for(const path of ["status","files/compare","exports","exports/{hex32}/{step|chunks|manifest|batch}","exports/paged","exports/paged/{hex32}/{step|chunks|manifest|batch}","imports","imports/{hex32}","imports/{hex32}/{step|chunks|batch|rollback|finish|pause|resume|approve|cleanup}"])expect(routes).toContain(path);
 });
+test("resumable transfers keep Zoer's default retry limit, which the workers assume when recording failures",async()=>{
+ const {MAX_CONSECUTIVE_RETRIES}=await import("../plugin/worker/lib/slices.js");
+ const resumable=manifest.integration.actions.filter((a:any)=>a.resumable) as any[];
+ expect(resumable.length).toBeGreaterThan(0);
+ for(const action of resumable)expect(action.resumable.retry?.maxConsecutive ?? 8).toBe(MAX_CONSECUTIVE_RETRIES);
+ const writes=resumable.filter(a=>["transfer.pull","transfer.local-export","copy.local","backup.restore-local"].includes(a.id));
+ // Failure history is a catalog write: only local-write actions can record it.
+ for(const action of writes)expect(action.effect).toBe("local_write");
+});

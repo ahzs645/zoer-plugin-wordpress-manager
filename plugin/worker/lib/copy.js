@@ -3,7 +3,7 @@
 // runtime peer (`files.stage.v1`), S8 command bundles (`runtime.exec.v1`), S9 site creation and
 // S5 site addresses. The steps, checks and messages follow the legacy host engine
 // (`wordpress-local-copy.ts`, `wordpress-copy-workflow.ts`, `wordpress-backup-restore.ts`).
-import { assertPluginEngine, commitRecords, historyRecord, listKind, readRecord } from "./catalog.js";
+import { assertPluginEngine, commitRecords, historyRecord, listKind, readRecord, recordFailedTransfer } from "./catalog.js";
 import { EMPTY_SHA256, hasOnlyMacMetadataExclusions, isUploadPlaceholder } from "./files.js";
 import { deleteSet, describeSet, listEntries, readText } from "./filesets.js";
 import { defaultExportOptions } from "./options.js";
@@ -320,5 +320,16 @@ export async function cancelCopy(state, input, ctx) {
   if (state?.phase === "pulling" && state.pull) await pullSpec("pull").cancel(state.pull, input, ctx);
 }
 
-export const copySpec = { start: startCopy, step: stepCopy, cancel: cancelCopy, changed: "This connection changed. Cancel the local copy and start a new one." };
-export const restoreSpec = { start: startRestore, step: stepCopy };
+/** History record of a failed local copy or backup restore (named like the host engine's local copies). */
+export async function failedCopy(kind, state, input, ctx, error) {
+  const id = state?.copyId ?? ((kind === "restore" ? input.restoreId : input.copyId) ?? runHex(ctx.request));
+  if (!HEX32.test(id)) return;
+  const name = state?.siteName ?? input.name ?? id.slice(0, 8);
+  const siteId = state?.targetId ?? (kind === "restore" ? `backup:${id}` : input.siteId);
+  await recordFailedTransfer(ctx.host, { kind: kind === "restore" ? "restore" : "local-copy", id, siteId, siteName: name, ...(kind === "restore" ? {} : { sourceSiteId: state?.siteId ?? input.siteId }),
+    startedAt: state?.startedAt ?? new Date(ctx.now()).toISOString(), runId: ctx.request.run?.id,
+    summary: kind === "restore" ? `Backup restore ${name}` : `${state?.replaceSiteId ?? input.replaceSiteId ? "Refreshed local copy" : "Local copy"} ${name}` }, error, ctx.now);
+}
+
+export const copySpec = { start: startCopy, step: stepCopy, cancel: cancelCopy, failed: (state, input, ctx, error) => failedCopy("copy", state, input, ctx, error), changed: "This connection changed. Cancel the local copy and start a new one." };
+export const restoreSpec = { start: startRestore, step: stepCopy, failed: (state, input, ctx, error) => failedCopy("restore", state, input, ctx, error) };

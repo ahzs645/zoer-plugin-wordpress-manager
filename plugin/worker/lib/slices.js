@@ -14,6 +14,12 @@ export const TRANSIENT_CODES = new Set([
 export const PAUSED = "ZOER_PAUSED";
 /** Kept free before the slice deadline to write the checkpoint. */
 export const SLICE_RESERVE_MS = 8_000;
+/**
+ * Consecutive retries Zoer allows a slice before it fails the run (`resumable.retry.maxConsecutive`;
+ * the manifest declares no `retry`, so Zoer's default applies). The slice whose retry would be one
+ * more records the failure first.
+ */
+export const MAX_CONSECUTIVE_RETRIES = 8;
 /** `run.progress` calls closer together are dropped here (the host keeps at most one per second). */
 const PROGRESS_INTERVAL_MS = 1_000;
 
@@ -74,7 +80,9 @@ const bounded = (text, max = 500) => String(text ?? "").replace(/\s+/g, " ").tri
  * Runs one slice. `spec.start(input, ctx)` builds the first checkpoint, `spec.step(state, input,
  * ctx)` returns an envelope (use `ctx.continue/done/needsUser`), `spec.cancel(state, input, ctx)`
  * runs once after the user cancels (manifest `cleanup: true`). `spec.changed` names the reason
- * shown when the site's endpoint key changed (`endpoint_changed`).
+ * shown when the site's endpoint key changed (`endpoint_changed`). `spec.failed(state, input,
+ * ctx, error)` runs (best effort) when this slice ends the run as failed: a permanent error, or a
+ * transient one on the last retry Zoer allows. `state` is null when `start` failed.
  */
 export async function runResumable(request, host, spec, clock = Date.now) {
   const context = request.resumable;
@@ -109,6 +117,10 @@ export async function runResumable(request, host, spec, clock = Date.now) {
     return ctx.done({ cancelled: true });
   }
   let state = context.checkpoint ?? null;
+  const recordFailure = async (error) => {
+    if (!spec.failed) return;
+    try { await spec.failed(state, input, ctx, error); } catch { /* the run's own error stays the one reported */ }
+  };
   try {
     if (state === null) state = await spec.start(input, ctx);
     return await spec.step(state, input, ctx);
@@ -117,6 +129,7 @@ export async function runResumable(request, host, spec, clock = Date.now) {
     if (error?.code === "endpoint_changed" && state) return ctx.needsUser(state, spec.changed ?? "This connection changed. Restore the original connection to continue.");
     if (error?.needsUser && state) return ctx.needsUser(state, error.message);
     if (isTransient(error)) {
+      if ((Number(context.attempt) || 0) + 1 > MAX_CONSECUTIVE_RETRIES) await recordFailure(error);
       return {
         resumable: "retry",
         ...(state !== null ? { checkpoint: state } : {}),
@@ -125,6 +138,7 @@ export async function runResumable(request, host, spec, clock = Date.now) {
         ...(Number.isFinite(error.retryAfterMs) ? { retryAfterMs: Math.max(0, Math.min(300_000, Math.round(error.retryAfterMs))) } : {}),
       };
     }
+    await recordFailure(error);
     throw error;
   }
 }
