@@ -7,8 +7,8 @@ test("package retains WordPress identity, isolated actions, native entrypoint an
  for(const action of manifest.integration.actions)expect(action.execution.kind).toBe("isolated-process");
  expect(manifest.integration.actions.map(a=>a.id)).toContain("site.start");expect(manifest.integration.actions.map(a=>a.id)).toContain("backup.restore");expect(recipe.manifest).toBe("plugin/manifest.json");expect(recipe.package).toBe("dist/package");
 });
-test("0.7.1 keeps the generic runtime names and adds the P3 transfer services",()=>{
- expect(manifest.version).toBe("0.7.1");expect(pkg.version).toBe(manifest.version);
+test("0.8.0 keeps the generic runtime names and the P3 transfer services",()=>{
+ expect(manifest.version).toBe("0.8.0");expect(pkg.version).toBe(manifest.version);
  const permissions=manifest.integration.permissions;
  for(const legacy of ["runtime:wordpress:read","runtime:wordpress:lifecycle","wordpress:wp-cli:read","wordpress:snapshots","wordpress:backups"])expect(permissions).not.toContain(legacy);
  expect([...permissions].sort()).toEqual(["database:linked-register","routes:hosted","runtime:backups","runtime:commands:read","runtime:commands:write","runtime:files","runtime:lifecycle","runtime:manage","runtime:read","runtime:snapshots","workspace:catalog","workspace:filesets","workspace:native","workspace:wordpress"]);
@@ -85,4 +85,14 @@ test("resumable transfers keep Zoer's default retry limit, which the workers ass
  const writes=resumable.filter(a=>["transfer.pull","transfer.local-export","copy.local","backup.restore-local"].includes(a.id));
  // Failure history is a catalog write: only local-write actions can record it.
  for(const action of writes)expect(action.effect).toBe("local_write");
+});
+test("0.8.0 reads Zoer Connect diagnostics through site.test without changing the reviewed surface",()=>{
+ const action=manifest.integration.actions.find(a=>a.id==="site.test") as any;
+ expect(action).toMatchObject({effect:"read",approval:"never",execution:{handler:"worker/connections.js"}});
+ expect(action.inputSchema.properties.diagnostics).toEqual({type:"boolean"});expect(action.outputSchema.properties.diagnostics).toEqual({type:"object"});
+ // Up to 4 MiB of output is not part of Zoer's permission fingerprint; one request either way.
+ expect(action.resourceLimits.maxOutputBytes).toBeLessThanOrEqual(4194304);expect(action.resourceLimits.maxNetworkRequests).toBe(2);
+ const routes=(manifest.integration as any).requiredEndpoints[0].routes;expect(routes.find((r:any)=>r.path==="diagnostics")).toEqual({path:"diagnostics",methods:["GET"],effect:"read"});
+ // No action is described as needing the 0.7.x per-site engine switch any more.
+ expect(JSON.stringify(manifest)).not.toMatch(/plugin engine|test target/i);
 });
