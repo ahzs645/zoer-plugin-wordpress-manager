@@ -135,7 +135,8 @@ export function describeRun(run: Pick<EngineRun<unknown>, "status" | "error" | "
     // A definite refusal: the worker ended the run with the site's answer (see slices.js).
     if (output.status === "failed") {
       const message = typeof output.error?.message === "string" ? output.error.message : output.summary ?? "The transfer failed.";
-      return { ...base, label: "Failed", tone: "error", terminal: true, working: false, reason: output.cancelledImport ? `${message} The staged import was cancelled; nothing was activated.` : message, buttons: [] };
+      const after = output.cancelledImport ? (output.cleanedUp ? " The staged import was cancelled and its files removed from the site; nothing was activated." : " The staged import was cancelled; nothing was activated.") : "";
+      return { ...base, label: "Failed", tone: "error", terminal: true, working: false, reason: `${message}${after}`, buttons: [] };
     }
     if (output.status === "rolled_back") return { ...base, label: "Rolled back · nothing was activated", tone: "neutral", terminal: true, working: false, reason: output.summary ?? null, buttons: remote && !later.cleanedUp && output.cleanedUp !== true ? ["cleanup"] : [] };
     const cleanedUp = output.cleanedUp === true || later.cleanedUp === true;

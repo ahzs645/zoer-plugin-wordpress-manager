@@ -131,3 +131,8 @@ test("Recent transfers keeps the five newest and pins failures of the last seven
     entry("failed", "failed", 3), entry("unknown", "outcome_unknown", 4), entry("refused", "succeeded", 5, "failed"), entry("old-failed", "failed", 9), entry("older-ok", "succeeded", 2), entry("running", "running", 0)];
   expect(recentTransferRuns(runs, now).map(run => run.runId)).toEqual(["new1", "new2", "new3", "new4", "new5", "failed", "unknown", "refused"]);
 });
+
+test("a refused push whose staged import was cleaned up says so", () => {
+  const view = describeRun(run("succeeded", { output: { status: "failed", error: { message: "Refused." }, cancelledImport: true, cleanedUp: true } }), "push");
+  expect(view.reason).toBe("Refused. The staged import was cancelled and its files removed from the site; nothing was activated.");
+});

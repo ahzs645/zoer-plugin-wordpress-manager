@@ -442,7 +442,14 @@ async function cancelRefusedImport(state, input, ctx) {
   const current = await client.request(`/imports/${state.importId}`);
   if (!PRE_FENCE.includes(current?.phase ?? current?.status)) return;
   const remote = await client.request(`/imports/${state.importId}/rollback`, "POST");
-  if (["cancelled", "rolled_back"].includes(remote?.phase ?? remote?.status)) state.cancelledImport = true;
+  if (!["cancelled", "rolled_back"].includes(remote?.phase ?? remote?.status)) return;
+  state.cancelledImport = true;
+  // A cancelled import is terminal, so Zoer Connect accepts its cleanup at once (it drops the
+  // staged tables in 2 s batches, then the uploaded artifacts) and nothing is left on the site.
+  for (let calls = 0; calls < 30 && ctx.timeLeft() > 10_000; calls++) {
+    const cleaned = await client.request(`/imports/${state.importId}/cleanup`, "POST");
+    if (cleaned?.cleanedUp !== false) { state.cleanedUpImport = true; return; }
+  }
 }
 
 export const pushSpec = (kind) => ({
@@ -451,7 +458,7 @@ export const pushSpec = (kind) => ({
   onDefiniteFailure: cancelRefusedImport,
   failureOutput: (state, input) => ({ importId: state?.importId ?? input.importId ?? null, kind, phase: state?.remotePhase ?? state?.phase ?? "creating",
     ...(state?.fileCount !== undefined ? { fileCount: state.fileCount, totalBytes: state.totalBytes ?? 0 } : {}), ...(state?.skipped ? { skipped: state.skipped } : {}),
-    ...(state?.cancelledImport ? { cancelledImport: true } : {}) }),
+    ...(state?.cancelledImport ? { cancelledImport: true } : {}), ...(state?.cleanedUpImport ? { cleanedUp: true } : {}) }),
 });
 
 // ---------------------------------------------------------------------------------------------

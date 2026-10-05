@@ -478,8 +478,10 @@ describe("transfer.preview and transfer.push", () => {
     expect(result.status).toBe("succeeded");
     expect((result as any).output).toMatchObject({ status: "failed", importId: IMPORT, cancelledImport: true, error: { message, remoteCode: "zoer_import_failed", httpStatus: 409 } });
     expect(result.envelopes.at(-1)).toMatchObject({ resumable: "done", progress: { phase: "failed", message } });
-    // Before the fence a rollback only cancels: nothing stays staged.
+    // Before the fence a rollback only cancels; the cancelled import is then cleaned up, so nothing stays staged.
     expect(destination.imports.get(IMPORT)!.phase).toBe("cancelled");
+    expect(destination.imports.get(IMPORT)!.cleanedUp).toBe(true);
+    expect((result as any).output.cleanedUp).toBe(true);
   });
 
   test("a lost answer is not a refusal: the step is retried", async () => {
