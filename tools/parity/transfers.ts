@@ -2,10 +2,12 @@
 /**
  * Parity harness: the plugin transfer engine (0.7.1 workers) against the legacy Zoer host engine,
  * entirely in this process (docs/plugin-shared-services.md 16.5 P3.3). No servers, no network.
- * Historical since 0.8.0: `--zoer` must point at a Zoer checkout from before P4 deleted the legacy
- * engine (e.g. the P3 host branch); the plugin itself no longer depends on that engine.
+ * Historical since 0.8.0, pinned to Zoer 6b614068 (the last main commit before P4 deleted the
+ * legacy engine: `wordpress-pull.ts`, `wordpress-push.ts`, `wordpress-push-upload.ts`). The plugin
+ * itself no longer depends on that engine; this harness only re-checks the 0.7.x parity claims.
  *
- *   bun tools/parity/transfers.ts --zoer ~/github/zoer-wt/p3-host [--json report.json] [--only pull]
+ *   git -C ~/github/zoer worktree add /tmp/zoer-pre-p4 6b614068
+ *   bun tools/parity/transfers.ts --zoer /tmp/zoer-pre-p4 [--json report.json] [--only pull]
  *
  * Both engines talk to the same in-process fake Zoer Connect sites (tests/fakes/zoer-connect.ts)
  * with identical content. The legacy side runs Zoer's own `WordPressPullStore` /
@@ -35,6 +37,14 @@ import { writeZip } from "../../tests/fakes/zip";
 function arg(name: string) { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : undefined; }
 const ZOER = resolve(arg("zoer") ?? process.env.ZOER_CHECKOUT ?? "");
 if (!arg("zoer") && !process.env.ZOER_CHECKOUT) { console.error("Pass --zoer <Zoer checkout> (or ZOER_CHECKOUT)."); process.exit(2); }
+/** Zoer main before P4 removed the legacy transfer engine; later checkouts lack the modules compared here. */
+export const PRE_P4_ZOER_COMMIT = "6b614068";
+for (const legacy of ["wordpress-pull.ts", "wordpress-push.ts", "wordpress-push-upload.ts"]) {
+  if (!(await Bun.file(join(ZOER, "backend/src", legacy)).exists())) {
+    console.error(`${ZOER} has no backend/src/${legacy}: Zoer P4 removed the legacy engine. Check out Zoer ${PRE_P4_ZOER_COMMIT} (git worktree add <dir> ${PRE_P4_ZOER_COMMIT}) and pass it as --zoer.`);
+    process.exit(2);
+  }
+}
 const ONLY = arg("only");
 const DATA = await mkdtemp(join(tmpdir(), "wpm-parity-"));
 process.env.DATA_DIR = join(DATA, "zoer-data");

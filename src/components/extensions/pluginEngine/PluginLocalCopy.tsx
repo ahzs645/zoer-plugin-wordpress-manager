@@ -44,6 +44,8 @@ export default function PluginLocalCopy({ siteId, siteName, pull = null, onClear
     for (const run of done) finished.current.add(run.runId);
     void client.invalidateQueries({ queryKey: wordpressQueries.sites().queryKey });
     void client.invalidateQueries({ queryKey: engineKeys.catalog("local-copy") });
+    // The new copy's `site-link:` record groups it under this site in the sidebar.
+    void client.invalidateQueries({ queryKey: engineKeys.catalog("site-link") });
   }, [siteRuns, client]);
 
   const refresh = mode === "refresh";

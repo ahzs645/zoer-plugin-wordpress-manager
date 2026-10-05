@@ -163,7 +163,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const sitesQuery = useQuery(wordpressQueries.sites());
   const [separatedConnections, setSeparatedConnections] = useState(readSeparatedSiteConnections);
   // Local copies point at their source through `site-link:` records (copy.local, or migrated legacy
-  // copies); Zoer's list only knows copies its legacy engine made.
+  // copies). Since Zoer P4 the host's site list no longer tracks copies (`sourceSiteId` is always null).
   const siteLinks = useCatalogKind("site-link");
   const sites = useMemo(() => withSiteLinks(sitesQuery.data ?? [], (siteLinks.data ?? []).map(parseSiteLink).filter((link): link is SiteLinkRecord => !!link)), [sitesQuery.data, siteLinks.data]);
   const identity = useMemo(() => consolidateWordPressSites(sites, separatedConnections), [sites, separatedConnections]);

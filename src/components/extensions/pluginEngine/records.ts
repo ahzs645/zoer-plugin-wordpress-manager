@@ -259,8 +259,9 @@ export function parseSiteLink(record: Raw): SiteLinkRecord | null {
 }
 
 /**
- * Sites with `sourceSiteId` filled from `site-link` records where Zoer's site list has none (the
- * host derives it from legacy local-copy files only). A link counts only when both sites are listed.
+ * Sites with `sourceSiteId` filled from `site-link` records where Zoer's site list has none (since
+ * Zoer P4 it is always null; before, the host knew only legacy copies). A link counts only when both
+ * sites are listed.
  */
 export function withSiteLinks<T extends { id: string; sourceSiteId?: string | null }>(sites: T[], links: SiteLinkRecord[]): T[] {
   if (!links.length) return sites;
