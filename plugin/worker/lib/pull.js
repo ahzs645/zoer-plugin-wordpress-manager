@@ -156,8 +156,17 @@ export async function startPull(kind, input, ctx) {
 // ---------------------------------------------------------------------------------------------
 
 const progressOf = (state) => state.phase === "preparing"
-  ? { phase: "preparing", ...(state.total ? { done: state.declared, total: state.total, unit: "files" } : {}), ...(state.preparation?.phase ? { message: `Remote export: ${state.preparation.phase}` } : {}) }
+  ? { phase: "preparing", ...(state.total ? { done: state.declared, total: state.total, unit: "files" } : {}), ...(preparationMessage(state.preparation) ? { message: preparationMessage(state.preparation) } : {}) }
   : { phase: state.phase, done: state.downloaded ?? 0, total: state.bytes, unit: "bytes" };
+
+/** "Remote export: 120 files (database)": the files the source has listed so far, then its phase. */
+export function preparationMessage(preparation) {
+  if (!preparation) return undefined;
+  const files = Number.isSafeInteger(preparation.files) && preparation.files > 0 ? `${preparation.files.toLocaleString("en-US")} ${preparation.files === 1 ? "file" : "files"}` : "";
+  const phase = typeof preparation.phase === "string" && /^[A-Za-z0-9 _.-]{1,40}$/.test(preparation.phase) && preparation.phase !== "undefined" ? preparation.phase.replaceAll("_", " ") : "";
+  if (!files && !phase) return undefined;
+  return `Remote export: ${files || phase}${files && phase ? ` (${phase})` : ""}`;
+}
 
 function pullRecord(state, status, extra = {}) {
   return {
@@ -199,6 +208,10 @@ async function pollExport(state, source) {
     current = await source.step(id); current = current?.job ?? current;
   }
   if (current?.id !== id || !["preparing", "ready"].includes(current.status)) fail("Remote export is incomplete or unavailable.");
+  if (!state.paged && Number.isSafeInteger(current.fileCount) && current.fileCount > 0) {
+    // Whole-manifest sources report a count too while preparing; shown on the run card.
+    state.preparation = { phase: typeof current.phase === "string" ? current.phase.slice(0, 40) : "", files: current.fileCount };
+  }
   if (state.paged) {
     state.preparation = { phase: String(current.phase), files: Number(current.fileCount) || 0, ...(current.sourcePaused === true ? { sourcePaused: true } : {}),
       ...(current.checkpoint && typeof current.checkpoint === "object" ? { checkpoint: Object.fromEntries(Object.entries(current.checkpoint).filter(([key, value]) => PREPARATION_KEYS.includes(key) && Number.isSafeInteger(value) && value >= 0 && value <= 64 * 1024 ** 3)) } : {}) };

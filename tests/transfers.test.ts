@@ -6,6 +6,7 @@ import { createTicketHost } from "../plugin/worker/lib/host.js";
 import { mapConnectResponse } from "../plugin/worker/lib/zoer-connect.js";
 import { validatePullFiles } from "../plugin/worker/lib/files.js";
 import { defaultExportOptions } from "../plugin/worker/lib/options.js";
+import { preparationMessage } from "../plugin/worker/lib/pull.js";
 import { runtimeError } from "../plugin/worker/lib/slices.js";
 import { EXPORT_CREATE_INPUT_SCHEMA, schemaIssues } from "./fakes/ddev-schemas";
 
@@ -200,6 +201,18 @@ describe("export preparation pacing", () => {
     // After 5 steps 42 s are left, less than 10 s + 50 s: a sixth step could miss the deadline.
     expect(steps(source)).toBe(5);
     expect(clock()).toBeLessThan(start + 300_000 - 8_000);
+  });
+
+  test("while preparing, progress shows the files the source has listed", async () => {
+    const w = new FakeWorld();
+    w.addSite("hostinger-1", sampleSite("https://source.example", { pagedExport: true, exportSteps: 3 }));
+    w.catalog.engine("hostinger-1");
+    const first = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { maxSlices: 1, deadlineMs: 18_000 });
+    expect(first.envelopes[0]).toMatchObject({ resumable: "continue", progress: { phase: "preparing", message: "Remote export: 7 files (database)" } });
+    expect(preparationMessage({ phase: "complete", files: 120 })).toBe("Remote export: 120 files (complete)");
+    expect(preparationMessage({ phase: "database", files: 0 })).toBe("Remote export: database");
+    expect(preparationMessage({ phase: "undefined", files: 1 })).toBe("Remote export: 1 file");
+    expect(preparationMessage({ phase: "", files: 0 })).toBeUndefined();
   });
 
   test("a pause notice stops preparation between steps with the checkpoint", async () => {
