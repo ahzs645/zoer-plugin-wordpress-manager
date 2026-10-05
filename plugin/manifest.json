@@ -881,7 +881,7 @@
       {
         "id": "site.test",
         "title": "Check Zoer Connect site",
-        "description": "Read the Zoer Connect status of one added site through its saved endpoint key and check that it answers for that address.",
+        "description": "Read the Zoer Connect status of one added site through its saved endpoint key and check that it answers for that address, or (diagnostics) read its table, theme and plugin inventory for transfers.",
         "effect": "read",
         "approval": "never",
         "execution": {
@@ -898,6 +898,9 @@
             "endpointId": {
               "type": "string",
               "pattern": "^[A-Za-z0-9][A-Za-z0-9:._@-]{0,255}$"
+            },
+            "diagnostics": {
+              "type": "boolean"
             }
           },
           "required": [
@@ -925,6 +928,9 @@
             },
             "stagingReady": {
               "type": "boolean"
+            },
+            "diagnostics": {
+              "type": "object"
             }
           },
           "required": [
@@ -935,7 +941,7 @@
         "resourceLimits": {
           "timeoutMs": 60000,
           "maxMemoryMb": 128,
-          "maxOutputBytes": 65536,
+          "maxOutputBytes": 2097152,
           "maxNetworkRequests": 2
         },
         "idempotent": true

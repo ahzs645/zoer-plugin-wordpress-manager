@@ -71,6 +71,20 @@ test("site.test checks the Zoer Connect status through the endpoint grant",async
  expect(refused.output.output).toEqual({ok:false,summary:"The endpoint connection changed."});
 });
 
+test("site.test with diagnostics reads the Zoer Connect inventory the transfer panels use (0.8.0)",async()=>{
+ const origin="https://shop.example";
+ const grants={network:{ticket:"n0",allowedHosts:[],maxRequests:2,endpoints:[{alias:"site",endpoints:[{id:"ep_1",origin,label:"Shop",generation:"g1"}]}]}};
+ const answer=(status:number,value:any)=>({ok:true,result:{status,headers:{},bodyBase64:Buffer.from(JSON.stringify(value)).toString("base64")},nextTicket:"n1"});
+ const inventory={wordpress:{version:"6.6",prefix:"wp_"},database:{tables:[{name:"wp_posts",suffix:"posts",prefixed:true,rows:3}]},postTypes:[{name:"post"}],themes:[{slug:"t"}],plugins:[{slug:"p",active:true}],secretish:"dropped"};
+ const read=await runWorker("connections.js",{action:{id:"site.test"},input:{endpointId:"ep_1",diagnostics:true},grants},()=>answer(200,inventory));
+ expect(read.calls.map(c=>c.input.url)).toEqual([`${origin}/wp-json/zoer-connect/v1/diagnostics`]);
+ expect(read.calls[0].input.auth).toEqual({type:"endpoint",endpointId:"ep_1",generation:"g1"});
+ const {secretish,...kept}=inventory;
+ expect(read.output.output).toEqual({ok:true,summary:"Diagnostics read · 1 table.",diagnostics:kept});
+ const old=await runWorker("connections.js",{action:{id:"site.test"},input:{endpointId:"ep_1",diagnostics:true},grants},()=>answer(404,{}));
+ expect(old.output.output).toEqual({ok:false,summary:"Diagnostics need Zoer Connect 0.4.0 on this site. Update the plugin in WordPress."});
+});
+
 test("hostinger.check uses the selected bound account through host bearer auth",async()=>{
  const grants={network:{ticket:"n0",allowedHosts:["developers.hostinger.com"],maxRequests:2,connections:[{alias:"hostinger",provider:"hostinger",apiHosts:["developers.hostinger.com"],accounts:[{id:"oc_"+"a".repeat(32),label:"Agency"}]}]}};
  const result=await runWorker("connections.js",{action:{id:"hostinger.check"},input:{account:"oc_"+"a".repeat(32)},grants},()=>({ok:true,result:{status:200,headers:{},bodyBase64:Buffer.from(JSON.stringify({data:[{},{}]})).toString("base64")},nextTicket:"n1"}));

@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
 // Shared-service connection checks: `site.test` reads the Zoer Connect status of one endpoint
-// added through `endpoints.add` (S7b: the host injects its key); `hostinger.check` lists one page
-// of websites with one Hostinger account bound through `connections.connect` (S7a bearer auth).
+// added through `endpoints.add` (S7b: the host injects its key), or with `diagnostics: true` its
+// `/diagnostics` inventory (tables, post types, themes, plugins) for the transfer panels, which
+// Zoer's legacy `/connect/:siteId/diagnostics` route served before 0.8.0; `hostinger.check` lists
+// one page of websites with one Hostinger account bound through `connections.connect` (S7a bearer auth).
 import { createInterface } from "node:readline";
 
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -44,10 +46,27 @@ function checkZoerConnectStatus(origin, answer) {
   return { ok: true, version: body.version, pull, push, stagingReady: body.stagingReady === true, summary: `Zoer Connect ${body.version}${pull ? " · Pull enabled" : ""}${push ? " · Push enabled" : ""}.` };
 }
 
+/** The diagnostics sections the transfer panels read; anything else in the answer is dropped. */
+const DIAGNOSTICS_KEYS = ["wordpress", "php", "database", "postTypes", "themes", "plugins", "muPlugins", "dropins", "warnings", "pluginUpdate"];
+
+/** Zoer Connect's `/diagnostics` answer, as Zoer's legacy route returned it (plugin A2, Zoer Connect 0.4.0+). */
+function diagnosticsResult(answer) {
+  if (answer.refused) return { ok: false, summary: answer.refused.slice(0, 500) };
+  if (answer.status === 401 || answer.status === 403) return { ok: false, summary: "WordPress rejected this key. Check its version, key and permissions." };
+  if (answer.status === 404) return { ok: false, summary: "Diagnostics need Zoer Connect 0.4.0 on this site. Update the plugin in WordPress." };
+  const body = answer.body;
+  if (answer.status < 200 || answer.status >= 300 || !body || typeof body !== "object" || Array.isArray(body)) return { ok: false, summary: "WordPress returned invalid diagnostics." };
+  const diagnostics = Object.fromEntries(DIAGNOSTICS_KEYS.filter((key) => body[key] !== undefined).map((key) => [key, body[key]]));
+  const tables = Array.isArray(body.database?.tables) ? body.database.tables.length : 0;
+  return { ok: true, summary: `Diagnostics read · ${tables} table${tables === 1 ? "" : "s"}.`, diagnostics };
+}
+
 if (request.action.id === "site.test") {
   const endpoint = (network.endpoints ?? []).flatMap((entry) => entry.alias === "site" ? entry.endpoints : []).find((entry) => entry.id === request.input.endpointId);
+  const auth = endpoint && { type: "endpoint", endpointId: endpoint.id, generation: endpoint.generation };
   if (!endpoint) done({ ok: false, summary: "This site's connection was removed. Add the site again." });
-  else done(checkZoerConnectStatus(endpoint.origin, await fetchThroughHost(`${endpoint.origin}/wp-json/zoer-connect/v1/status`, { type: "endpoint", endpointId: endpoint.id, generation: endpoint.generation })));
+  else if (request.input.diagnostics === true) done(diagnosticsResult(await fetchThroughHost(`${endpoint.origin}/wp-json/zoer-connect/v1/diagnostics`, auth)));
+  else done(checkZoerConnectStatus(endpoint.origin, await fetchThroughHost(`${endpoint.origin}/wp-json/zoer-connect/v1/status`, auth)));
 } else if (request.action.id === "hostinger.check") {
   const answer = await fetchThroughHost("https://developers.hostinger.com/api/hosting/v1/websites?per_page=100", { type: "bearer", connectionAlias: "hostinger", account: request.input.account });
   if (answer.refused) done({ ok: false, summary: answer.refused.slice(0, 500) });
