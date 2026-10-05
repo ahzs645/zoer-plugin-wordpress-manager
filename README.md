@@ -87,7 +87,7 @@ Matching preserves installation paths and ports, and does not infer aliases from
 - **Zoer Connect sites.** "Connect existing site" adds the site as a Zoer endpoint (`endpoints.add`, alias `site`): Zoer confirms, probes the status route and keeps the key. `site.test` then applies the Zoer Connect checks; a site that fails them is offered for removal. Transfers, backups and local copies keep using the Zoer host routes, which read the same endpoints.
 - **Workers.** Runtime refusals carry the next one-use ticket; inventories report a refused site and continue. WP-CLI arguments use the host's bounds (1–24 single-line arguments of at most 500 characters).
 
-Transfers still run on the Zoer host (`/wordpress-manager/*`); moving them into this plugin is phase P3.
+Transfers still run on the Zoer host (`/wordpress-manager/*`); moving them into this plugin is phase P3 (0.7.0, below).
 
 ## Plugin transfer engine (0.7.0)
 
@@ -97,7 +97,7 @@ Transfers still run on the Zoer host (`/wordpress-manager/*`); moving them into 
 - **Actions** (`worker/transfers.js`, resumable S1 slices; one transfer per site at a time through the lock `site-transfer:<siteId>`):
   - `transfer.pull` / `transfer.local-export` — Zoer Connect site or local DDEV site → verified, sealed file set (`site-export` file rules, S3 downloads, block digests converted to SHA-256) plus a `pull` catalog record.
   - `transfer.preview` — compares a pull with a destination (20 paths per request) and stores the classification for a selective push.
-  - `transfer.push` / `transfer.replace` — external writes, approval always, resume manual after a restart: import manifest with 256 KiB block digests, `zbt1-v1` batch upload with the destination's cursor as authority, then the import steps; review and verification park the run (`needs-user`) until `transfer.push.control` approves, finishes or rolls back.
+  - `transfer.push` / `transfer.replace` — external writes, approval always, resume manual after a restart: import manifest with 256 KiB block digests, `zbt1-v1` batch upload with the destination's cursor as authority, then the import steps; review and verification park the run (`needs-user`) until `transfer.push.control` approves, finishes or rolls back (resumable since 0.7.1: one approval drives a rollback or cleanup to its end).
   - `copy.local` — pull (or a given pull), new or refreshed DDEV site (S9), staging through the DDEV bridge (S3 runtime peer), the reviewed import scripts in `computer/wordpress/` (S8 `runtime.exec.v1`), its own address (S5), plugins inactive, HTTP check.
   - `backup.restore-local` — five-part UpdraftPlus set uploaded into a file set (`updraft-set` rules) restored into a new DDEV site; the database is converted to data-only SQL by `prepare-updraft.php` (a port of the host's Python preparation, checked against it by the parity harness).
 - **Dry runs.** `dryRun: true` on every action: pull downloads into a scratch set and keeps nothing; push and replace build and check the plan and send nothing that writes; local copy restores into a scratch site `zoer-dryrun-<id>` that goes to the trash; restore inspects the archives and plans without creating a site.
@@ -106,3 +106,20 @@ Transfers still run on the Zoer host (`/wordpress-manager/*`); moving them into 
 - **New reviewed permissions:** `workspace:filesets`, `workspace:catalog`, `runtime:files`, `runtime:commands:write`, `routes:hosted` (+ `hostedRoutes` family `wp`), the two file rule sets and five runtime command bundles.
 
 Known differences from the legacy engine: push batches are capped by the endpoint body limit (8 MiB − 128 KiB instead of up to 64 MiB); a retried upload slice re-reads the destination cursor first; pulls refuse executable files under `wp-content/uploads` that are not "silence" placeholders already at the pull (the legacy engine refused them only at local copy); artifact reuse between pushes and the remote pause during an import are not used; a remote DDEV site whose Zoer Connect reports its DDEV canonical home instead of the endpoint address is refused as "does not match this connection"; a database import must finish within one 14-minute command.
+
+## Plugin transfer engine fixes (0.7.1)
+
+0.7.1 is the result of the live gate runs of the plugin engine on Zoer Connect test sites. Same Zoer host requirements as 0.7.0. The permission fingerprint changes (upgrade review): `transfer.push.control` became resumable and `transfer.push` may write up to 12 MiB per slice (`worker:output:12582912`); the other output limits rose to 4 MiB, which Zoer does not fingerprint.
+
+- **Prepare speed.** A pull or local export polls the source's export inside one slice until it is ready (no 2 s pause between steps, like the legacy runner), instead of one remote step per slice: a small dry run went from 905 slices / 80 min to 5 slices / about a minute.
+- **Slice budgets.** Every slice counts its runtime calls (Zoer refuses the 251st `runtime.invoke` or runtime-peer request; the workers stop at 200 across all phases) and its stdout bytes against `maxOutputBytes` (host-call lines included; 80 KiB kept for the checkpoint). Long loops (preview pages, uploads, manifest declarations, bridge polling, local-copy plans) continue in the next slice instead of being cut off. Tested with a 20,000-file site.
+- **Push idempotency.** The import is created in its own slice after a checkpoint with its ID and manifest digest; a retry or resume re-posts the identical manifest and Zoer Connect returns the same import.
+- **Delete removes the site's export.** Deleting a pull or local export (`remove: true`) also removes the export on the site or DDEV bridge, so the site accepts the next export; failures to do so are shown.
+- **Failed-run cleanup.** A failed pull or local export deletes its partial file set and the source's export and marks its record failed, like a cancel; failed runs are written to the transfer history.
+- **Local exports.** The bridge gets the legacy route's body (`sourceUrl` = the site's Zoer address, the full-snapshot filters as an object); bridge refusals fail at once with the bridge's message, only transport errors retry.
+- **Files Zoer Connect refuses.** Push and preview leave out files the destination's import would refuse (hidden files such as `.htaccess`, executable uploads, protected files; the rules of `StageStore::validateManifest`) and list them as "skipped: not accepted by Zoer Connect" in the plan, the review and the result. The WordPress-side rule is unchanged.
+- **Resumable import controls.** One approved Roll back or Clean up drives every rollback phase (`rollback_reset` … `rolled_back`) or cleanup batch to its end across slices, continuing a rollback from wherever it stopped. Finished push cards follow a later rollback or cleanup of their import.
+- **Clean failures.** A definite refusal by the site (an HTTP error answer) ends a push or control with a failure result and the site's message instead of "outcome unknown"; a refused import still before the fence is cancelled and cleaned up in the same run. The push dry run lists tables the destination lacks while "Create missing tables" is off.
+- **Pause during upload.** Upload and import stretches end every 30 s and at the end of the upload, so a pause parks the push within about 30 s instead of at review.
+- **Review.** The review reason lists the skipped files and reads as sentences; the run card lists them too. The preview's result is its summary.
+- **Site paused by a transfer.** The transfer dialog and its run cards open even while a push or rollback fences the site; Recent transfers keeps failures of the last seven days.

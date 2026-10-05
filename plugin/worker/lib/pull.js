@@ -59,7 +59,7 @@ function localSource(host, state) {
     runtime: true,
     remove: (id) => invoke("export.cancel.v1", { exportId: id }),
     // The bridge echoes the source URL it was given: the site's Zoer address, like the host engine
-    // (checkpoints from before 0.7.0 sent none and accept the bridge's own address).
+    // (checkpoints from before 0.7.1 sent none and accept the bridge's own address).
     sameSource: (url) => {
       if (!state.sourceUrl) return typeof url === "string" && /^https?:\/\//i.test(url) && url.length < 2048;
       try { return normalizeConnectUrl(String(url)) === state.sourceUrl; } catch { return false; }

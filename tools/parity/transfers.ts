@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Parity harness: the plugin transfer engine (0.7.0 workers) against the legacy Zoer host engine,
+ * Parity harness: the plugin transfer engine (0.7.1 workers) against the legacy Zoer host engine,
  * entirely in this process (docs/plugin-shared-services.md 16.5 P3.3). No servers, no network:
  *
  *   bun tools/parity/transfers.ts --zoer ~/github/zoer-wt/p3-host [--json report.json] [--only pull]

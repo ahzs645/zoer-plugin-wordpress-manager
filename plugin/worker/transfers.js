@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// WordPress Manager plugin transfer engine (0.7.0, docs/plugin-shared-services.md 16.5 P3).
+// WordPress Manager plugin transfer engine (0.7.1, docs/plugin-shared-services.md 16.5 P3).
 // Every action runs only for sites the user switched to the plugin engine and confirmed as
 // non-production test targets; the legacy host engine stays the default for every site.
 import { failure } from "./lib/slices.js";
