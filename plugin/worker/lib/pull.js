@@ -192,6 +192,8 @@ const PREPARE_TIME_LEFT_MS = 10_000;
  * the slice's shared runtime call budget (`ctx.runtimeLeft()`) runs out.
  */
 const PREPARE_MAX_STEPS = 200;
+/** Output a declared manifest page of ≤ 500 files can take (the page request, its catalog call, framing). */
+const MANIFEST_PAGE_OUTPUT = 512 * 1024;
 
 /** One remote job answer while preparing: create once, then poll; identity and status are checked. */
 async function pollExport(state, source) {
@@ -249,7 +251,8 @@ async function prepare(state, ctx, source) {
     const seen = new Set();
     // Pages of ≤ 500 files until the manifest is declared or the slice runs out of time. Like the
     // host engine, the export is polled again before every further page (it must stay ready).
-    for (let first = true; state.declared < state.total && ctx.timeLeft() > PREPARE_TIME_LEFT_MS; first = false) {
+    // Each page goes to the host in one `fileset.*` call: it must fit the slice's output budget.
+    for (let first = true; state.declared < state.total && ctx.timeLeft() > PREPARE_TIME_LEFT_MS && ctx.outputLeft() > MANIFEST_PAGE_OUTPUT; first = false) {
       if (!first) {
         stopIfPaused(ctx);
         const again = await source.step(id);
@@ -262,7 +265,7 @@ async function prepare(state, ctx, source) {
       const files = validatePullFiles(page.files, seen);
       checkSelection(files, state.options);
       if (files.some(f => f.path === "database.sql")) state.hasDatabase = true;
-      await declareEntries(host, set, files, state.declared);
+      if (!(await declareEntries(host, set, files, state.declared, { canSend: ctx.canSend })).complete) return false;
       state.declared += files.length;
       state.bytes += files.reduce((sum, f) => sum + f.bytes, 0);
     }
@@ -271,7 +274,8 @@ async function prepare(state, ctx, source) {
     const files = validatePullFiles(current.files);
     checkSelection(files, state.options);
     state.hasDatabase = files.some(f => f.path === "database.sql");
-    await declareEntries(host, set, files, 0);
+    // Large whole manifests are declared over several slices (each re-polls the ready export).
+    if (!(await declareEntries(host, set, files, 0, { canSend: ctx.canSend })).complete) return false;
     state.total = state.declared = files.length;
     state.bytes = files.reduce((sum, f) => sum + f.bytes, 0);
   }

@@ -7,12 +7,14 @@ import { listEntries } from "./filesets.js";
 import { capabilityFlags, importOptionsToPlugin, legacyImportOptions, replaceOptionsToPlugin, validateImportOptions, validateTableSuffixes } from "./options.js";
 import { HEX32, pullOfSet, runHex } from "./pull.js";
 import { normalizeConnectUrl } from "./files.js";
-import { fail, TransferError } from "./slices.js";
+import { fail, OUTPUT_RESERVE, TransferError } from "./slices.js";
 import { connectClient, parseStatus, siteEndpoint } from "./zoer-connect.js";
 
 const PREVIEW_BATCH = 20;
 const PREVIEW_PAGE = 400;
 const PREVIEW_TTL_MS = 3_600_000;
+/** Output one more compare batch can add: its request and its 20 entries in the page commit. */
+const PREVIEW_BATCH_OUTPUT = 64 * 1024;
 const MANIFEST_BODY_BYTES = 8 * 1024 * 1024;
 const TERMINAL = ["complete", "rolled_back", "cancelled"];
 const CHANGED = "Connection changed. Restore the original connection to recover this import.";
@@ -52,38 +54,50 @@ export const previewSpec = {
   async step(state, input, ctx) {
     const { host, request } = ctx;
     const client = connectClient(host, endpointOf(request, state.siteId), state.generation);
-    const files = [];
-    while (state.cursor + files.length < state.total && files.length < PREVIEW_PAGE && ctx.timeLeft() > 5_000) {
-      const batch = (await listEntries(host, state.setId, { from: state.cursor + files.length, limit: PREVIEW_BATCH })).slice(0, PREVIEW_BATCH);
-      const ordinary = batch.filter(f => f.path !== "database.sql");
-      const result = ordinary.length ? await client.request("/files/compare", "POST", { files: ordinary.map(f => ({ path: f.path })) }) : { files: [] };
-      let resultIndex = 0; const before = files.length;
-      for (const file of batch) {
-        const entry = { path: file.path, bytes: file.bytes, sha256: file.sha256, state: "database" };
-        if (file.path !== "database.sql") {
-          const r = result.files?.[resultIndex++];
-          if (!r) break;
-          if (r.path !== file.path || (!r.blocked && r.sha256 !== null && !/^[a-f0-9]{64}$/.test(r.sha256))) fail("Invalid comparison response.");
-          entry.state = r.blocked ? "blocked" : r.sha256 === null ? "new" : r.sha256 === file.sha256 ? "unchanged" : "changed";
-          if (!r.blocked) entry.expectedDestinationSha256 = r.sha256;
-        }
-        files.push(entry);
-      }
-      if (files.length === before) fail("Destination comparison made no progress.");
+    // Pages of ≤ 400 files, each committed with the summary, until the slice's time or output
+    // budget runs out (the page and every compare request count against maxOutputBytes).
+    // The first page always commits (an empty set still records its complete summary).
+    for (let pages = 0; (pages === 0 || state.cursor < state.total) && ctx.timeLeft() > 5_000 && ctx.outputLeft() > PREVIEW_BATCH_OUTPUT; pages++) {
+      if (!(await previewPage(state, ctx, client))) break;
     }
-    const counts = { ...state.counts };
-    for (const file of files) counts[file.state]++;
-    const next = { ...state, cursor: state.cursor + files.length, page: state.page + (files.length ? 1 : 0), counts };
-    const complete = next.cursor >= next.total;
-    const summary = { id: `preview:${state.previewId}`, kind: "preview", title: `Preview ${state.previewId.slice(0, 8)}`,
-      data: { v: 1, previewId: state.previewId, siteId: state.siteId, setId: state.setId, pullId: state.pullId, generation: state.generation, createdAt: state.createdAt, expiresAt: state.expiresAt, cursor: next.cursor, total: next.total, pages: next.page, counts, complete } };
-    // The page and the summary commit together, so a replayed slice rewrites the same page.
-    await commitRecords(host, [...(files.length ? [{ id: `preview-page:${state.previewId}:${state.page}`, kind: "preview-page", title: `Preview page ${state.page}`, data: { v: 1, previewId: state.previewId, page: state.page, files } }] : []), summary]);
-    Object.assign(state, next);
     const progress = { phase: "comparing", done: state.cursor, total: state.total, unit: "files" };
-    return complete ? ctx.done({ previewId: state.previewId, complete: true, total: state.total, counts }, progress) : ctx.continue(state, progress);
+    return state.cursor >= state.total ? ctx.done({ previewId: state.previewId, complete: true, total: state.total, counts: state.counts }, progress) : ctx.continue(state, progress);
   },
 };
+
+/** Compares up to one page of files with the destination and commits it with the summary; returns the files added. */
+async function previewPage(state, ctx, client) {
+  const { host } = ctx;
+  const files = [];
+  while (state.cursor + files.length < state.total && files.length < PREVIEW_PAGE && ctx.timeLeft() > 5_000 && ctx.outputLeft() > Buffer.byteLength(JSON.stringify(files)) + PREVIEW_BATCH_OUTPUT) {
+    const batch = (await listEntries(host, state.setId, { from: state.cursor + files.length, limit: PREVIEW_BATCH })).slice(0, PREVIEW_BATCH);
+    const ordinary = batch.filter(f => f.path !== "database.sql");
+    const result = ordinary.length ? await client.request("/files/compare", "POST", { files: ordinary.map(f => ({ path: f.path })) }) : { files: [] };
+    let resultIndex = 0; const before = files.length;
+    for (const file of batch) {
+      const entry = { path: file.path, bytes: file.bytes, sha256: file.sha256, state: "database" };
+      if (file.path !== "database.sql") {
+        const r = result.files?.[resultIndex++];
+        if (!r) break;
+        if (r.path !== file.path || (!r.blocked && r.sha256 !== null && !/^[a-f0-9]{64}$/.test(r.sha256))) fail("Invalid comparison response.");
+        entry.state = r.blocked ? "blocked" : r.sha256 === null ? "new" : r.sha256 === file.sha256 ? "unchanged" : "changed";
+        if (!r.blocked) entry.expectedDestinationSha256 = r.sha256;
+      }
+      files.push(entry);
+    }
+    if (files.length === before) fail("Destination comparison made no progress.");
+  }
+  const counts = { ...state.counts };
+  for (const file of files) counts[file.state]++;
+  const next = { ...state, cursor: state.cursor + files.length, page: state.page + (files.length ? 1 : 0), counts };
+  const complete = next.cursor >= next.total;
+  const summary = { id: `preview:${state.previewId}`, kind: "preview", title: `Preview ${state.previewId.slice(0, 8)}`,
+    data: { v: 1, previewId: state.previewId, siteId: state.siteId, setId: state.setId, pullId: state.pullId, generation: state.generation, createdAt: state.createdAt, expiresAt: state.expiresAt, cursor: next.cursor, total: next.total, pages: next.page, counts, complete } };
+  // The page and the summary commit together, so a replayed slice rewrites the same page.
+  await commitRecords(host, [...(files.length ? [{ id: `preview-page:${state.previewId}:${state.page}`, kind: "preview-page", title: `Preview page ${state.page}`, data: { v: 1, previewId: state.previewId, page: state.page, files } }] : []), summary]);
+  Object.assign(state, next);
+  return files.length;
+}
 
 /** The completed preview of `previewId` with every page's classification by path. */
 async function loadPreview(host, previewId) {
@@ -228,11 +242,15 @@ async function uploadSlice(state, input, ctx, client) {
   const target = client.peer(`imports/${state.importId}/batch`);
   const order = state.order ?? await uploadOrder(state, input, ctx);
   while (ctx.timeLeft() > 5_000) {
+    const call = state.batchUpload
+      ? { transferId, setId: state.setId, target, resync: client.peer(`imports/${state.importId}?view=upload`), chunks: client.peer(`imports/${state.importId}/chunks`), protocol: "zbt1-v1", ...(state.remote ? { remote: state.remote } : {}), order }
+      : { transferId, setId: state.setId, target: client.peer(`imports/${state.importId}/chunks`), protocol: "chunks-json-v1", order };
+    // Every call repeats the upload order (Zoer checks it against the stored transfer), so a long
+    // slice of small batches is bounded by its output budget, not only by time.
+    if (!ctx.canSend("transfer.upload", call)) return false;
     let result;
     try {
-      result = await host.call("transfer.upload", state.batchUpload
-        ? { transferId, setId: state.setId, target, resync: client.peer(`imports/${state.importId}?view=upload`), chunks: client.peer(`imports/${state.importId}/chunks`), protocol: "zbt1-v1", ...(state.remote ? { remote: state.remote } : {}), order }
-        : { transferId, setId: state.setId, target: client.peer(`imports/${state.importId}/chunks`), protocol: "chunks-json-v1", order });
+      result = await host.call("transfer.upload", call);
     } catch (error) {
       if (error?.code === "transfer_integrity") throw new TransferError("Source artifact changed.", { code: error.code });
       if (error?.code === "transfer_exhausted") throw new TransferError(`Upload paused after repeated failures with every transfer method. ${error.message}`.slice(0, 300), { needsUser: true, code: error.code });
@@ -257,6 +275,9 @@ export async function stepPush(state, input, ctx) {
     const built = await buildManifest(state, input, status, ctx);
     const body = JSON.stringify(built.manifest);
     if (Buffer.byteLength(body) > MANIFEST_BODY_BYTES - 4096) fail("The import manifest exceeds the 8 MiB endpoint limit. Compare first and push a smaller selection.");
+    // The manifest leaves the worker base64-encoded in one host call (counted as output).
+    const manifestOutput = Buffer.byteLength(body) * 4 / 3 + 4096;
+    if (manifestOutput > ctx.outputLimit - OUTPUT_RESERVE - 64 * 1024) fail("The import manifest is too large for one request from this worker. Compare first and push a smaller selection.");
     state.totalBytes = built.totalBytes ?? 0;
     state.fileCount = built.order.length;
     if (built.warnings.length) state.warnings = built.warnings;

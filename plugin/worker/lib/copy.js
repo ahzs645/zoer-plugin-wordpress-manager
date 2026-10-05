@@ -192,11 +192,13 @@ async function stage(state, ctx) {
   const { host } = ctx;
   // Each batch to the runtime peer is a runtime call (the slice's shared runtime call budget).
   while (ctx.timeLeft() > 5_000 && ctx.runtimeLeft() >= UPLOAD_RUNTIME_REQUESTS) {
+    const call = { transferId: `copy-${state.copyId}`, setId: state.setId,
+      target: { runtime: { alias: RUNTIME_ALIAS, resourceId: state.targetId, operation: "files.stage.v1", args: { copyId: state.copyId } } },
+      protocol: "zbt1-v1", remote: STAGE_REMOTE, ...(state.order ? { order: state.order } : {}) };
+    if (!ctx.canSend("transfer.upload", call)) return false;
     let result;
     try {
-      result = await host.call("transfer.upload", { transferId: `copy-${state.copyId}`, setId: state.setId,
-        target: { runtime: { alias: RUNTIME_ALIAS, resourceId: state.targetId, operation: "files.stage.v1", args: { copyId: state.copyId } } },
-        protocol: "zbt1-v1", remote: STAGE_REMOTE, ...(state.order ? { order: state.order } : {}) });
+      result = await host.call("transfer.upload", call);
     } catch (error) {
       if (error?.code === "transfer_integrity") throw new TransferError("Downloaded artifact is incomplete.", { code: error.code, needsUser: true });
       if (error?.code === "transfer_exhausted") throw new TransferError(GENERIC, { code: error.code, needsUser: true });
@@ -220,7 +222,10 @@ async function placeFiles(state, ctx) {
       entries ??= (await listEntries(host, state.setId)).map((f, index) => ({ ...f, index })).filter(f => f.path !== "database.sql");
       const batch = entries.slice(state.fileOffset, state.fileOffset + FILE_BATCH).map(f => ({ path: f.path, sha256: f.sha256, bytes: f.bytes, source: String(f.index) }));
       if (batch.some(f => f.bytes === 0 && f.sha256 !== EMPTY_SHA256)) fail("Downloaded artifact is incomplete.");
-      await execCommand(host, state.targetId, "wordpress.copy.files", { id: state.copyId, files: batch });
+      const plan = { id: state.copyId, files: batch };
+      // The plan travels as JSON text inside the call (escaped again): it must fit the output budget.
+      if (ctx.outputLeft() < 2 * Buffer.byteLength(JSON.stringify(plan)) + 8192) break;
+      await execCommand(host, state.targetId, "wordpress.copy.files", plan);
     }
     state.fileOffset = Math.min(state.fileCount, state.fileOffset + FILE_BATCH);
   }

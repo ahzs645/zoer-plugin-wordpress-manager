@@ -41,6 +41,22 @@ export function runtimeCost(method, input) {
   return 0;
 }
 
+/**
+ * Zoer counts every byte a worker writes to stdout against the action's `maxOutputBytes`: the
+ * final envelope and every host call line (inputs included: request bodies, file lists, upload
+ * orders). A call line costs its JSON input plus this much framing (protocol fields, ticket).
+ */
+const HOST_CALL_OVERHEAD = 256;
+/** Kept free for the slice's envelope: a checkpoint of up to 64 KiB, progress and framing. */
+export const OUTPUT_RESERVE = 80 * 1024;
+/** Output limit assumed when an action's is unknown (Zoer's smallest in this manifest). */
+const DEFAULT_OUTPUT_LIMIT = 128 * 1024;
+
+/** Bytes one host call adds to the worker's stdout. */
+export function outputCost(method, input) {
+  return Buffer.byteLength(JSON.stringify(input ?? {})) + Buffer.byteLength(String(method)) + HOST_CALL_OVERHEAD;
+}
+
 /** `run.progress` calls closer together are dropped here (the host keeps at most one per second). */
 const PROGRESS_INTERVAL_MS = 1_000;
 
@@ -105,18 +121,28 @@ const bounded = (text, max = 500) => String(text ?? "").replace(/\s+/g, " ").tri
  * ctx, error)` runs (best effort) when this slice ends the run as failed: a permanent error, or a
  * transient one on the last retry Zoer allows. `state` is null when `start` failed.
  */
-export async function runResumable(request, host, spec, clock = Date.now) {
+export async function runResumable(request, host, spec, clock = Date.now, { outputLimit = DEFAULT_OUTPUT_LIMIT } = {}) {
   const context = request.resumable;
   if (!context) throw new TransferError("This action needs a Zoer release with resumable actions.", { code: "resumable_unsupported" });
   const input = request.input ?? {};
   const deadlineAt = Date.parse(context.deadlineAt);
   let progressAt = -Infinity;
   let runtimeUsed = 0;
-  // Every host call of the slice goes through here, so the runtime budget sees all phases.
+  let outputUsed = 0;
+  const outputLeft = () => Math.max(0, outputLimit - OUTPUT_RESERVE - outputUsed);
+  // Every host call of the slice goes through here, so the runtime and output budgets see all phases.
   const counted = {
     request: host.request,
     get pauseRequested() { return host.pauseRequested ?? null; },
-    call(method, input) { runtimeUsed += runtimeCost(method, input); return host.call(method, input); },
+    call(method, input) {
+      const bytes = outputCost(method, input);
+      // A call that does not fit would get the worker killed mid-slice ("exceeded its output
+      // limit"); refuse it before it is written, so the slice retries with a fresh budget.
+      if (bytes > outputLeft()) throw new TransferError("This step's request does not fit this slice's output budget. Retrying in a new step.", { code: "output_budget", transient: true, retryAfterMs: 0 });
+      outputUsed += bytes;
+      runtimeUsed += runtimeCost(method, input);
+      return host.call(method, input);
+    },
   };
   const ctx = {
     request, host: counted, input, resumable: context,
@@ -141,6 +167,11 @@ export async function runResumable(request, host, spec, clock = Date.now) {
     pauseRequested: () => host.pauseRequested ?? null,
     /** Runtime calls this slice may still make (see RUNTIME_CALL_BUDGET). */
     runtimeLeft: () => Math.max(0, RUNTIME_CALL_BUDGET - runtimeUsed),
+    /** Stdout bytes this slice may still write in host calls (the envelope's reserve excluded). */
+    outputLeft,
+    /** Whether `host.call(method, input)` still fits this slice's output budget. */
+    canSend: (method, input) => outputCost(method, input) <= outputLeft(),
+    outputLimit,
   };
   if (context.cancelling) {
     if (spec.cancel) await spec.cancel(context.checkpoint ?? null, input, ctx);

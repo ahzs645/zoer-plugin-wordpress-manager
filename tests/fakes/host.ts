@@ -6,6 +6,7 @@
  * and `run.progress`. The parity harness swaps in Zoer's real S2/S3 implementations.
  */
 import { createHash } from "node:crypto";
+import manifest from "../../plugin/manifest.json";
 import { runTransferAction } from "../../plugin/worker/lib/actions.js";
 import { BLOCK, blockDigests, blocksRoot, FakeZoerConnect, sha, type FakeResponse } from "./zoer-connect";
 import { DDEV_OPERATION_SCHEMAS, schemaIssues } from "./ddev-schemas";
@@ -216,6 +217,7 @@ export class FakeDdev {
 // ---------------------------------------------------------------------------------------------
 
 export type Endpoint = { id: string; origin: string; label: string; generation: string; site: FakeZoerConnect };
+type Execution = { actionId: string; runtime: number; peer: number; output: number; limit: number; checkpointBytes: number };
 type TransferState = { cursor: { index: number; offset: number }; complete: boolean; requests: number; rawBytes: number; wireBytes: number; unverifiable: Set<number>; synced?: boolean; phase?: string };
 
 export class FakeWorld {
@@ -251,19 +253,24 @@ export class FakeWorld {
    * (runtime-operations.ts) and runtime-peer requests of `transfer.*` (transfers/peers.ts) each
    * refuse their 251st call with "Runtime RPC budget exhausted.".
    */
-  readonly executions: Array<{ actionId: string; runtime: number; peer: number }> = [];
-  private current: { actionId: string; runtime: number; peer: number } | null = null;
+  readonly executions: Execution[] = [];
+  private current: Execution | null = null;
   private countPeer() { if (this.current && ++this.current.peer > 250) refuse("Runtime RPC budget exhausted.", "capability_denied"); }
 
   host(actionId: string, runId: string, effect: string, execution: number) {
     const world = this;
-    const counters = { actionId, runtime: 0, peer: 0 };
+    const limit = (manifest as any).integration.actions.find((a: any) => a.id === actionId)?.resourceLimits?.maxOutputBytes ?? 1_048_576;
+    const counters: Execution = { actionId, runtime: 0, peer: 0, output: 0, limit, checkpointBytes: 0 };
     this.executions.push(counters);
     return {
       get pauseRequested() { return world.pause; },
       call: async (method: string, input: any = {}) => {
         this.calls.push({ method, input });
         this.current = counters;
+        // Zoer counts every stdout byte (host call lines included) against maxOutputBytes and
+        // kills the worker past it.
+        counters.output += Buffer.byteLength(JSON.stringify({ protocolVersion: "1", kind: "host-call", requestId: "wpm-0000", method, input: { ...input, ticket: "t".repeat(43) } })) + 1;
+        if (counters.output > limit) throw new Error("Integration action exceeded its output limit.");
         if ((method === "runtime.invoke" || method === "adapter.invoke") && ++counters.runtime > 250) refuse("Runtime RPC budget exhausted.", "capability_denied");
         if (this.pause && ["network.fetch", "runtime.invoke"].includes(method)) refuse("Paused for Zoer update", "ZOER_PAUSED");
         const service = this.services[method];
@@ -435,6 +442,11 @@ export class FakeWorld {
       let envelope: any;
       try { envelope = await runTransferAction(request, this.host(actionId, request.run.id, effect, slice), clock); }
       catch (error) { return { status: "failed" as const, error: error as Error & { code?: string }, envelopes, checkpoint }; }
+      const execution = this.executions.at(-1)!;
+      execution.output += Buffer.byteLength(JSON.stringify({ protocolVersion: "1", runId: request.run.id, ok: true, output: envelope })) + 1;
+      execution.checkpointBytes = envelope?.checkpoint === undefined ? 0 : Buffer.byteLength(JSON.stringify(envelope.checkpoint));
+      if (execution.output > execution.limit) return { status: "failed" as const, error: Object.assign(new Error("Integration action exceeded its output limit."), { code: "output-limit" }), envelopes, checkpoint };
+      if (execution.checkpointBytes > 65536) return { status: "failed" as const, error: Object.assign(new Error("Resumable checkpoint exceeds 64 KiB."), { code: "resumable_checkpoint_too_large" }), envelopes, checkpoint };
       envelopes.push(envelope);
       if (resumable) this.envelopeCheck?.(envelope, actionId);
       await options.onSlice?.(envelope, slice);
