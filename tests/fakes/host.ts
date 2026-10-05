@@ -432,6 +432,12 @@ export class FakeWorld {
 
   /** Runs one action through its slices like the S1 dispatcher (continue/retry loop; stops at needs-user, done or failure). */
   /**
+   * A user pause as Zoer applies it to an external-write slice: no notice reaches the worker; the
+   * run parks as paused when the slice returns a checkpoint (`continue`). A needs-user or done
+   * envelope drops the request.
+   */
+  userPause = false;
+  /**
    * `clock` replaces Date.now for the worker (and the slice deadline); `deadlineMs` is the time
    * each slice gets (default 300 s, the pull's `stepTimeoutMs`).
    */
@@ -460,7 +466,12 @@ export class FakeWorld {
       await options.onSlice?.(envelope, slice);
       if (!resumable) return { status: "succeeded" as const, output: envelope, envelopes, checkpoint };
       if (envelope.paused) { checkpoint = envelope.checkpoint; continue; }
-      if (envelope.resumable === "continue") { checkpoint = envelope.checkpoint; failures = 0; continue; }
+      if (envelope.resumable === "continue") {
+        checkpoint = envelope.checkpoint; failures = 0;
+        if (this.userPause) { this.userPause = false; return { status: "paused" as const, envelopes, checkpoint }; }
+        continue;
+      }
+      if (envelope.resumable === "needs-user" || envelope.resumable === "done") this.userPause = false;
       if (envelope.resumable === "retry") {
         if (envelope.checkpoint !== undefined) checkpoint = envelope.checkpoint;
         if (++failures > 8) return { status: "failed" as const, error: Object.assign(new Error(`${envelope.error.message} (gave up after ${failures} consecutive failures)`), { code: envelope.error.code }), envelopes, checkpoint };

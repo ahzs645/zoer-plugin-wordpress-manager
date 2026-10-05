@@ -14,6 +14,8 @@ import { connectClient, parseStatus, siteEndpoint } from "./zoer-connect.js";
 const PREVIEW_BATCH = 20;
 const PREVIEW_PAGE = 400;
 const PREVIEW_TTL_MS = 3_600_000;
+/** Longest stretch of uploading or import steps in one slice, so a user pause takes effect soon. */
+const PUSH_SLICE_MS = 30_000;
 /** Output one more compare batch can add: its request and its 20 entries in the page commit. */
 const PREVIEW_BATCH_OUTPUT = 64 * 1024;
 const MANIFEST_BODY_BYTES = 8 * 1024 * 1024;
@@ -270,12 +272,13 @@ async function uploadOrder(state, input, ctx) {
   return [...selected].sort((a, b) => Number(b.path === "database.sql") - Number(a.path === "database.sql")).map(entry => entry.index);
 }
 
-async function uploadSlice(state, input, ctx, client) {
+async function uploadSlice(state, input, ctx, client, until) {
   const { host } = ctx;
   const transferId = `push-${state.importId}`;
   const target = client.peer(`imports/${state.importId}/batch`);
   const order = state.order ?? await uploadOrder(state, input, ctx);
-  while (ctx.timeLeft() > 5_000) {
+  for (let first = true; ctx.timeLeft() > 5_000 && ctx.now() < until; first = false) {
+    if (!first) stopIfPaused(ctx);
     const call = state.batchUpload
       ? { transferId, setId: state.setId, target, resync: client.peer(`imports/${state.importId}?view=upload`), chunks: client.peer(`imports/${state.importId}/chunks`), protocol: "zbt1-v1", ...(state.remote ? { remote: state.remote } : {}), order }
       : { transferId, setId: state.setId, target: client.peer(`imports/${state.importId}/chunks`), protocol: "chunks-json-v1", order };
@@ -355,10 +358,16 @@ export async function stepPush(state, input, ctx) {
     // Resumed after the user acted through transfer.push.control: read where the import is now.
     applyRemotePhase(state, await client.request(`/imports/${state.importId}`));
   }
+  // Zoer does not interrupt an external-write slice for a user pause: it takes effect when the
+  // slice returns a checkpoint. Upload and import slices therefore end after PUSH_SLICE_MS and at
+  // the end of the upload (a pause then parks the run instead of it running on into review).
+  const until = ctx.now() + PUSH_SLICE_MS;
   if (state.phase === "uploading") {
-    if (!(await uploadSlice(state, input, ctx, client))) return ctx.continue(state, progressOf(state));
+    if (!(await uploadSlice(state, input, ctx, client, until))) return ctx.continue(state, progressOf(state));
+    return ctx.continue(state, progressOf(state));
   }
-  while (["importing", "rolling_back"].includes(state.phase) && ctx.timeLeft() > 5_000) {
+  for (let first = true; ["importing", "rolling_back"].includes(state.phase) && ctx.timeLeft() > 5_000 && ctx.now() < until; first = false) {
+    if (!first) stopIfPaused(ctx);
     const remote = await client.request(`/imports/${state.importId}/${state.phase === "rolling_back" ? "rollback" : "step"}`, "POST");
     applyRemotePhase(state, remote);
   }

@@ -380,6 +380,30 @@ describe("transfer.preview and transfer.push", () => {
     expect(routes.filter(r => r === `POST /imports/${IMPORT}/batch`).length).toBeGreaterThan(0);
   });
 
+  test("a pause during the upload parks the run within one upload slice, before review", async () => {
+    const w = new FakeWorld();
+    // Whole 256 KiB blocks: the fake uploader cuts batches at byte budgets, not block boundaries.
+    const files: Record<string, Buffer> = { "database.sql": Buffer.alloc(BLOCK, 45) };
+    for (let i = 0; i < 12; i++) files[`wp-content/uploads/2024/01/v${i}.mp4`] = Buffer.alloc(BLOCK * 4, i + 1);
+    w.addSite("hostinger-1", new FakeZoerConnect({ origin: "https://source.example", files }));
+    const destination = w.addSite("external:dest", new FakeZoerConnect({ origin: "https://dest.example", files: {} }));
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    let now = Date.parse("2026-10-04T12:00:00Z");
+    let batches = 0;
+    destination.onRequest = (route) => { if (route.endsWith("/batch")) { now += 10_000; if (++batches === 2) w.userPause = true; } };
+    const options = { replacements: { automatic: true, variants: false, paths: false, custom: [] }, fence: "activation", review: true };
+    const input = { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, importOptions: options, ...confirm };
+    const paused = await w.run("transfer.push", input, { clock: () => now });
+    expect(paused.status).toBe("paused");
+    expect(paused.checkpoint).toMatchObject({ phase: "uploading" });
+    // The slice stopped after 30 s of uploading (3 batches of 10 s), long before the upload's end.
+    expect(batches).toBe(3);
+    expect(destination.imports.get(IMPORT)!.phase).toBe("uploading");
+    const resumed = await w.run("transfer.push", input, { clock: () => now, checkpoint: paused.checkpoint, step: 10 });
+    expect(resumed.status).toBe("needs-user");
+  });
+
   test("review pauses the push for the user; approve through push.control, then resume completes", async () => {
     const { w, destination } = world();
     await pulled(w);
