@@ -30,6 +30,15 @@ const BUTTONS: Record<RunButton, { label: string; icon: React.ReactNode; variant
   cleanup: { label: "Clean up backups", icon: <Eraser className="h-4 w-4" />, variant: "ghost" },
 };
 
+/** The bounded list of files a push left out (`skipped: { count, reason, files }`), or null. */
+export function skippedFiles(value: unknown): { count: number; reason: string; files: { path: string; reason: string }[] } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Output;
+  const files = (Array.isArray(raw.files) ? raw.files : []).flatMap(file => file && typeof file === "object" && typeof (file as Output).path === "string" ? [{ path: String((file as Output).path).slice(0, 300), reason: typeof (file as Output).reason === "string" ? String((file as Output).reason).slice(0, 80) : "" }] : []).slice(0, 50);
+  const count = num(raw.count) ?? files.length;
+  return count ? { count, reason: text(raw.reason) ?? "not accepted by Zoer Connect", files } : null;
+}
+
 /** Dry-run plans and results the transfer workers return. */
 function RunOutput({ output }: { output: Output }) {
   const plan = output.plan && typeof output.plan === "object" ? output.plan as Output : null;
@@ -38,6 +47,7 @@ function RunOutput({ output }: { output: Output }) {
   const stats = output.stats && typeof output.stats === "object" ? output.stats as Output : null;
   const transfer = output.transfer && typeof output.transfer === "object" ? output.transfer as Output : null;
   const targetUrl = text(output.targetUrl), targetId = text(output.targetId);
+  const skipped = skippedFiles(output.skipped) ?? skippedFiles(plan?.skipped);
   const facts = [
     num(output.fileCount) !== null && `${num(output.fileCount)!.toLocaleString()} files`,
     num(output.totalBytes) ? formatTransferBytes(num(output.totalBytes)!) : null,
@@ -62,6 +72,13 @@ function RunOutput({ output }: { output: Output }) {
       </li>)}
     </ul>}
     {warnings.map(warning => <p key={warning} className="break-words text-status-warning">{warning}</p>)}
+    {skipped && skipped.files.length > 0 && <details data-zoer-disclosure className="min-w-0">
+      <summary className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Skipped files ({skipped.count.toLocaleString()}, {skipped.reason})</summary>
+      <ul className="mt-1 min-w-0 space-y-0.5" aria-label="Skipped files">
+        {skipped.files.map(file => <li key={file.path} className="break-all"><span className="text-text-primary">{file.path}</span> <span className="text-text-secondary">· {file.reason}</span></li>)}
+        {skipped.count > skipped.files.length && <li className="text-text-secondary">and {(skipped.count - skipped.files.length).toLocaleString()} more</li>}
+      </ul>
+    </details>}
     {(targetUrl || targetId) && <div className="flex flex-wrap gap-x-4 gap-y-1">
       {targetUrl && <a className="inline-flex min-h-11 items-center underline sm:min-h-0" href={targetUrl} target="_blank" rel="noreferrer">Open local website</a>}
       {targetId && <a className="inline-flex min-h-11 items-center underline sm:min-h-0" href={`#/wordpress?site=${encodeURIComponent(targetId)}`}>View local site</a>}

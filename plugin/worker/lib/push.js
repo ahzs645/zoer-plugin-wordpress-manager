@@ -256,7 +256,32 @@ function compactStats(stats) {
   }
   return out;
 }
-const statsText = (stats) => Object.entries(stats ?? {}).filter(([, v]) => Number.isFinite(v)).slice(0, 12).map(([k, v]) => `${k} ${v}`).join(", ");
+/** "42 replacements, 1 file, 12 rows": the destination's numeric statistics as words. */
+export function statsText(stats) {
+  const word = (key, n) => { const w = key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase(); return n === 1 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w; };
+  return Object.entries(stats ?? {}).filter(([, v]) => Number.isFinite(v)).slice(0, 12).map(([k, v]) => `${v.toLocaleString("en-US")} ${word(k, v)}`).join(", ");
+}
+
+/**
+ * The reason a push waits for the user: what to decide, the destination's statistics, and the
+ * files left out because Zoer Connect refuses them (as many paths as fit Zoer's 500 characters).
+ */
+export function waitingReason(state, decision) {
+  const head = state.phase === "review_required" ? "Review the import before it is activated." : "Verify the destination site.";
+  const stats = statsText(state.stats);
+  const parts = [head, ...(stats ? [`Destination: ${stats}.`] : [])];
+  const tail = decision;
+  if (state.skipped?.count) {
+    const files = state.skipped.files ?? [];
+    const lead = `${plural(state.skipped.count, "file")} skipped (${NOT_ACCEPTED}): `;
+    const room = 500 - [...parts, tail].join(" ").length - lead.length - 24;
+    const shown = [];
+    for (const file of files) { if ([...shown, file.path].join(", ").length > room) break; shown.push(file.path); }
+    const more = state.skipped.count - shown.length;
+    parts.push(shown.length ? `${lead}${shown.join(", ")}${more ? ` and ${more.toLocaleString("en-US")} more` : ""}.` : `${plural(state.skipped.count, "file")} skipped: ${NOT_ACCEPTED}.`);
+  }
+  return [...parts, tail].join(" ");
+}
 
 function progressOf(state) {
   if (state.phase === "uploading") return { phase: "uploading", done: state.uploadedRaw ?? 0, total: state.totalBytes ?? 0, unit: "bytes" };
@@ -372,8 +397,8 @@ export async function stepPush(state, input, ctx) {
     applyRemotePhase(state, remote);
   }
   if (["importing", "rolling_back", "uploading"].includes(state.phase)) return ctx.continue(state, progressOf(state));
-  if (state.phase === "review_required") return ctx.needsUser(state, `Review the import before it is activated.${state.stats ? ` ${statsText(state.stats)}` : ""}${state.skipped ? ` ${plural(state.skipped.count, "file")} skipped: ${NOT_ACCEPTED}.` : ""} Approve or roll back in WordPress Manager.`, progressOf(state));
-  if (state.phase === "verification_required") return ctx.needsUser(state, "Verify the destination site, then finish or roll back the import in WordPress Manager.", progressOf(state));
+  if (state.phase === "review_required") return ctx.needsUser(state, waitingReason(state, "Approve or roll back in WordPress Manager."), progressOf(state));
+  if (state.phase === "verification_required") return ctx.needsUser(state, waitingReason(state, "Then finish or roll back the import in WordPress Manager."), progressOf(state));
   return ctx.done({ importId: state.importId, kind: state.kind, status: state.phase, phase: state.remotePhase ?? state.phase, fileCount: state.fileCount ?? 0, totalBytes: state.totalBytes ?? 0,
     ...(state.stats ? { stats: state.stats } : {}), ...(state.transfer ? { transfer: state.transfer } : {}), ...(state.warnings ? { warnings: state.warnings } : {}), ...(state.skipped ? { skipped: state.skipped } : {}), cleanedUp: state.cleanedUp === true,
     summary: state.phase === "complete" ? `Import complete on ${client.endpoint.origin}.` : `Import rolled back on ${client.endpoint.origin}; nothing was activated.` }, { phase: state.phase });

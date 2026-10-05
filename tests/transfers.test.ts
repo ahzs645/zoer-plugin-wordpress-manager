@@ -8,6 +8,7 @@ import { connectRefusal, validatePullFiles } from "../plugin/worker/lib/files.js
 import { defaultExportOptions } from "../plugin/worker/lib/options.js";
 import { preparationMessage } from "../plugin/worker/lib/pull.js";
 import { runtimeError } from "../plugin/worker/lib/slices.js";
+import { statsText, waitingReason } from "../plugin/worker/lib/push.js";
 import { EXPORT_CREATE_INPUT_SCHEMA, schemaIssues } from "./fakes/ddev-schemas";
 
 const PULL = "a".repeat(32), PULL2 = "b".repeat(32), IMPORT = "c".repeat(32), COPY = "d".repeat(32), PREVIEW = "e".repeat(32), RESTORE = "f".repeat(32);
@@ -813,6 +814,16 @@ describe("transfer.push.control", () => {
 });
 
 describe("files Zoer Connect refuses", () => {
+  test("the review reason reads as sentences and lists as many skipped files as fit", () => {
+    expect(statsText({ replacements: 42, files: 1, tableRows: 12, label: "x" })).toBe("42 replacements, 1 file, 12 table rows");
+    const many = { count: 140, reason: "not accepted by Zoer Connect", files: Array.from({ length: 20 }, (_, i) => ({ path: `wp-content/plugins/plugin-${i}/.htaccess`, reason: "hidden file or folder" })) };
+    const reason = waitingReason({ phase: "review_required", stats: { replacements: 42 }, skipped: many }, "Approve or roll back in WordPress Manager.");
+    expect(reason.length).toBeLessThanOrEqual(500);
+    expect(reason).toStartWith("Review the import before it is activated. Destination: 42 replacements. 140 files skipped (not accepted by Zoer Connect): wp-content/plugins/plugin-0/.htaccess, ");
+    expect(reason).toMatch(/ and 1\d\d more\. Approve or roll back in WordPress Manager\.$/);
+    expect(waitingReason({ phase: "verification_required" }, "Then finish or roll back the import in WordPress Manager.")).toBe("Verify the destination site. Then finish or roll back the import in WordPress Manager.");
+  });
+
   const corpus = [
     "wp-content/plugins/akismet/.htaccess", "wp-content/uploads/.htaccess", "wp-content/themes/t/.gitignore", "wp-content/plugins/a/.github/workflows/ci.yml",
     "wp-content/plugins/a/.trash/x.php", "wp-content/uploads/2024/index.php", "wp-content/uploads/shell.php5", "wp-content/uploads/a.phtml.jpg",
@@ -843,7 +854,7 @@ describe("files Zoer Connect refuses", () => {
     const options = { replacements: { automatic: true, variants: false, paths: false, custom: [] }, fence: "activation", review: true };
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, importOptions: options, confirmTarget: "https://dest.example", replacementAccepted: true });
     expect(result.status).toBe("needs-user");
-    expect((result as any).reason).toContain("3 files skipped: not accepted by Zoer Connect.");
+    expect((result as any).reason).toBe("Review the import before it is activated. Destination: 4 files, 42 rows. 3 files skipped (not accepted by Zoer Connect): wp-content/themes/twentyone/.gitignore, wp-content/uploads/2024/index.php, wp-content/plugins/akismet/.htaccess. Approve or roll back in WordPress Manager.");
     expect(destination.imports.get(IMPORT)!.manifest.files.map((f: any) => f.path)).not.toContain("wp-content/plugins/akismet/.htaccess");
   });
 });
