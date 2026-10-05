@@ -1,5 +1,5 @@
 import type { ExportOptions, ImportOptions, TransferAction } from "../../../lib/api/types/wordpress-transfer";
-import { defaultExportOptions, defaultImportOptions, exportOptionsForAction } from "../../../lib/wordpress-transfer/options";
+import { defaultExportOptions, defaultImportOptions, exportOptionsForAction, TRANSFER_ACTIONS } from "../../../lib/wordpress-transfer/options";
 
 export type PushSourceKind = "local-export" | "pull";
 export type TransferDraft = {
@@ -15,6 +15,15 @@ export type DraftUpdate = (update: (draft: TransferDraft) => TransferDraft) => v
 
 export function initialDraft(action: TransferAction = "pull"): TransferDraft {
   return { action, exportOptions: defaultExportOptions(action), importOptions: defaultImportOptions(), sourceKind: "local-export", sourceSiteId: "", profileId: null };
+}
+
+/**
+ * The tile a transfer dialog opens on: `preferred` when the site allows it, else the first
+ * available tile (a push-only destination opens on Push, not on a disabled Pull).
+ */
+export function initialAction(availability: Record<TransferAction, string | null>, preferred: TransferAction = "pull"): TransferAction {
+  if (!availability[preferred]) return preferred;
+  return TRANSFER_ACTIONS.find(action => !availability[action]) ?? preferred;
 }
 
 /** Switching action keeps compatible settings but resets resources that the old action locked. */

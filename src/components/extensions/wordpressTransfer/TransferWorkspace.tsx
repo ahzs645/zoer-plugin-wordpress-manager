@@ -7,7 +7,7 @@ import PullFlow from "./PullFlow";
 import PushFlow from "./PushFlow";
 import ReplaceFlow from "./ReplaceFlow";
 import { ACTION_LABELS } from "./transferLabels";
-import { initialDraft, switchAction, type DraftUpdate } from "./draft";
+import { initialAction, initialDraft, switchAction, type DraftUpdate } from "./draft";
 
 const ICONS: Record<TransferAction, React.ReactNode> = {
   pull: <Download className="h-4 w-4" aria-hidden="true" />, push: <Upload className="h-4 w-4" aria-hidden="true" />,
@@ -29,9 +29,9 @@ export function actionAvailability(connection: ZoerConnectConnection): Record<Tr
 export default function TransferWorkspace({ siteId, connection, diagnostics, diagnosticsLoading, busy, onLocalCopy }: {
   siteId: string; connection: ZoerConnectConnection; diagnostics: WordPressDiagnostics | null | undefined; diagnosticsLoading: boolean; busy: boolean; onLocalCopy: (pullId: string) => void;
 }) {
-  const [draft, setDraft] = useState(() => initialDraft("pull"));
-  const update: DraftUpdate = fn => setDraft(fn);
   const availability = actionAvailability(connection);
+  const [draft, setDraft] = useState(() => initialDraft(initialAction(availability)));
+  const update: DraftUpdate = fn => setDraft(fn);
   const action = draft.action;
   return <div className="min-w-0 space-y-4">
     <fieldset className="min-w-0">

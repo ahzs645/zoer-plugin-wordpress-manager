@@ -13,7 +13,7 @@ import SafetyPanel from "../wordpressTransfer/SafetyPanel";
 import { ItemPicker, OptionToggle } from "../wordpressTransfer/TransferPanel";
 import { actionAvailability } from "../wordpressTransfer/TransferWorkspace";
 import { ACTION_LABELS } from "../wordpressTransfer/transferLabels";
-import { initialDraft, switchAction, type DraftUpdate, type TransferDraft } from "../wordpressTransfer/draft";
+import { initialAction, initialDraft, switchAction, type DraftUpdate, type TransferDraft } from "../wordpressTransfer/draft";
 import PluginPulls from "./PluginPulls";
 import PluginPushFlow from "./PluginPushFlow";
 import PluginRunCard from "./PluginRunCard";
@@ -156,10 +156,10 @@ export default function PluginTransferWorkspace({ siteId, siteName, connection, 
   onLocalCopy?: (pull: PullRecord) => void;
 }) {
   const client = useQueryClient();
-  const [draft, setDraft] = useState(() => initialDraft("pull"));
+  const availability = actionAvailability(connection);
+  const [draft, setDraft] = useState(() => initialDraft(initialAction(availability)));
   const update: DraftUpdate = fn => setDraft(fn);
   const [dryRuns, setDryRuns] = useState(DRY_RUN_DEFAULTS);
-  const availability = actionAvailability(connection);
   const action = draft.action;
   const dryRunFor = (key: TransferAction) => ({ dryRun: dryRuns[key], onDryRun: (value: boolean) => setDryRuns(current => ({ ...current, [key]: value })) });
   const runs = useRecentRuns(SITE_ACTIONS);
