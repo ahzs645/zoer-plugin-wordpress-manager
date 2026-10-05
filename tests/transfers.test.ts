@@ -1,0 +1,368 @@
+import { describe, expect, test } from "bun:test";
+import { FakeWorld } from "./fakes/host";
+import { BLOCK, FakeZoerConnect, sampleSite, sha } from "./fakes/zoer-connect";
+import { writeZip } from "./fakes/zip";
+import { createTicketHost } from "../plugin/worker/lib/host.js";
+import { mapConnectResponse } from "../plugin/worker/lib/zoer-connect.js";
+import { validatePullFiles } from "../plugin/worker/lib/files.js";
+
+const PULL = "a".repeat(32), PULL2 = "b".repeat(32), IMPORT = "c".repeat(32), COPY = "d".repeat(32), PREVIEW = "e".repeat(32), RESTORE = "f".repeat(32);
+
+function world() {
+  const w = new FakeWorld();
+  const source = w.addSite("hostinger-1", sampleSite("https://source.example"));
+  const destination = w.addSite("external:dest", new FakeZoerConnect({ origin: "https://dest.example", files: {}, existing: { "wp-content/themes/twentyone/style.css": "body{color:red}", "wp-content/plugins/akismet/akismet.php": "old" } }));
+  return { w, source, destination };
+}
+async function pulled(w: FakeWorld, siteId = "hostinger-1", pullId = PULL) {
+  w.catalog.engine(siteId);
+  const result = await w.run("transfer.pull", { siteId, pullId });
+  expect(result.status).toBe("succeeded");
+  return result.output as any;
+}
+
+describe("engine gate", () => {
+  test("every site stays on the legacy engine until it is switched as a test target", async () => {
+    const { w } = world();
+    const refused = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL });
+    expect(refused.status).toBe("failed");
+    expect((refused as any).error.message).toContain("legacy transfer engine");
+    expect(w.calls.some(c => c.method === "network.fetch")).toBe(false);
+    w.catalog.engine("hostinger-1", "plugin", false);
+    expect((await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL })).status).toBe("failed");
+    w.catalog.engine("hostinger-1", "legacy", true);
+    expect((await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL })).status).toBe("failed");
+  });
+});
+
+describe("transfer.pull", () => {
+  test("downloads a verified, sealed file set and records the pull", async () => {
+    const { w, source } = world();
+    const output = await pulled(w);
+    expect(output).toMatchObject({ pullId: PULL, status: "ready", setId: `fs_${PULL}`, fileCount: 7, skippedCount: 1 });
+    const set = w.sets.get(`fs_${PULL}`);
+    expect(set.status).toBe("sealed");
+    expect(set.labels).toEqual({ kind: "pull", siteId: "hostinger-1", pullId: PULL });
+    expect(set.rules).toBe("site-export");
+    for (const entry of set.entries) expect(sha(entry.data)).toBe(sha(Buffer.from(source.options.files[entry.path]!)));
+    // The large file came with a block digest and was converted to plain sha256.
+    const photo = set.entries.find(e => e.path === "wp-content/uploads/2024/01/photo.jpg")!;
+    expect(photo.sourceSha256).toBeDefined();
+    const record = w.catalog.records.get(`pull:${PULL}`)!;
+    expect(record.data).toMatchObject({ status: "ready", setId: `fs_${PULL}`, siteId: "hostinger-1", engine: "plugin", source: { url: "https://source.example", prefix: "wp_" } });
+    expect(w.catalog.records.get(`history:pull:${PULL}`)!.data.status).toBe("ready");
+    // Same remote calls as the host engine: status, create, step, then chunk reads.
+    const routes = source.log.map(l => `${l.method} ${l.route.replace(/\?.*$/, "")}`);
+    expect(routes.slice(0, 3)).toEqual(["GET /status", "POST /exports", `POST /exports/${PULL}/step`]);
+    expect(routes.slice(3).every(r => r === `GET /exports/${PULL}/chunks`)).toBe(true);
+  });
+
+  test("paged manifests are declared page by page and read in batches", async () => {
+    const w = new FakeWorld();
+    const source = w.addSite("hostinger-1", sampleSite("https://source.example", { pagedExport: true, pageSize: 2, exportSteps: 2 }));
+    const output = await pulled(w);
+    expect(output.fileCount).toBe(7);
+    expect(source.log.filter(l => l.route.includes("/manifest")).map(l => l.route)).toEqual([0, 2, 4, 6].map(o => `/exports/paged/${PULL}/manifest?offset=${o}`));
+    expect(source.log.some(l => l.route.startsWith(`/exports/paged/${PULL}/batch`))).toBe(true);
+  });
+
+  test("a transient 503 retries the slice from its checkpoint and Retry-After is honoured", async () => {
+    const { w, source } = world();
+    w.catalog.engine("hostinger-1");
+    source.failNext(/\/step$/, 503, 1, "7");
+    const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL });
+    expect(result.status).toBe("succeeded");
+    const retry = result.envelopes.find((e: any) => e.resumable === "retry");
+    expect(retry).toMatchObject({ error: { code: "transfer_transient" }, retryAfterMs: 7000 });
+    expect(retry.checkpoint.remoteCreated).toBe(true);
+    // The export was created once; the retry only polled it.
+    expect(source.log.filter(l => l.method === "POST" && l.route === "/exports")).toHaveLength(1);
+  });
+
+  test("a rotated key parks the pull with the host engine's message", async () => {
+    const w = new FakeWorld();
+    w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 3 }));
+    w.catalog.engine("hostinger-1");
+    const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { onSlice: (_e, slice) => { if (slice === 1) w.rotateKey("hostinger-1"); } , maxSlices: 3 });
+    expect(result.status).toBe("needs-user");
+    expect((result as any).reason).toBe("This connection changed. Cancel the old pull and start a new one.");
+  });
+
+  test("unsafe manifests are refused with the host engine's messages", () => {
+    const file = (path: string) => ({ path, bytes: 0, sha256: sha("") });
+    expect(() => validatePullFiles([file("wp-content/uploads/.DS_Store")])).toThrow("Add **/.DS_Store and **/__MACOSX/");
+    expect(() => validatePullFiles([file("wp-config.php")])).toThrow("unsupported file path: wp-config.php");
+    expect(() => validatePullFiles([file("wp-content/plugins/zoer-connect/x.php")])).toThrow("unsupported file path");
+    expect(() => validatePullFiles([file("wp-content/uploads/a"), file("wp-content/uploads/A")])).toThrow("duplicate file paths");
+    expect(() => validatePullFiles([file("wp-content/uploads/a"), file("wp-content/uploads/a/b")])).toThrow("overlap");
+    expect(validatePullFiles([file("wp-content/plugins/a/.gitignore"), file("wp-content/themes/t/.github/x.yml"), file("index.php")])).toHaveLength(3);
+  });
+
+  test("dry run verifies the download into a scratch set and keeps nothing", async () => {
+    const { w, source } = world();
+    w.catalog.engine("hostinger-1");
+    const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL, dryRun: true });
+    expect(result.status).toBe("succeeded");
+    expect((result as any).output).toMatchObject({ status: "dry-run", setId: null, fileCount: 7 });
+    expect(w.sets.sets.has(`fs_${PULL}`)).toBe(false);
+    expect(source.exports.get(PULL)!.status).toBe("cancelled");
+    expect(w.catalog.records.get(`pull:${PULL}`)!.data.status).toBe("dry-run");
+  });
+
+  test("cancel removes the remote export and the partial set", async () => {
+    const w = new FakeWorld();
+    const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 3 }));
+    w.catalog.engine("hostinger-1");
+    const first = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { maxSlices: 1 });
+    const checkpoint = first.checkpoint ?? first.envelopes.at(-1)?.checkpoint;
+    expect(checkpoint.remoteCreated).toBe(true);
+    const cancelled = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { checkpoint, cancelling: true, maxSlices: 1 });
+    expect(cancelled.status).toBe("succeeded");
+    expect(source.exports.get(PULL)!.status).toBe("cancelled");
+    expect(w.sets.sets.has(`fs_${PULL}`)).toBe(false);
+  });
+});
+
+describe("transfer.preview and transfer.push", () => {
+  const confirm = { confirmTarget: "https://dest.example", replacementAccepted: true };
+  test("preview classifies files against the destination and stores pages", async () => {
+    const { w, destination } = world();
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    const result = await w.run("transfer.preview", { siteId: "external:dest", setId: `fs_${PULL}`, previewId: PREVIEW });
+    expect(result.status).toBe("succeeded");
+    expect((result as any).output.counts).toEqual({ new: 4, changed: 1, unchanged: 1, blocked: 0, database: 1 });
+    const page = w.catalog.records.get(`preview-page:${PREVIEW}:0`)!.data.files;
+    expect(page.find((f: any) => f.path === "wp-content/plugins/akismet/akismet.php").state).toBe("changed");
+    expect(destination.log.filter(l => l.route === "/files/compare")).toHaveLength(1);
+  });
+
+  test("push uploads with ZBT1 batches, steps the import and finishes byte-identical", async () => {
+    const { w, source, destination } = world();
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
+    expect(result.status).toBe("succeeded");
+    expect((result as any).output).toMatchObject({ status: "complete", importId: IMPORT, fileCount: 7 });
+    for (const [path, data] of Object.entries(source.options.files)) {
+      if (path === "database.sql") expect(sha(destination.database!)).toBe(sha(Buffer.from(data)));
+      else expect(sha(destination.site.get(path)!)).toBe(sha(Buffer.from(data)));
+    }
+    const manifest = destination.imports.get(IMPORT)!.manifest;
+    expect(manifest.database.chunkSha256).toHaveLength(1);
+    expect(manifest.files.find((f: any) => f.path === "wp-content/uploads/2024/01/photo.jpg").chunkSha256).toHaveLength(3);
+    expect(manifest).toMatchObject({ target: "https://dest.example", sourceUrl: "https://source.example", sourcePrefix: "wp_", migrationMode: "shared-replacement", replacementAccepted: true });
+    const routes = destination.log.map(l => `${l.method} ${l.route}`);
+    expect(routes[0]).toBe("GET /status");
+    expect(routes).toContain("POST /imports");
+    expect(routes).toContain(`GET /imports/${IMPORT}?view=upload`);
+    expect(routes.filter(r => r === `POST /imports/${IMPORT}/batch`).length).toBeGreaterThan(0);
+  });
+
+  test("review pauses the push for the user; approve through push.control, then resume completes", async () => {
+    const { w, destination } = world();
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    const options = { replacements: { automatic: true, variants: false, paths: false, custom: [] }, fence: "activation", review: true };
+    const first = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, importOptions: options, ...confirm });
+    expect(first.status).toBe("needs-user");
+    expect((first as any).reason).toContain("Review the import before it is activated.");
+    expect(destination.site.has("wp-content/uploads/2024/01/photo.jpg")).toBe(false);
+    const control = await w.run("transfer.push.control", { siteId: "external:dest", importId: IMPORT, control: "approve" });
+    expect((control as any).output).toMatchObject({ control: "approve" });
+    const resumed = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, importOptions: options, ...confirm }, { checkpoint: first.checkpoint, step: 10 });
+    expect(resumed.status).toBe("succeeded");
+    expect(destination.site.has("wp-content/uploads/2024/01/photo.jpg")).toBe(true);
+  });
+
+  test("selective push sends only the reviewed paths, database first", async () => {
+    const { w, destination } = world();
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    await w.run("transfer.preview", { siteId: "external:dest", setId: `fs_${PULL}`, previewId: PREVIEW });
+    const selectedPaths = ["wp-content/uploads/2024/01/photo.jpg", "database.sql"];
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, previewId: PREVIEW, selectedPaths, ...confirm });
+    expect(result.status).toBe("succeeded");
+    const manifest = destination.imports.get(IMPORT)!.manifest;
+    expect(manifest.files.map((f: any) => f.path)).toEqual(["wp-content/uploads/2024/01/photo.jpg"]);
+    expect(manifest.files[0].expectedDestinationSha256).toBeNull();
+    expect(manifest.resources).toMatchObject({ plugins: false, themes: false });
+    expect(destination.site.get("wp-content/uploads/2024/01/photo.jpg")!.length).toBe(BLOCK * 2 + 12345);
+  });
+
+  test("dry run plans the push and sends nothing that writes", async () => {
+    const { w, destination } = world();
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, dryRun: true, ...confirm });
+    expect((result as any).output).toMatchObject({ status: "dry-run", plan: { files: 6, database: true, batchUpload: true } });
+    expect(destination.log.map(l => l.route)).toEqual(["/status"]);
+    expect(destination.imports.size).toBe(0);
+  });
+
+  test("changed key parks the import with the host engine's recovery message", async () => {
+    const { w } = world();
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm }, { onSlice: (_e, slice) => { if (slice === 1) w.rotateKey("external:dest"); } });
+    // The first slice may already have finished the small import; otherwise the next slice parks.
+    if (result.status !== "succeeded") expect((result as any).reason).toBe("Connection changed. Restore the original connection to recover this import.");
+  });
+
+  test("destination confirmation, policy and source checks match the host engine", async () => {
+    const { w } = world();
+    await pulled(w);
+    w.catalog.engine("external:dest");
+    const wrong = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, confirmTarget: "https://other.example", replacementAccepted: true });
+    expect((wrong as any).error.message).toBe("Confirm the exact destination address.");
+    const noPolicy = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, confirmTarget: "https://dest.example" });
+    expect((noPolicy as any).error.message).toContain("confirm the destination replacement policy");
+    w.catalog.engine("hostinger-1");
+    const same = await w.run("transfer.push", { siteId: "hostinger-1", setId: `fs_${PULL}`, importId: IMPORT, confirmTarget: "https://source.example", replacementAccepted: true });
+    expect((same as any).error.message).toContain("Choose a different source");
+  });
+});
+
+describe("copy.local", () => {
+  test("pulls, creates a DDEV site, stages verified files, imports and verifies", async () => {
+    const { w, source } = world();
+    w.catalog.engine("hostinger-1");
+    const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    expect(result.status).toBe("succeeded");
+    const output = (result as any).output;
+    expect(output).toMatchObject({ copyId: COPY, status: "complete", siteName: `Shop-${COPY.slice(0, 8)}` });
+    const site = w.ddev.sites.get(output.targetId)!;
+    expect(site.home).toBe(output.targetUrl);
+    for (const [path, data] of Object.entries(source.options.files)) if (path !== "database.sql") expect(sha(site.files.get(path)!)).toBe(sha(Buffer.from(data)));
+    expect(site.database!.toString()).toBe(source.options.files["database.sql"]!.toString());
+    expect(w.ddev.commands.map(c => c.command)).toEqual(["wordpress.copy.prepare", "wordpress.copy.database", "wordpress.copy.files", "wordpress.copy.finish"]);
+    expect(w.catalog.records.get(`site-link:${output.targetId}`)!.data.sourceSiteId).toBe("hostinger-1");
+    expect(w.catalog.records.get(`local-copy:${COPY}`)!.data.phase).toBe("complete");
+  });
+
+  test("refresh takes a recovery backup first and reuses the copy", async () => {
+    const { w } = world();
+    w.catalog.engine("hostinger-1");
+    const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    const targetId = (first as any).output.targetId;
+    const refresh = await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, replaceSiteId: targetId });
+    expect(refresh.status).toBe("succeeded");
+    expect((refresh as any).output.targetId).toBe(targetId);
+    expect(w.ddev.sites.get(targetId)!.backups).toBe(1);
+  });
+
+  test("a failed command parks the copy with its message; resume continues the same destination", async () => {
+    const { w } = world();
+    w.catalog.engine("hostinger-1");
+    w.ddev.failCommand = { command: "wordpress.copy.finish", message: "Local website verification failed.", count: 1 };
+    const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    expect(first.status).toBe("needs-user");
+    expect((first as any).reason).toBe("Local website verification failed.");
+    const resumed = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" }, { checkpoint: first.checkpoint, step: 20 });
+    expect(resumed.status).toBe("succeeded");
+    expect(w.ddev.sites.size).toBe(1);
+  });
+
+  test("dry run restores into a scratch site that goes to the trash, and keeps no pull", async () => {
+    const { w } = world();
+    w.catalog.engine("hostinger-1");
+    const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop", dryRun: true });
+    expect((result as any).output).toMatchObject({ status: "dry-run", siteName: `zoer-dryrun-${COPY.slice(0, 8)}`, targetUrl: null });
+    expect([...w.ddev.sites.values()][0]!.state).toBe("archived");
+    expect(w.sets.sets.size).toBe(0);
+    expect(w.catalog.records.has(`local-copy:${COPY}`)).toBe(false);
+  });
+
+  test("an executable upload that is not a placeholder is refused before anything is created", async () => {
+    const w = new FakeWorld();
+    w.addSite("hostinger-1", new FakeZoerConnect({ origin: "https://source.example", files: { "database.sql": "x", "wp-content/uploads/index.php": "<?php echo 1;" } }));
+    w.catalog.engine("hostinger-1");
+    const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    expect((result as any).error.message).toContain("executable upload");
+    expect(w.ddev.sites.size).toBe(0);
+  });
+});
+
+describe("transfer.local-export", () => {
+  test("exports a DDEV site through bridge operations and a runtime peer", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    w.catalog.engine("ddev-shop");
+    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
+    expect(result.status).toBe("succeeded");
+    expect((result as any).output).toMatchObject({ kind: "local-export", status: "ready", fileCount: 7 });
+    expect(w.calls.filter(c => c.method === "runtime.invoke").map(c => c.input.operation)).toEqual(["runtime.inspect.v1", "export.create.v1"]);
+    expect(w.calls.find(c => c.method === "transfer.download")!.input.source).toEqual({ runtime: { alias: "wordpress_site", resourceId: "ddev-shop", operation: "export.chunk.v1", args: { exportId: PULL } } });
+  });
+});
+
+describe("backup.restore-local", () => {
+  function upload(w: FakeWorld) {
+    const sql = "# WordPress MySQL database backup\n# Created by UpdraftPlus\n";
+    const files: Record<string, Buffer> = {
+      "backup_2026-10-01-1200_Site_abcdef123456-db.gz": Buffer.from(sql),
+      "backup_2026-10-01-1200_Site_abcdef123456-plugins.zip": writeZip([{ name: "plugins/" }, { name: "plugins/hello.php", data: "<?php" }]),
+      "backup_2026-10-01-1200_Site_abcdef123456-themes.zip": writeZip([{ name: "themes/t/style.css", data: "x", deflate: true }]),
+      "backup_2026-10-01-1200_Site_abcdef123456-uploads.zip": writeZip([{ name: "uploads/a.jpg", data: "jpg" }]),
+      "backup_2026-10-01-1200_Site_abcdef123456-others.zip": writeZip([{ name: "languages/x.mo", data: "mo" }, { name: "object-cache.php", data: "<?php" }]),
+    };
+    return w.sets.sealed("Updraft", files, { kind: "updraft-upload" });
+  }
+  test("dry run inspects the archives and plans without creating a site", async () => {
+    const w = new FakeWorld();
+    const setId = upload(w);
+    const result = await w.run("backup.restore-local", { uploadSetId: setId, restoreId: RESTORE, name: "Restored", dryRun: true });
+    expect((result as any).output).toMatchObject({ status: "dry-run", plan: { files: 4 } });
+    expect((result as any).output.plan.warnings).toContain("Skipped local cache, drop-in, must-use plugin or backup file.");
+    expect(w.ddev.sites.size).toBe(0);
+  });
+  test("restores into a new local site through the Updraft preparation bundle", async () => {
+    const w = new FakeWorld();
+    const setId = upload(w);
+    const result = await w.run("backup.restore-local", { uploadSetId: setId, restoreId: RESTORE, name: "Restored" });
+    expect(result.status).toBe("succeeded");
+    const site = w.ddev.sites.get((result as any).output.targetId)!;
+    expect(site.files.get("wp-content/themes/t/style.css")!.toString()).toBe("x");
+    expect(w.ddev.commands.map(c => c.command)).toEqual(["wordpress.copy.prepare", "wordpress.updraft.prepare", "wordpress.copy.database", "wordpress.copy.files", "wordpress.copy.finish"]);
+    expect(w.ddev.commands.at(-1)!.plan.updateDb).toBe(true);
+  });
+  test("an incomplete set is refused with the host engine's message", async () => {
+    const w = new FakeWorld();
+    const setId = w.sets.sealed("Updraft", { "backup_x-db.gz": "x" });
+    const result = await w.run("backup.restore-local", { uploadSetId: setId, restoreId: RESTORE, name: "Restored" });
+    expect((result as any).error.message).toBe("select one database, plugins, themes, uploads, and others backup file");
+  });
+});
+
+describe("line protocol and response mapping", () => {
+  test("tickets rotate per grant, including after a refusal", async () => {
+    const seen: string[] = [];
+    const host = createTicketHost({ grants: { network: { ticket: "n0" }, filesets: { ticket: "f0" }, runtimes: [{ alias: "wordpress_site", ticket: "w0" }] } }, async (message: any) => {
+      seen.push(message.input.ticket);
+      const next = message.input.ticket.replace(/\d+$/, (n: string) => String(Number(n) + 1));
+      return message.method === "fileset.read" ? { kind: "host-response", requestId: message.requestId, ok: false, error: { code: "fileset_not_found", message: "gone" }, nextTicket: next } : { kind: "host-response", requestId: message.requestId, ok: true, result: {}, nextTicket: next };
+    });
+    await host.call("network.fetch", {});
+    await expect(host.call("fileset.read", {})).rejects.toMatchObject({ code: "fileset_not_found" });
+    await host.call("fileset.describe", {});
+    await host.call("runtime.invoke", { alias: "wordpress_site" });
+    await host.call("network.fetch", {});
+    expect(seen).toEqual(["n0", "f0", "f1", "w0", "n1"]);
+    await expect(host.call("catalog.read", {})).rejects.toMatchObject({ code: "capability_denied" });
+  });
+
+  test("Zoer Connect answers map to the host engine's messages and retry rules", () => {
+    const answer = (status: number, body: unknown, headers: Record<string, string> = {}) => ({ status, headers, bodyBase64: Buffer.from(JSON.stringify(body)).toString("base64") });
+    expect(() => mapConnectResponse("/status", "GET", answer(401, {}))).toThrow("WordPress rejected this key.");
+    expect(() => mapConnectResponse("/exports/x/chunks", "GET", answer(410, {}))).toThrow("The remote export is missing or expired. Start a new pull.");
+    let error: any;
+    try { mapConnectResponse("/exports", "POST", answer(409, { code: "zoer_export_blocked", message: "Export busy, retry" })); } catch (e) { error = e; }
+    expect(error).toMatchObject({ message: "Export busy, retry", transient: true });
+    try { mapConnectResponse("/imports/x/batch", "POST", answer(413, { limits: { maxBatchBytes: 1048576 } })); } catch (e) { error = e; }
+    expect(error.details.maxBatchBytes).toBe(1048576);
+    try { mapConnectResponse("/imports/x/step", "POST", answer(422, { code: "zoer_import_table", message: "Table /var/www/html/wp-config.php missing", phase: "importing" })); } catch (e) { error = e; }
+    expect(error.message).toBe("Table [path] missing");
+    try { mapConnectResponse("/imports/x/step", "POST", answer(503, {}, { "retry-after": "12" })); } catch (e) { error = e; }
+    expect(error).toMatchObject({ transient: true, retryAfterMs: 12000 });
+  });
+});

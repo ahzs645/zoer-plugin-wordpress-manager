@@ -1,8 +1,8 @@
 {
   "id": "wordpress-manager",
   "name": "WordPress Manager",
-  "version": "0.6.0",
-  "description": "Independent WordPress workspace with Hostinger temporary-domain setup, safe imports, backups, transfers, update review and cache tools.",
+  "version": "0.7.0",
+  "description": "Independent WordPress workspace with Hostinger temporary-domain setup, safe imports, backups, transfers (host or plugin engine per site), update review and cache tools.",
   "author": "Zoer contributors",
   "type": "integration",
   "integration": {
@@ -16,7 +16,12 @@
       "runtime:snapshots",
       "runtime:backups",
       "workspace:native",
-      "workspace:wordpress"
+      "workspace:wordpress",
+      "workspace:filesets",
+      "workspace:catalog",
+      "runtime:files",
+      "runtime:commands:write",
+      "routes:hosted"
     ],
     "networkAllowlist": [
       "developers.hostinger.com"
@@ -1818,6 +1823,606 @@
           "maxOutputBytes": 262144
         },
         "idempotent": true
+      },
+      {
+        "id": "transfer.pull",
+        "title": "Pull site (plugin engine)",
+        "description": "Export a Zoer Connect site and download it, verified, into a file set on this Zoer server. Runs only for sites switched to the plugin engine as non-production test targets. A dry run downloads into a scratch set and keeps nothing.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/transfers.js"
+        },
+        "requiredCapabilities": [
+          "network-egress",
+          "file-transfer"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "siteId"
+          ],
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9:._@-]{0,255}$"
+            },
+            "pullId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "exportOptions": {
+              "type": "object"
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "pull",
+                "backup",
+                "export"
+              ]
+            },
+            "snapshotMode": {
+              "type": "string",
+              "enum": [
+                "maintenance"
+              ]
+            },
+            "sourceQuiescenceAccepted": {
+              "type": "boolean"
+            },
+            "dryRun": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 120
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "resumable": {
+          "stepTimeoutMs": 300000,
+          "maxSteps": 20000,
+          "maxRunHours": 168,
+          "lock": {
+            "input": "siteId",
+            "group": "site-transfer"
+          },
+          "cleanup": true
+        },
+        "presets": {
+          "max": 100
+        },
+        "resourceLimits": {
+          "timeoutMs": 300000,
+          "maxMemoryMb": 256,
+          "maxOutputBytes": 262144,
+          "maxNetworkRequests": 2000,
+          "maxNetworkResponseBytes": 8388608
+        },
+        "idempotent": false
+      },
+      {
+        "id": "transfer.local-export",
+        "title": "Export local site (plugin engine)",
+        "description": "Export a local DDEV WordPress site through the DDEV bridge into a verified file set, for pushing it to a test site. Runs only for local sites switched to the plugin engine.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/transfers.js"
+        },
+        "requiredCapabilities": [
+          "runtime-resources",
+          "file-transfer"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Export a local DDEV WordPress site into a file set.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "runtime.inspect.v1",
+              "export.create.v1",
+              "export.step.v1",
+              "export.chunk.v1",
+              "export.cancel.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "siteId"
+          ],
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            },
+            "pullId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "exportOptions": {
+              "type": "object"
+            },
+            "dryRun": {
+              "type": "boolean"
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "resumable": {
+          "stepTimeoutMs": 300000,
+          "maxSteps": 20000,
+          "maxRunHours": 168,
+          "lock": {
+            "input": "siteId",
+            "group": "site-transfer"
+          },
+          "cleanup": true
+        },
+        "presets": {
+          "max": 100
+        },
+        "resourceLimits": {
+          "timeoutMs": 300000,
+          "maxMemoryMb": 256,
+          "maxOutputBytes": 262144
+        },
+        "idempotent": false
+      },
+      {
+        "id": "transfer.preview",
+        "title": "Compare with destination (plugin engine)",
+        "description": "Compare a verified pull or local export with a destination Zoer Connect site, 20 paths per request, and save the classification for a selective push. Changes nothing on the destination.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/transfers.js"
+        },
+        "requiredCapabilities": [
+          "network-egress"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "siteId",
+            "setId",
+            "previewId"
+          ],
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9:._@-]{0,255}$"
+            },
+            "setId": {
+              "type": "string",
+              "pattern": "^fs_[a-f0-9]{32}$"
+            },
+            "previewId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "resumable": {
+          "stepTimeoutMs": 120000,
+          "maxSteps": 20000,
+          "maxRunHours": 168
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 256,
+          "maxOutputBytes": 131072,
+          "maxNetworkRequests": 400,
+          "maxNetworkResponseBytes": 8388608
+        },
+        "idempotent": false
+      },
+      {
+        "id": "transfer.push",
+        "title": "Push to site (plugin engine)",
+        "description": "Push a verified pull or local export into a Zoer Connect test site: create the remote import, upload verified blocks, then step the import through review and activation. A dry run builds and checks the import plan and sends nothing.",
+        "effect": "external_write",
+        "approval": "always",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/transfers.js"
+        },
+        "requiredCapabilities": [
+          "network-egress",
+          "file-transfer"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "siteId"
+          ],
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9:._@-]{0,255}$"
+            },
+            "setId": {
+              "type": "string",
+              "pattern": "^fs_[a-f0-9]{32}$"
+            },
+            "importId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "confirmTarget": {
+              "type": "string",
+              "maxLength": 2048
+            },
+            "importOptions": {
+              "type": "object"
+            },
+            "previewId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "selectedPaths": {
+              "type": "array",
+              "maxItems": 20000,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              }
+            },
+            "replacementAccepted": {
+              "type": "boolean"
+            },
+            "wordpressOnlyWriters": {
+              "type": "boolean"
+            },
+            "sourceSiteId": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "dryRun": {
+              "type": "boolean"
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "resumable": {
+          "stepTimeoutMs": 120000,
+          "maxSteps": 50000,
+          "maxRunHours": 336,
+          "lock": {
+            "input": "siteId",
+            "group": "site-transfer"
+          },
+          "autoResume": "manual",
+          "cleanup": true
+        },
+        "presets": {
+          "max": 100
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 256,
+          "maxOutputBytes": 262144,
+          "maxNetworkRequests": 2000,
+          "maxNetworkResponseBytes": 8388608
+        },
+        "idempotent": false
+      },
+      {
+        "id": "transfer.replace",
+        "title": "Find & replace on site (plugin engine)",
+        "description": "Run a reviewed find & replace on a Zoer Connect test site: the site snapshots its own tables, stages the changes and waits for review before activating them. A dry run only checks the plan.",
+        "effect": "external_write",
+        "approval": "always",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/transfers.js"
+        },
+        "requiredCapabilities": [
+          "network-egress"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "siteId"
+          ],
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9:._@-]{0,255}$"
+            },
+            "importId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "confirmTarget": {
+              "type": "string",
+              "maxLength": 2048
+            },
+            "importOptions": {
+              "type": "object"
+            },
+            "tables": {
+              "type": "array",
+              "maxItems": 500,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_]{1,64}$"
+              }
+            },
+            "replacementAccepted": {
+              "type": "boolean"
+            },
+            "wordpressOnlyWriters": {
+              "type": "boolean"
+            },
+            "dryRun": {
+              "type": "boolean"
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "resumable": {
+          "stepTimeoutMs": 120000,
+          "maxSteps": 20000,
+          "maxRunHours": 168,
+          "lock": {
+            "input": "siteId",
+            "group": "site-transfer"
+          },
+          "autoResume": "manual",
+          "cleanup": true
+        },
+        "presets": {
+          "max": 100
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 256,
+          "maxOutputBytes": 131072,
+          "maxNetworkRequests": 400
+        },
+        "idempotent": false
+      },
+      {
+        "id": "transfer.push.control",
+        "title": "Approve, finish, roll back or clean up an import (plugin engine)",
+        "description": "Act on a plugin-engine import on a Zoer Connect test site: approve it after review, finish it after verification, roll it back, or remove its staged files after it ended.",
+        "effect": "external_write",
+        "approval": "always",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/transfers.js"
+        },
+        "requiredCapabilities": [
+          "network-egress"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "siteId",
+            "importId",
+            "control"
+          ],
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9:._@-]{0,255}$"
+            },
+            "importId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "control": {
+              "type": "string",
+              "enum": [
+                "approve",
+                "finish",
+                "rollback",
+                "cleanup"
+              ]
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "resourceLimits": {
+          "timeoutMs": 180000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 65536,
+          "maxNetworkRequests": 70
+        },
+        "idempotent": false
+      },
+      {
+        "id": "copy.local",
+        "title": "Make a local copy (plugin engine)",
+        "description": "Pull a Zoer Connect test site (or use a verified pull) and restore it into a new or refreshed local DDEV site: staged verified files, the reviewed import scripts, its own address, plugins inactive. A dry run restores into a scratch site that is moved to the trash afterwards.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/transfers.js"
+        },
+        "requiredCapabilities": [
+          "network-egress",
+          "file-transfer",
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Create or refresh a local DDEV copy and restore the verified files into it.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "runtime.list.v1",
+              "runtime.inspect.v1",
+              "runtime.create.v1",
+              "runtime.archive.v1",
+              "runtime.exec.v1",
+              "files.stage.v1",
+              "backup.create.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "siteId"
+          ],
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9:._@-]{0,255}$"
+            },
+            "copyId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "pullSetId": {
+              "type": "string",
+              "pattern": "^fs_[a-f0-9]{32}$"
+            },
+            "replaceSiteId": {
+              "type": "string",
+              "pattern": "^ddev-[a-z0-9-]+$"
+            },
+            "dryRun": {
+              "type": "boolean"
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "resumable": {
+          "stepTimeoutMs": 900000,
+          "maxSteps": 50000,
+          "maxRunHours": 168,
+          "lock": {
+            "input": "siteId",
+            "group": "site-transfer"
+          }
+        },
+        "presets": {
+          "max": 100
+        },
+        "resourceLimits": {
+          "timeoutMs": 900000,
+          "maxMemoryMb": 256,
+          "maxOutputBytes": 262144,
+          "maxNetworkRequests": 2000,
+          "maxNetworkResponseBytes": 8388608
+        },
+        "idempotent": false
+      },
+      {
+        "id": "backup.restore-local",
+        "title": "Restore UpdraftPlus backup locally (plugin engine)",
+        "description": "Restore an uploaded five-part UpdraftPlus set into a new local DDEV site: the database is converted to data-only SQL (never executed), archives are checked and extracted, plugins start inactive. A dry run only inspects the set and plans the restore.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/transfers.js"
+        },
+        "requiredCapabilities": [
+          "file-transfer",
+          "runtime-resources"
+        ],
+        "requiredRuntimes": [
+          {
+            "alias": "wordpress_site",
+            "purpose": "Create a local DDEV site and restore an UpdraftPlus backup into it.",
+            "connectorIds": [
+              "ddev"
+            ],
+            "operations": [
+              "runtime.list.v1",
+              "runtime.inspect.v1",
+              "runtime.create.v1",
+              "runtime.exec.v1",
+              "files.stage.v1"
+            ]
+          }
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "uploadSetId"
+          ],
+          "properties": {
+            "uploadSetId": {
+              "type": "string",
+              "pattern": "^fs_[a-f0-9]{32}$"
+            },
+            "restoreId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "dryRun": {
+              "type": "boolean"
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "resumable": {
+          "stepTimeoutMs": 900000,
+          "maxSteps": 20000,
+          "maxRunHours": 168,
+          "lock": {
+            "input": "uploadSetId",
+            "group": "backup-restore"
+          }
+        },
+        "resourceLimits": {
+          "timeoutMs": 900000,
+          "maxMemoryMb": 256,
+          "maxOutputBytes": 131072
+        },
+        "idempotent": false
       }
     ],
     "ui": [
@@ -2042,6 +2647,234 @@
             "label": "Manifest SHA-256"
           }
         ]
+      }
+    ],
+    "hostedRoutes": {
+      "family": "wp",
+      "profile": "https-upgrade",
+      "ports": [
+        80,
+        9400
+      ]
+    },
+    "fileRules": [
+      {
+        "id": "site-export",
+        "maxFiles": 100000,
+        "maxFileBytes": 4294967296,
+        "include": [
+          "database.sql",
+          "wp-content/themes/**",
+          "wp-content/plugins/**",
+          "wp-content/uploads/**",
+          "wp-content/mu-plugins/**",
+          "wp-admin/**",
+          "wp-includes/**",
+          "*.php",
+          "readme.html",
+          "license.txt"
+        ],
+        "exclude": [
+          "**/wp-config.php",
+          "wp-content/plugins/zoer-connect/**"
+        ],
+        "hidden": {
+          "default": "deny",
+          "allowNames": {
+            "wp-content/**": [
+              ".htaccess"
+            ],
+            "wp-content/plugins/**": [
+              ".editorconfig",
+              ".gitattributes",
+              ".gitignore",
+              ".gitkeep",
+              ".npmignore",
+              ".nvmrc",
+              ".node-version",
+              ".deployignore",
+              ".deepsource.toml",
+              ".wp-env.json",
+              ".prettierignore",
+              ".prettierrc",
+              ".prettierrc.json",
+              ".prettierrc.yaml",
+              ".prettierrc.yml",
+              ".prettierrc.js",
+              ".prettierrc.cjs",
+              ".eslintignore",
+              ".eslintrc",
+              ".eslintrc.json",
+              ".eslintrc.yaml",
+              ".eslintrc.yml",
+              ".eslintrc.js",
+              ".eslintrc.cjs",
+              ".markdownlintignore",
+              ".markdownlint.json",
+              ".markdownlint.yaml",
+              ".markdownlint.yml",
+              ".phpcs.xml",
+              ".phpcs.xml.dist",
+              ".phpcs.dir.xml",
+              ".phpcs.dir.phpcompatibility.xml",
+              ".phpstorm.meta.php",
+              ".htaccess"
+            ],
+            "wp-content/themes/**": [
+              ".editorconfig",
+              ".gitattributes",
+              ".gitignore",
+              ".gitkeep",
+              ".npmignore",
+              ".nvmrc",
+              ".node-version",
+              ".deployignore",
+              ".deepsource.toml",
+              ".wp-env.json",
+              ".prettierignore",
+              ".prettierrc",
+              ".prettierrc.json",
+              ".prettierrc.yaml",
+              ".prettierrc.yml",
+              ".prettierrc.js",
+              ".prettierrc.cjs",
+              ".eslintignore",
+              ".eslintrc",
+              ".eslintrc.json",
+              ".eslintrc.yaml",
+              ".eslintrc.yml",
+              ".eslintrc.js",
+              ".eslintrc.cjs",
+              ".markdownlintignore",
+              ".markdownlint.json",
+              ".markdownlint.yaml",
+              ".markdownlint.yml",
+              ".phpcs.xml",
+              ".phpcs.xml.dist",
+              ".phpcs.dir.xml",
+              ".phpcs.dir.phpcompatibility.xml",
+              ".phpstorm.meta.php",
+              ".htaccess"
+            ]
+          },
+          "allowDirs": {
+            "wp-content/plugins/**": [
+              ".github",
+              ".trash"
+            ],
+            "wp-content/themes/**": [
+              ".github",
+              ".trash"
+            ]
+          }
+        },
+        "macMetadata": "reject",
+        "executables": {
+          "under": [
+            "wp-content/uploads/**"
+          ],
+          "extensions": [
+            "php",
+            "phtml",
+            "phar",
+            "cgi",
+            "pl",
+            "sh"
+          ],
+          "allowPlaceholders": "php-silence",
+          "maxPlaceholderBytes": 4096
+        },
+        "digests": [
+          "sha256",
+          "sha256-blocks-v1"
+        ]
+      },
+      {
+        "id": "updraft-set",
+        "maxFiles": 5,
+        "maxFileBytes": 1073741824,
+        "include": [
+          "*-db.gz",
+          "*-plugins.zip",
+          "*-themes.zip",
+          "*-uploads.zip",
+          "*-others.zip"
+        ],
+        "extensions": [
+          "gz",
+          "zip"
+        ],
+        "macMetadata": "reject",
+        "digests": [
+          "sha256"
+        ]
+      }
+    ],
+    "computerCommands": [
+      {
+        "id": "wordpress.copy.prepare",
+        "bundle": "computer/wordpress",
+        "argv": [
+          "php",
+          "prepare-copy.php"
+        ],
+        "timeoutMs": 120000,
+        "targets": [
+          "runtime"
+        ],
+        "effect": "local_write"
+      },
+      {
+        "id": "wordpress.copy.database",
+        "bundle": "computer/wordpress",
+        "argv": [
+          "php",
+          "import-database.php"
+        ],
+        "timeoutMs": 840000,
+        "targets": [
+          "runtime"
+        ],
+        "effect": "local_write"
+      },
+      {
+        "id": "wordpress.copy.files",
+        "bundle": "computer/wordpress",
+        "argv": [
+          "php",
+          "place-files.php"
+        ],
+        "timeoutMs": 600000,
+        "targets": [
+          "runtime"
+        ],
+        "effect": "local_write"
+      },
+      {
+        "id": "wordpress.copy.finish",
+        "bundle": "computer/wordpress",
+        "argv": [
+          "php",
+          "finish-copy.php"
+        ],
+        "timeoutMs": 600000,
+        "targets": [
+          "runtime"
+        ],
+        "effect": "local_write"
+      },
+      {
+        "id": "wordpress.updraft.prepare",
+        "bundle": "computer/wordpress",
+        "argv": [
+          "php",
+          "prepare-updraft.php"
+        ],
+        "timeoutMs": 840000,
+        "targets": [
+          "runtime"
+        ],
+        "effect": "local_write"
       }
     ]
   }

@@ -58,6 +58,8 @@ await rm(output, { recursive: true, force: true });
 await mkdir(resolve(output, "native"), { recursive: true });
 await cp(resolve(root, "plugin/manifest.json"), resolve(output, "manifest.json"));
 await cp(resolve(root, "plugin/worker"), resolve(output, "worker"), { recursive: true });
+// Command bundles run by runtime.exec.v1 on DDEV sites (manifest `computerCommands`).
+await cp(resolve(root, "plugin/computer"), resolve(output, "computer"), { recursive: true });
 await writeFile(resolve(output, "native/index.js"), js);
 await writeFile(resolve(output, "native/style.css"), scoped);
 const manifest = JSON.parse(await readFile(resolve(output, "manifest.json"), "utf8"));

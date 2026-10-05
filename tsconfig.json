@@ -16,6 +16,7 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "noEmit": true,
+    "allowJs": true,
     "types": [
       "bun"
     ],
@@ -28,6 +29,7 @@
   "include": [
     "src",
     "tests",
-    "scripts"
+    "scripts",
+    "tools/parity"
   ]
 }

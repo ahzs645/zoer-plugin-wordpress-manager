@@ -411,11 +411,11 @@ var require_codegen = __commonJS((exports) => {
       const rhs = this.rhs === undefined ? "" : ` = ${this.rhs}`;
       return `${varKind} ${this.name}${rhs};` + _n;
     }
-    optimizeNames(names, constants2) {
+    optimizeNames(names, constants) {
       if (!names[this.name.str])
         return;
       if (this.rhs)
-        this.rhs = optimizeExpr(this.rhs, names, constants2);
+        this.rhs = optimizeExpr(this.rhs, names, constants);
       return this;
     }
     get names() {
@@ -433,10 +433,10 @@ var require_codegen = __commonJS((exports) => {
     render({ _n }) {
       return `${this.lhs} = ${this.rhs};` + _n;
     }
-    optimizeNames(names, constants2) {
+    optimizeNames(names, constants) {
       if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
         return;
-      this.rhs = optimizeExpr(this.rhs, names, constants2);
+      this.rhs = optimizeExpr(this.rhs, names, constants);
       return this;
     }
     get names() {
@@ -502,8 +502,8 @@ var require_codegen = __commonJS((exports) => {
     optimizeNodes() {
       return `${this.code}` ? this : undefined;
     }
-    optimizeNames(names, constants2) {
-      this.code = optimizeExpr(this.code, names, constants2);
+    optimizeNames(names, constants) {
+      this.code = optimizeExpr(this.code, names, constants);
       return this;
     }
     get names() {
@@ -533,12 +533,12 @@ var require_codegen = __commonJS((exports) => {
       }
       return nodes.length > 0 ? this : undefined;
     }
-    optimizeNames(names, constants2) {
+    optimizeNames(names, constants) {
       const { nodes } = this;
       let i = nodes.length;
       while (i--) {
         const n = nodes[i];
-        if (n.optimizeNames(names, constants2))
+        if (n.optimizeNames(names, constants))
           continue;
         subtractNames(names, n.names);
         nodes.splice(i, 1);
@@ -595,12 +595,12 @@ var require_codegen = __commonJS((exports) => {
         return;
       return this;
     }
-    optimizeNames(names, constants2) {
+    optimizeNames(names, constants) {
       var _a;
-      this.else = (_a = this.else) === null || _a === undefined ? undefined : _a.optimizeNames(names, constants2);
-      if (!(super.optimizeNames(names, constants2) || this.else))
+      this.else = (_a = this.else) === null || _a === undefined ? undefined : _a.optimizeNames(names, constants);
+      if (!(super.optimizeNames(names, constants) || this.else))
         return;
-      this.condition = optimizeExpr(this.condition, names, constants2);
+      this.condition = optimizeExpr(this.condition, names, constants);
       return this;
     }
     get names() {
@@ -625,10 +625,10 @@ var require_codegen = __commonJS((exports) => {
     render(opts) {
       return `for(${this.iteration})` + super.render(opts);
     }
-    optimizeNames(names, constants2) {
-      if (!super.optimizeNames(names, constants2))
+    optimizeNames(names, constants) {
+      if (!super.optimizeNames(names, constants))
         return;
-      this.iteration = optimizeExpr(this.iteration, names, constants2);
+      this.iteration = optimizeExpr(this.iteration, names, constants);
       return this;
     }
     get names() {
@@ -666,10 +666,10 @@ var require_codegen = __commonJS((exports) => {
     render(opts) {
       return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
     }
-    optimizeNames(names, constants2) {
-      if (!super.optimizeNames(names, constants2))
+    optimizeNames(names, constants) {
+      if (!super.optimizeNames(names, constants))
         return;
-      this.iterable = optimizeExpr(this.iterable, names, constants2);
+      this.iterable = optimizeExpr(this.iterable, names, constants);
       return this;
     }
     get names() {
@@ -714,11 +714,11 @@ var require_codegen = __commonJS((exports) => {
       (_b = this.finally) === null || _b === undefined || _b.optimizeNodes();
       return this;
     }
-    optimizeNames(names, constants2) {
+    optimizeNames(names, constants) {
       var _a, _b;
-      super.optimizeNames(names, constants2);
-      (_a = this.catch) === null || _a === undefined || _a.optimizeNames(names, constants2);
-      (_b = this.finally) === null || _b === undefined || _b.optimizeNames(names, constants2);
+      super.optimizeNames(names, constants);
+      (_a = this.catch) === null || _a === undefined || _a.optimizeNames(names, constants);
+      (_b = this.finally) === null || _b === undefined || _b.optimizeNames(names, constants);
       return this;
     }
     get names() {
@@ -992,7 +992,7 @@ var require_codegen = __commonJS((exports) => {
   function addExprNames(names, from) {
     return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
   }
-  function optimizeExpr(expr, names, constants2) {
+  function optimizeExpr(expr, names, constants) {
     if (expr instanceof code_1.Name)
       return replaceName(expr);
     if (!canOptimize(expr))
@@ -1007,14 +1007,14 @@ var require_codegen = __commonJS((exports) => {
       return items;
     }, []));
     function replaceName(n) {
-      const c = constants2[n.str];
+      const c = constants[n.str];
       if (c === undefined || names[n.str] !== 1)
         return n;
       delete names[n.str];
       return c;
     }
     function canOptimize(e) {
-      return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants2[c.str] !== undefined);
+      return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants[c.str] !== undefined);
     }
   }
   function subtractNames(names, from) {
@@ -4092,10 +4092,10 @@ var require_core = __commonJS((exports) => {
       }
       return this;
     }
-    addFormat(name, format2) {
-      if (typeof format2 == "string")
-        format2 = new RegExp(format2);
-      this.formats[name] = format2;
+    addFormat(name, format) {
+      if (typeof format == "string")
+        format = new RegExp(format);
+      this.formats[name] = format;
       return this;
     }
     errorsText(errors2 = this.errors, { separator = ", ", dataVar = "data" } = {}) {
@@ -4213,9 +4213,9 @@ var require_core = __commonJS((exports) => {
   }
   function addInitialFormats() {
     for (const name in this.opts.formats) {
-      const format2 = this.opts.formats[name];
-      if (format2)
-        this.addFormat(name, format2);
+      const format = this.opts.formats[name];
+      if (format)
+        this.addFormat(name, format);
     }
   }
   function addInitialKeywords(defs) {
@@ -4238,13 +4238,13 @@ var require_core = __commonJS((exports) => {
     return metaOpts;
   }
   var noLogs = { log() {}, warn() {}, error() {} };
-  function getLogger(logger2) {
-    if (logger2 === false)
+  function getLogger(logger) {
+    if (logger === false)
       return noLogs;
-    if (logger2 === undefined)
+    if (logger === undefined)
       return console;
-    if (logger2.log && logger2.warn && logger2.error)
-      return logger2;
+    if (logger.log && logger.warn && logger.error)
+      return logger;
     throw new Error("logger must implement log, warn and error methods");
   }
   var KEYWORD_NAME = /^[a-z_$][a-z0-9_$:-]*$/i;
@@ -6063,18 +6063,18 @@ var require_format = __commonJS((exports) => {
         });
         const fDef = gen.const("fDef", (0, codegen_1._)`${fmts}[${schemaCode}]`);
         const fType = gen.let("fType");
-        const format2 = gen.let("format");
-        gen.if((0, codegen_1._)`typeof ${fDef} == "object" && !(${fDef} instanceof RegExp)`, () => gen.assign(fType, (0, codegen_1._)`${fDef}.type || "string"`).assign(format2, (0, codegen_1._)`${fDef}.validate`), () => gen.assign(fType, (0, codegen_1._)`"string"`).assign(format2, fDef));
+        const format = gen.let("format");
+        gen.if((0, codegen_1._)`typeof ${fDef} == "object" && !(${fDef} instanceof RegExp)`, () => gen.assign(fType, (0, codegen_1._)`${fDef}.type || "string"`).assign(format, (0, codegen_1._)`${fDef}.validate`), () => gen.assign(fType, (0, codegen_1._)`"string"`).assign(format, fDef));
         cxt.fail$data((0, codegen_1.or)(unknownFmt(), invalidFmt()));
         function unknownFmt() {
           if (opts.strictSchema === false)
             return codegen_1.nil;
-          return (0, codegen_1._)`${schemaCode} && !${format2}`;
+          return (0, codegen_1._)`${schemaCode} && !${format}`;
         }
         function invalidFmt() {
-          const callFormat = schemaEnv.$async ? (0, codegen_1._)`(${fDef}.async ? await ${format2}(${data}) : ${format2}(${data}))` : (0, codegen_1._)`${format2}(${data})`;
-          const validData = (0, codegen_1._)`(typeof ${format2} == "function" ? ${callFormat} : ${format2}.test(${data}))`;
-          return (0, codegen_1._)`${format2} && ${format2} !== true && ${fType} === ${ruleType} && !${validData}`;
+          const callFormat = schemaEnv.$async ? (0, codegen_1._)`(${fDef}.async ? await ${format}(${data}) : ${format}(${data}))` : (0, codegen_1._)`${format}(${data})`;
+          const validData = (0, codegen_1._)`(typeof ${format} == "function" ? ${callFormat} : ${format}.test(${data}))`;
+          return (0, codegen_1._)`${format} && ${format} !== true && ${fType} === ${ruleType} && !${validData}`;
         }
       }
       function validateFormat() {
@@ -6085,7 +6085,7 @@ var require_format = __commonJS((exports) => {
         }
         if (formatDef === true)
           return;
-        const [fmtType, format2, fmtRef] = getFormat(formatDef);
+        const [fmtType, format, fmtRef] = getFormat(formatDef);
         if (fmtType === ruleType)
           cxt.pass(validCondition());
         function unknownFormat() {
@@ -6112,7 +6112,7 @@ var require_format = __commonJS((exports) => {
               throw new Error("async format in sync schema");
             return (0, codegen_1._)`await ${fmtRef}(${data})`;
           }
-          return typeof format2 == "function" ? (0, codegen_1._)`${fmtRef}(${data})` : (0, codegen_1._)`${fmtRef}.test(${data})`;
+          return typeof format == "function" ? (0, codegen_1._)`${fmtRef}(${data})` : (0, codegen_1._)`${fmtRef}.test(${data})`;
         }
       }
     }
@@ -6124,8 +6124,8 @@ var require_format = __commonJS((exports) => {
 var require_format2 = __commonJS((exports) => {
   Object.defineProperty(exports, "__esModule", { value: true });
   var format_1 = require_format();
-  var format2 = [format_1.default];
-  exports.default = format2;
+  var format = [format_1.default];
+  exports.default = format;
 });
 
 // backend/node_modules/ajv/dist/vocabularies/metadata.js
@@ -6643,7 +6643,7 @@ var require_json_schema_2020_12 = __commonJS((exports) => {
   var unevaluated = require_unevaluated2();
   var content = require_content();
   var core = require_core3();
-  var format2 = require_format_annotation();
+  var format = require_format_annotation();
   var metadata = require_meta_data();
   var validation = require_validation2();
   var META_SUPPORT_DATA = ["/properties"];
@@ -6654,7 +6654,7 @@ var require_json_schema_2020_12 = __commonJS((exports) => {
       unevaluated,
       content,
       core,
-      with$data(this, format2),
+      with$data(this, format),
       metadata,
       with$data(this, validation)
     ].forEach((sch) => this.addMetaSchema(sch, undefined, false));
@@ -6742,8 +6742,8 @@ var require_2020 = __commonJS((exports, module) => {
 });
 
 // packages/plugin-cli/src/cli.ts
-import { mkdir as mkdir6, readFile as readFile6, writeFile as writeFile6 } from "fs/promises";
-import { basename as basename2, dirname as dirname6, join as join10, resolve as resolve4 } from "path";
+import { mkdir, readFile as readFile2, writeFile } from "fs/promises";
+import { basename, dirname, join as join2, resolve as resolve2 } from "path";
 
 // packages/plugin-cli/src/package.ts
 import { createHash, sign as signBytes } from "crypto";
@@ -6896,25 +6896,6 @@ function buildRelease(files, manifest, signing) {
     ...signing ? { signature: { keyId: signing.keyId, value: signDigest(digestSha256, signing.privateKeyPem) } } : {}
   };
   return { archive, descriptor };
-}
-
-// backend/src/plugin-worker-access.ts
-import { chmod, chown, readdir as readdir2, lstat as lstat2 } from "fs/promises";
-import { join as join2 } from "path";
-async function preparePluginWorkerAccess(root) {
-  const rootHost = process.getuid?.() === 0;
-  async function walk(path) {
-    const info = await lstat2(path);
-    if (info.isSymbolicLink() || !info.isDirectory() && !info.isFile())
-      throw new Error("Unsupported installed package entry.");
-    if (rootHost)
-      await chown(path, -1, 988);
-    await chmod(path, info.isDirectory() ? 488 : 416);
-    if (info.isDirectory())
-      for (const entry of await readdir2(path))
-        await walk(join2(path, entry));
-  }
-  await walk(root);
 }
 // packages/api-types/src/validate.ts
 var OK = { ok: true };
@@ -7112,6 +7093,19 @@ var BROWSER_PROVIDERS = [
   { id: "clearcote", label: "Clearcote", transport: "native", experimental: true }
 ];
 var BROWSER_PROVIDER_IDS = BROWSER_PROVIDERS.map((provider) => provider.id);
+// packages/api-types/src/browser-forms.ts
+var BROWSER_FORM_LIMITS = {
+  frames: 30,
+  fields: 200,
+  fileInputs: 20,
+  optionsPerField: 80,
+  labelChars: 500,
+  textChars: 12000,
+  fillFields: 50,
+  fillValueChars: 1e4,
+  fillValues: 50,
+  uploadBytes: 8 * 1024 * 1024
+};
 // packages/api-types/src/utilities.ts
 function validateStandaloneUtility(value, integration) {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -7230,152 +7224,1188 @@ var environmentCheckSource = resourceCheckSource + `
 import importlib.metadata
 report["Packages"] = dict(sorted((d.metadata.get("Name", "unknown"), d.version) for d in importlib.metadata.distributions())[:1000])
 print("ZOER_ENVIRONMENT=" + json.dumps(report))`;
-// packages/api-types/src/plugin-versions.ts
-function semver(value) {
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(value);
-  return match ? { core: [Number(match[1]), Number(match[2]), Number(match[3])], prerelease: match[4]?.split(".") ?? [] } : null;
-}
-function comparePluginVersions(left, right) {
-  const a = semver(left);
-  const b = semver(right);
-  if (!a || !b)
-    return null;
-  for (let index = 0;index < 3; index++)
-    if (a.core[index] !== b.core[index])
-      return a.core[index] < b.core[index] ? -1 : 1;
-  if (!a.prerelease.length || !b.prerelease.length)
-    return a.prerelease.length === b.prerelease.length ? 0 : a.prerelease.length ? -1 : 1;
-  for (let index = 0;index < Math.max(a.prerelease.length, b.prerelease.length); index++) {
-    const x = a.prerelease[index];
-    const y = b.prerelease[index];
-    if (x === undefined || y === undefined)
-      return x === undefined ? -1 : 1;
-    if (x === y)
-      continue;
-    const xn = /^\d+$/.test(x);
-    const yn = /^\d+$/.test(y);
-    if (xn && yn)
-      return Number(x) < Number(y) ? -1 : 1;
-    if (xn !== yn)
-      return xn ? -1 : 1;
-    return x < y ? -1 : 1;
+// packages/api-types/src/plugin-storage.ts
+var PLUGIN_FILE_MAX_BYTES = 50 * 1024 * 1024;
+var PLUGIN_WORKER_FILE_MAX_BYTES = 20 * 1024 * 1024;
+var PLUGIN_WORKER_FILE_DEFAULT_READ_BYTES = 10 * 1024 * 1024;
+// packages/api-types/src/oauth-connections.ts
+var OAUTH_PROVIDERS = {
+  google: {
+    id: "google",
+    name: "Google",
+    authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenUrl: "https://oauth2.googleapis.com/token",
+    revokeUrl: "https://oauth2.googleapis.com/revoke",
+    scopes: [
+      { scope: "https://www.googleapis.com/auth/gmail.readonly", title: "Read Gmail messages and settings" },
+      { scope: "https://www.googleapis.com/auth/gmail.metadata", title: "Read Gmail message metadata (headers and labels, no bodies)" },
+      { scope: "openid", title: "Sign-in identity" },
+      { scope: "email", title: "Email address" }
+    ],
+    identityScopes: ["openid", "email"],
+    scopeAliases: { "https://www.googleapis.com/auth/userinfo.email": "email" },
+    apiHosts: ["gmail.googleapis.com"],
+    authorizeParams: { access_type: "offline", prompt: "consent" }
+  },
+  hostinger: {
+    id: "hostinger",
+    name: "Hostinger",
+    authorizeUrl: "https://auth.hostinger.com/api/external/v1/oauth-server/authorize",
+    tokenUrl: "https://auth.hostinger.com/api/external/v1/oauth-server/token",
+    scopes: [{ scope: "hosting", title: "Manage websites and domains through the Hostinger API" }],
+    identityScopes: [],
+    apiHosts: ["developers.hostinger.com"],
+    authorizeParams: {},
+    flow: "browser-loopback",
+    client: { kind: "dynamic-public", registrationUrl: "https://auth.hostinger.com/api/external/v1/oauth-server/register", clientName: "Zoer" },
+    identity: "none",
+    scopeParam: false
   }
-  return 0;
+};
+function getOAuthProvider(id) {
+  return typeof id === "string" && Object.prototype.hasOwnProperty.call(OAUTH_PROVIDERS, id) ? OAUTH_PROVIDERS[id] : null;
 }
-// backend/src/plugin-package-manager.ts
-import { createHash as createHash5, createPublicKey as createPublicKey2, randomUUID as randomUUID3, verify as verifySignature } from "crypto";
-import { constants as fsConstants } from "fs";
-import {
-  lstat as lstat3,
-  mkdir as mkdir5,
-  mkdtemp,
-  open,
-  readFile as readFile5,
-  readdir as readdir4,
-  realpath as realpath2,
-  rename as rename3,
-  rm,
-  stat,
-  writeFile as writeFile5
-} from "fs/promises";
-import { inflateRawSync } from "zlib";
-import { basename, dirname as dirname5, isAbsolute as isAbsolute2, join as join9, relative as relative3, resolve as resolve3, sep } from "path";
-
-// backend/src/data-dir.ts
-import { accessSync, constants, existsSync } from "fs";
-import { dirname, join as join3 } from "path";
-function canWritePath(path) {
-  try {
-    if (existsSync(path)) {
-      accessSync(path, constants.W_OK);
-      return true;
+function isAllowedOAuthScope(provider, scope) {
+  return provider.scopes.some((entry) => entry.scope === scope);
+}
+var CONNECTION_ALIAS = /^[a-z][a-z0-9_-]{0,63}$/;
+function validateOAuthConnectionRequirements(value, networkAllowlist) {
+  if (value === undefined)
+    return null;
+  if (!Array.isArray(value) || value.length > 8)
+    return "integration requiredConnections must contain at most 8 entries";
+  const aliases = new Set;
+  const allowlist = new Set(Array.isArray(networkAllowlist) ? networkAllowlist.filter((host) => typeof host === "string").map((host) => host.toLowerCase()) : []);
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry))
+      return "every required connection must be an object";
+    const requirement = entry;
+    if (Object.keys(requirement).some((key) => !["alias", "provider", "scopes", "purpose", "optional", "multiple"].includes(key))) {
+      return "required connection contains unsupported fields";
     }
-    accessSync(dirname(path), constants.W_OK);
+    if (typeof requirement.alias !== "string" || !CONNECTION_ALIAS.test(requirement.alias))
+      return `required connection alias ${String(requirement.alias)} is invalid`;
+    if (aliases.has(requirement.alias))
+      return `duplicate required connection alias ${requirement.alias}`;
+    aliases.add(requirement.alias);
+    const provider = getOAuthProvider(requirement.provider);
+    if (!provider)
+      return `required connection ${requirement.alias} names an unknown provider`;
+    if (!Array.isArray(requirement.scopes) || requirement.scopes.length < 1 || requirement.scopes.length > 16) {
+      return `required connection ${requirement.alias} must request 1 to 16 scopes`;
+    }
+    if (new Set(requirement.scopes).size !== requirement.scopes.length)
+      return `required connection ${requirement.alias} has duplicate scopes`;
+    for (const scope of requirement.scopes) {
+      if (typeof scope !== "string" || !isAllowedOAuthScope(provider, scope)) {
+        return `required connection ${requirement.alias} requests scope ${String(scope)} outside the ${provider.name} allowlist`;
+      }
+    }
+    if (requirement.purpose !== undefined && (typeof requirement.purpose !== "string" || !requirement.purpose.trim() || requirement.purpose.length > 240)) {
+      return `required connection ${requirement.alias} has an invalid purpose`;
+    }
+    if (requirement.optional !== undefined && typeof requirement.optional !== "boolean")
+      return `required connection ${requirement.alias} has an invalid optional flag`;
+    if (requirement.multiple !== undefined && typeof requirement.multiple !== "boolean")
+      return `required connection ${requirement.alias} has an invalid multiple flag`;
+    if (!provider.apiHosts.some((host) => allowlist.has(host))) {
+      return `required connection ${requirement.alias} needs at least one ${provider.name} API host (${provider.apiHosts.join(", ")}) in networkAllowlist`;
+    }
+  }
+  return null;
+}
+// packages/api-types/src/file-rules.ts
+var FILE_RULES_FLOOR = "floor";
+var FILE_PATH_MAX_CHARS = 512;
+var FILE_MAX_BYTES = 4 * 1024 * 1024 * 1024;
+var FILE_GLOB_MAX_CHARS = 512;
+var SHA256_HEX = /^[a-f0-9]{64}$/;
+var DEFAULT_MAX_PLACEHOLDER_BYTES = 4096;
+var MAC_METADATA_MESSAGE = "The export includes Mac metadata files. Add **/.DS_Store and **/__MACOSX/ to Exclude files (one per line), then start a new pull.";
+function hasControlCharacters(value) {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code < 32 || code === 127)
+      return true;
+  }
+  return false;
+}
+function parseFileGlob(pattern) {
+  if (typeof pattern !== "string" || !pattern || pattern.length > FILE_GLOB_MAX_CHARS)
+    return null;
+  if (pattern.startsWith("/") || pattern.includes("\\") || hasControlCharacters(pattern))
+    return null;
+  const segments = [];
+  for (const segment of pattern.split("/")) {
+    if (!segment || segment === "." || segment === "..")
+      return null;
+    if (segment === "**") {
+      if (segments.at(-1)?.kind === "globstar")
+        return null;
+      segments.push({ kind: "globstar" });
+      continue;
+    }
+    const tokens = [];
+    for (let index = 0;index < segment.length; index++) {
+      const character = segment[index];
+      if (character === "*") {
+        if (segment[index + 1] === "*")
+          return null;
+        tokens.push({ kind: "star" });
+      } else if (character === "?")
+        tokens.push({ kind: "any-char" });
+      else if (character === "[") {
+        const end = segment.indexOf("]", index + 2);
+        if (end === -1)
+          return null;
+        let body = segment.slice(index + 1, end);
+        const negated = body.startsWith("!") || body.startsWith("^");
+        if (negated)
+          body = body.slice(1);
+        if (!body || body.includes("["))
+          return null;
+        const ranges = [];
+        for (let cursor = 0;cursor < body.length; cursor++) {
+          const start = body[cursor];
+          if (body[cursor + 1] === "-" && cursor + 2 < body.length) {
+            const stop = body[cursor + 2];
+            if (stop < start)
+              return null;
+            ranges.push([start, stop]);
+            cursor += 2;
+          } else
+            ranges.push([start, start]);
+        }
+        tokens.push({ kind: "class", negated, ranges });
+        index = end;
+      } else if (character === "]")
+        return null;
+      else {
+        const last = tokens.at(-1);
+        if (last?.kind === "literal")
+          last.value += character;
+        else
+          tokens.push({ kind: "literal", value: character });
+      }
+    }
+    segments.push({ kind: "segment", tokens });
+  }
+  return segments;
+}
+function compileSegment(tokens, fold) {
+  if (tokens.length === 1 && tokens[0].kind === "literal") {
+    const literal = fold ? tokens[0].value.toLowerCase() : tokens[0].value;
+    return (segment) => segment === literal;
+  }
+  const atoms = [];
+  for (const token of tokens) {
+    if (token.kind === "star")
+      atoms.push({ star: true });
+    else if (token.kind === "any-char")
+      atoms.push({ star: false, test: () => true });
+    else if (token.kind === "literal") {
+      for (const character of fold ? token.value.toLowerCase() : token.value)
+        atoms.push({ star: false, test: (value) => value === character });
+    } else {
+      const ranges = fold ? token.ranges.map(([start, stop]) => [start.toLowerCase(), stop.toLowerCase()]) : token.ranges;
+      const negated = token.negated;
+      atoms.push({ star: false, test: (value) => ranges.some(([start, stop]) => value >= start && value <= stop) !== negated });
+    }
+  }
+  const size = atoms.length;
+  const close = (states) => {
+    for (let index = 0;index < size; index++)
+      if (states[index] && atoms[index].star)
+        states[index + 1] = 1;
+  };
+  return (segment) => {
+    let states = new Uint8Array(size + 1);
+    states[0] = 1;
+    close(states);
+    for (const character of segment) {
+      const next = new Uint8Array(size + 1);
+      let any = false;
+      for (let index = 0;index < size; index++) {
+        if (!states[index])
+          continue;
+        const atom = atoms[index];
+        if (atom.star) {
+          next[index] = 1;
+          any = true;
+        } else if (atom.test(character)) {
+          next[index + 1] = 1;
+          any = true;
+        }
+      }
+      if (!any)
+        return false;
+      close(next);
+      states = next;
+    }
+    return states[size] === 1;
+  };
+}
+function compileFileGlob(pattern, options = {}) {
+  const parsed = parseFileGlob(pattern);
+  if (!parsed)
+    return null;
+  const fold = options.caseInsensitive === true;
+  const parts = parsed.map((segment) => segment.kind === "globstar" ? { globstar: true } : { globstar: false, match: compileSegment(segment.tokens, fold) });
+  const size = parts.length;
+  const close = (states) => {
+    for (let index = 0;index < size; index++)
+      if (states[index] && parts[index].globstar)
+        states[index + 1] = 1;
+  };
+  return {
+    pattern,
+    matches(segments) {
+      let states = new Uint8Array(size + 1);
+      states[0] = 1;
+      close(states);
+      for (const raw of segments) {
+        const segment = fold ? raw.toLowerCase() : raw;
+        const next = new Uint8Array(size + 1);
+        let any = false;
+        for (let index = 0;index < size; index++) {
+          if (!states[index])
+            continue;
+          const part = parts[index];
+          if (part.globstar) {
+            next[index] = 1;
+            any = true;
+          } else if (part.match(segment)) {
+            next[index + 1] = 1;
+            any = true;
+          }
+        }
+        if (!any)
+          return false;
+        close(next);
+        states = next;
+      }
+      return states[size] === 1;
+    }
+  };
+}
+var compiledCache = new WeakMap;
+var compileList = (patterns, caseInsensitive) => (patterns ?? []).map((pattern) => compileFileGlob(pattern, { caseInsensitive })).filter((glob) => glob !== null);
+var compileAllowMap = (map) => Object.entries(map ?? {}).flatMap(([dir, names]) => {
+  const glob = compileFileGlob(dir);
+  return glob ? [{ dir: glob, names: new Set(names) }] : [];
+});
+function compileRules(ruleSet) {
+  const cached = compiledCache.get(ruleSet);
+  if (cached)
+    return cached;
+  const compiled = {
+    ruleSet,
+    include: ruleSet.include ? compileList(ruleSet.include, false) : null,
+    exclude: compileList(ruleSet.exclude, true),
+    hiddenDefault: ruleSet.hidden?.default ?? "deny",
+    allowNames: compileAllowMap(ruleSet.hidden?.allowNames),
+    allowDirs: compileAllowMap(ruleSet.hidden?.allowDirs),
+    executablesUnder: compileList(ruleSet.executables?.under, true),
+    executableExtensions: new Set(ruleSet.executables?.extensions ?? []),
+    placeholders: ruleSet.executables?.allowPlaceholders === "php-silence",
+    maxPlaceholderBytes: ruleSet.executables?.maxPlaceholderBytes ?? DEFAULT_MAX_PLACEHOLDER_BYTES,
+    extensions: ruleSet.extensions ? new Set(ruleSet.extensions) : null,
+    digests: new Set(ruleSet.digests ?? ["sha256"])
+  };
+  compiledCache.set(ruleSet, compiled);
+  return compiled;
+}
+function displayFilePath(path) {
+  if (typeof path !== "string")
+    return "(invalid path)";
+  const value = path.replace(/[\x00-\x1f\x7f-\x9f]/g, "?");
+  return value.length > 200 ? `${value.slice(0, 197)}...` : value;
+}
+var violation = (path, rule, message) => ({ path: displayFilePath(path), rule, message });
+var ruleLabel = (rules) => rules ? rules.ruleSet.id : FILE_RULES_FLOOR;
+function isMacMetadata(segments) {
+  const leaf = segments.at(-1) ?? "";
+  return segments.includes("__MACOSX") || leaf === ".DS_Store" || leaf.startsWith("._");
+}
+function nameExtensions(name) {
+  const parts = name.replace(/^\.+/, "").toLowerCase().split(".");
+  return parts.slice(1);
+}
+function fileExtension(name) {
+  return nameExtensions(name).at(-1) ?? "";
+}
+function hiddenAllowed(rules, segments, index) {
+  if (!rules)
+    return false;
+  if (rules.hiddenDefault === "allow")
     return true;
+  const name = segments[index];
+  const parent = segments.slice(0, index);
+  const list = index === segments.length - 1 ? rules.allowNames : rules.allowDirs;
+  return list.some((entry) => entry.names.has(name) && entry.dir.matches(parent));
+}
+function floorSegments(path) {
+  if (typeof path !== "string" || !path || path.length > FILE_PATH_MAX_CHARS || /[\\\x00-\x1f\x7f-\x9f]/.test(path)) {
+    return violation(path, FILE_RULES_FLOOR, `Invalid file path: ${displayFilePath(path)}. Paths are relative, at most 512 characters, without control characters or backslashes.`);
+  }
+  if (path.startsWith("/") || /^[A-Za-z]:/.test(path))
+    return violation(path, FILE_RULES_FLOOR, `Absolute file paths are not allowed: ${displayFilePath(path)}.`);
+  const segments = path.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === ".."))
+    return violation(path, FILE_RULES_FLOOR, `Invalid file path: ${displayFilePath(path)}. Empty, "." and ".." segments are not allowed.`);
+  return segments;
+}
+function checkFilePath(path, ruleSet) {
+  const rules = ruleSet ? compileRules(ruleSet) : null;
+  if (rules?.ruleSet.macMetadata === "reject" && typeof path === "string" && isMacMetadata(path.split("/"))) {
+    return violation(path, rules.ruleSet.id, `${MAC_METADATA_MESSAGE} (file rules ${rules.ruleSet.id}: ${displayFilePath(path)})`);
+  }
+  const segments = floorSegments(path);
+  if (!Array.isArray(segments))
+    return segments;
+  const text = path;
+  for (let index = 0;index < segments.length; index++) {
+    if (segments[index].startsWith(".") && !hiddenAllowed(rules, segments, index)) {
+      return violation(text, ruleLabel(rules), `Hidden files and directories are not allowed here: ${displayFilePath(text)}.`);
+    }
+  }
+  if (!rules)
+    return null;
+  const id = rules.ruleSet.id;
+  if (rules.include && !rules.include.some((glob) => glob.matches(segments)))
+    return violation(text, id, `${displayFilePath(text)} is not an allowed path (file rules ${id}).`);
+  if (rules.exclude.some((glob) => glob.matches(segments)))
+    return violation(text, id, `${displayFilePath(text)} is excluded (file rules ${id}).`);
+  const leaf = segments.at(-1);
+  if (rules.extensions && !rules.extensions.has(fileExtension(leaf))) {
+    return violation(text, id, `${displayFilePath(text)} does not have an allowed file type (${[...rules.extensions].map((extension) => `.${extension}`).join(", ")}; file rules ${id}).`);
+  }
+  if (executableInDataDirectory(rules, segments) && !placeholderCandidate(rules, leaf)) {
+    return violation(text, id, `Executable files are not allowed in this directory: ${displayFilePath(text)} (file rules ${id}).`);
+  }
+  return null;
+}
+function executableInDataDirectory(rules, segments) {
+  if (!rules.executablesUnder.length)
+    return false;
+  const extensions = nameExtensions(segments.at(-1));
+  if (!extensions.some((extension) => rules.executableExtensions.has(extension)))
+    return false;
+  const parent = segments.slice(0, -1);
+  return rules.executablesUnder.some((glob) => glob.matches(parent));
+}
+var placeholderCandidate = (rules, leaf) => rules.placeholders && /^(?:php\d?|phtml)$/.test(fileExtension(leaf));
+function fileRulesContentCheck(path, ruleSet) {
+  if (!ruleSet)
+    return null;
+  const rules = compileRules(ruleSet);
+  const segments = path.split("/");
+  if (!executableInDataDirectory(rules, segments) || !placeholderCandidate(rules, segments.at(-1)))
+    return null;
+  return { kind: "php-silence", maxBytes: rules.maxPlaceholderBytes };
+}
+function checkFileEntry(entry, ruleSet, options = {}) {
+  const pathViolation = checkFilePath(entry?.path, ruleSet);
+  if (pathViolation)
+    return pathViolation;
+  const rules = ruleSet ? compileRules(ruleSet) : null;
+  const path = entry.path;
+  if (!Number.isSafeInteger(entry.bytes) || entry.bytes < 0 || entry.bytes > FILE_MAX_BYTES)
+    return violation(path, FILE_RULES_FLOOR, `Invalid size for ${displayFilePath(path)} (0 B to 4 GiB).`);
+  if (rules?.ruleSet.maxFileBytes !== undefined && entry.bytes > rules.ruleSet.maxFileBytes) {
+    return violation(path, rules.ruleSet.id, `${displayFilePath(path)} is larger than ${rules.ruleSet.maxFileBytes} bytes (file rules ${rules.ruleSet.id}).`);
+  }
+  const content = rules ? fileRulesContentCheck(path, rules.ruleSet) : null;
+  if (content && entry.bytes > content.maxBytes)
+    return violation(path, rules.ruleSet.id, `Executable files are not allowed in this directory: ${displayFilePath(path)} (file rules ${rules.ruleSet.id}).`);
+  if (options.requireDigest !== false || entry.sha256 !== undefined) {
+    if (typeof entry.sha256 !== "string" || !SHA256_HEX.test(entry.sha256))
+      return violation(path, FILE_RULES_FLOOR, `Invalid sha256 for ${displayFilePath(path)} (64 lowercase hex characters).`);
+  }
+  if (entry.digestFormat !== undefined && entry.digestFormat !== "sha256" && entry.digestFormat !== "sha256-blocks-v1")
+    return violation(path, FILE_RULES_FLOOR, `Unsupported digest format for ${displayFilePath(path)}.`);
+  if (rules && !rules.digests.has(entry.digestFormat ?? "sha256")) {
+    return violation(path, rules.ruleSet.id, `Digest format ${entry.digestFormat ?? "sha256"} is not allowed for ${displayFilePath(path)} (file rules ${rules.ruleSet.id}).`);
+  }
+  return null;
+}
+
+class FileRulesChecker {
+  ruleSet;
+  options;
+  files = new Set;
+  directories = new Set;
+  count = 0;
+  constructor(ruleSet, options = {}) {
+    this.ruleSet = ruleSet;
+    this.options = options;
+  }
+  seed(path) {
+    const violation2 = this.track(path);
+    if (violation2)
+      throw new Error(violation2.message);
+  }
+  add(entry) {
+    const failure2 = checkFileEntry(entry, this.ruleSet, this.options);
+    if (failure2)
+      return failure2;
+    return this.track(entry.path);
+  }
+  track(path) {
+    this.count++;
+    const limit = Math.min(this.options.maxFiles ?? Number.MAX_SAFE_INTEGER, this.ruleSet?.maxFiles ?? Number.MAX_SAFE_INTEGER);
+    if (this.count > limit)
+      return violation(path, limit === this.ruleSet?.maxFiles ? this.ruleSet.id : FILE_RULES_FLOOR, `More than ${limit} files${limit === this.ruleSet?.maxFiles ? ` (file rules ${this.ruleSet.id})` : ""}.`);
+    const lower = path.toLowerCase();
+    if (this.files.has(lower))
+      return violation(path, FILE_RULES_FLOOR, `Duplicate file path (case-insensitive): ${displayFilePath(path)}.`);
+    if (this.directories.has(lower))
+      return violation(path, FILE_RULES_FLOOR, `File paths overlap: ${displayFilePath(path)} is also a directory.`);
+    const parts = lower.split("/");
+    const prefixes = [];
+    for (let length = parts.length - 1;length > 0; length--) {
+      const prefix = parts.slice(0, length).join("/");
+      if (this.files.has(prefix))
+        return violation(path, FILE_RULES_FLOOR, `File paths overlap: ${displayFilePath(path)} is inside the file ${displayFilePath(prefix)}.`);
+      prefixes.push(prefix);
+    }
+    this.files.add(lower);
+    for (const prefix of prefixes)
+      this.directories.add(prefix);
+    return null;
+  }
+}
+var ZIP_TAIL_BYTES = 65535 + 22 + 20 + 56;
+var utf8 = new TextDecoder("utf-8");
+var latin1 = new TextDecoder("latin1");
+var ZIP_CONTAINER_EXTENSIONS = new Set(["zip", "docx", "xlsx", "pptx", "odt", "ods", "odp", "epub", "jar"]);
+// backend/src/manifest-extensions/shared.ts
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function unknownKey(value, allowed) {
+  return Object.keys(value).find((key) => !allowed.includes(key)) ?? null;
+}
+function isIntegerInRange(value, min, max) {
+  return Number.isInteger(value) && value >= min && value <= max;
+}
+function hasControlCharacters2(value) {
+  return [...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code < 32 || code === 127;
+  });
+}
+function isBoundedText(value, max) {
+  return typeof value === "string" && Boolean(value.trim()) && value.length <= max && !hasControlCharacters2(value);
+}
+var MANIFEST_ALIAS = /^[a-z][a-z0-9_-]{0,63}$/;
+var HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+// backend/src/manifest-extensions/crawl-policy.ts
+var CRAWL_LIMITS = {
+  minDelaySeconds: { min: 0, max: 3600 },
+  maxWaitSeconds: { min: 0, max: 300 },
+  hosts: 64,
+  robotsBytes: 64000,
+  robotsTimeoutMs: 1e4,
+  robotsRedirects: 5,
+  checkUrls: 50,
+  maxBlockMs: 3600000,
+  maxRetryAfterMs: 300000
+};
+var PRODUCT = /^[A-Za-z][A-Za-z0-9_-]{1,39}$/;
+var ROBOTS_MODES = ["respect", "respect-ai", "off"];
+function parseVisitWindowUtc(value) {
+  if (typeof value !== "string")
+    return null;
+  const match = /^(\d{2})(\d{2})-(\d{2})(\d{2})$/.exec(value);
+  if (!match)
+    return null;
+  const [startHour, startMinute, endHour, endMinute] = match.slice(1).map(Number);
+  if (startHour > 23 || endHour > 23 || startMinute > 59 || endMinute > 59)
+    return null;
+  const start = startHour * 60 + startMinute;
+  const end = endHour * 60 + endMinute;
+  if (start === end)
+    return null;
+  return { startMinute: start, endMinute: end };
+}
+function validRobots(value) {
+  return ROBOTS_MODES.includes(value);
+}
+function validateCrawlPolicy(manifest) {
+  const policy = manifest.crawlPolicy;
+  if (policy === undefined)
+    return null;
+  const prefix = "integration crawlPolicy";
+  if (!isPlainObject(policy))
+    return `${prefix} must be an object`;
+  const extra = unknownKey(policy, ["product", "robots", "minDelaySeconds", "maxWaitSeconds", "hosts"]);
+  if (extra)
+    return `${prefix} has unsupported field ${extra}`;
+  if (typeof policy.product !== "string" || !PRODUCT.test(policy.product))
+    return `${prefix} product must match ^[A-Za-z][A-Za-z0-9_-]{1,39}$`;
+  if (policy.robots !== undefined && !validRobots(policy.robots))
+    return `${prefix} robots must be respect, respect-ai or off`;
+  if (policy.minDelaySeconds !== undefined && !isIntegerInRange(policy.minDelaySeconds, CRAWL_LIMITS.minDelaySeconds.min, CRAWL_LIMITS.minDelaySeconds.max)) {
+    return `${prefix} minDelaySeconds must be an integer from 0 to 3,600`;
+  }
+  if (policy.maxWaitSeconds !== undefined && !isIntegerInRange(policy.maxWaitSeconds, CRAWL_LIMITS.maxWaitSeconds.min, CRAWL_LIMITS.maxWaitSeconds.max)) {
+    return `${prefix} maxWaitSeconds must be an integer from 0 to 300`;
+  }
+  if (policy.hosts !== undefined) {
+    if (!isPlainObject(policy.hosts))
+      return `${prefix} hosts must be an object keyed by hostname`;
+    const hosts = Object.entries(policy.hosts);
+    if (hosts.length > CRAWL_LIMITS.hosts)
+      return `${prefix} hosts must contain at most 64 entries`;
+    const allowlist = new Set((manifest.networkAllowlist ?? []).map((host) => host.toLowerCase()));
+    const seen = new Set;
+    for (const [host, entry] of hosts) {
+      if (!HOSTNAME.test(host) || host !== host.toLowerCase())
+        return `${prefix} host ${host} must be a lowercase hostname`;
+      if (seen.has(host))
+        return `${prefix} host ${host} is duplicated`;
+      seen.add(host);
+      if (!allowlist.has(host))
+        return `${prefix} host ${host} must be in networkAllowlist`;
+      if (!isPlainObject(entry))
+        return `${prefix} host ${host} must be an object`;
+      const hostExtra = unknownKey(entry, ["robots", "minDelaySeconds", "visitWindowUtc"]);
+      if (hostExtra)
+        return `${prefix} host ${host} has unsupported field ${hostExtra}`;
+      if (entry.robots !== undefined && !validRobots(entry.robots))
+        return `${prefix} host ${host} robots must be respect, respect-ai or off`;
+      if (entry.minDelaySeconds !== undefined && !isIntegerInRange(entry.minDelaySeconds, CRAWL_LIMITS.minDelaySeconds.min, CRAWL_LIMITS.minDelaySeconds.max)) {
+        return `${prefix} host ${host} minDelaySeconds must be an integer from 0 to 3,600`;
+      }
+      if (entry.visitWindowUtc !== undefined && !parseVisitWindowUtc(entry.visitWindowUtc)) {
+        return `${prefix} host ${host} visitWindowUtc must be HHMM-HHMM (UTC) with different start and end`;
+      }
+    }
+  }
+  if (!manifest.actions.some((action) => action.requiredCapabilities?.some((capability) => capability === "network-egress" || capability === "browser-session"))) {
+    return `${prefix} requires an action with network-egress or browser-session`;
+  }
+  return null;
+}
+function validateActionCrawl(action, manifest) {
+  if (action.crawl === undefined)
+    return null;
+  const prefix = `integration action ${action.id} crawl`;
+  if (typeof action.crawl !== "boolean")
+    return `${prefix} must be a boolean`;
+  if (action.execution.kind !== "browser-session" || !action.requiredCapabilities?.includes("browser-session")) {
+    return `${prefix} is allowed only on browser-session host actions`;
+  }
+  if (action.crawl && manifest.crawlPolicy === undefined)
+    return `${prefix} requires integration crawlPolicy`;
+  return null;
+}
+
+// backend/src/manifest-extensions/endpoints.ts
+var ENDPOINT_LIMITS = {
+  requirements: 8,
+  routes: 64,
+  pathChars: 200,
+  keyPatternChars: 200,
+  maxBodyBytes: 8 * 1024 * 1024,
+  defaultBodyBytes: 1024 * 1024,
+  endpointsPerAlias: 50,
+  probeTimeoutMs: 15000,
+  probeStatusBytes: 64 * 1024
+};
+var METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"];
+var EFFECTS = ["read", "local_write", "external_write", "destructive"];
+var DENIED_KEY_HEADERS = new Set([
+  "authorization",
+  "proxy-authorization",
+  "cookie",
+  "set-cookie",
+  "host",
+  "content-length",
+  "content-type",
+  "transfer-encoding",
+  "connection",
+  "upgrade",
+  "te",
+  "trailer",
+  "keep-alive",
+  "user-agent",
+  "forwarded"
+]);
+var LITERAL_SEGMENT = /^[A-Za-z0-9._~-]+$/;
+var PLACEHOLDERS = { hex32: /^[a-f0-9]{32}$/, int: /^(?:0|[1-9][0-9]{0,15})$/, slug: /^[a-z0-9][a-z0-9_-]{0,127}$/ };
+var QUERY_KEYS = new Set(["index", "offset", "view"]);
+function isLiteralSegment(value) {
+  return LITERAL_SEGMENT.test(value) && value !== "." && value !== "..";
+}
+function parseEndpointRouteTemplate(template) {
+  if (typeof template !== "string" || !template || template.length > ENDPOINT_LIMITS.pathChars)
+    return null;
+  const segments = [];
+  for (const part of template.split("/")) {
+    if (part.startsWith("{") && part.endsWith("}")) {
+      const body = part.slice(1, -1);
+      const values = body.split("|");
+      if (values.length === 1 && Object.hasOwn(PLACEHOLDERS, body))
+        segments.push({ kind: "placeholder", name: body });
+      else if (values.length >= 2 && values.length <= 16 && values.every(isLiteralSegment) && new Set(values).size === values.length)
+        segments.push({ kind: "alternatives", values });
+      else
+        return null;
+    } else if (isLiteralSegment(part))
+      segments.push({ kind: "literal", value: part });
+    else
+      return null;
+  }
+  return segments;
+}
+function segmentMatches(segment, value) {
+  if (segment.kind === "literal")
+    return segment.value === value;
+  if (segment.kind === "alternatives")
+    return segment.values.includes(value);
+  return PLACEHOLDERS[segment.name].test(value);
+}
+function endpointRouteMatches(template, path) {
+  const segments = parseEndpointRouteTemplate(template);
+  if (!segments)
+    return false;
+  const parts = path.split("/");
+  return parts.length === segments.length && segments.every((segment, index) => segmentMatches(segment, parts[index]));
+}
+function isAllowedEndpointQuery(search) {
+  const query = search.startsWith("?") ? search.slice(1) : search;
+  if (!query)
+    return true;
+  const seen = new Set;
+  for (const pair of query.split("&")) {
+    const [key, value, extra] = pair.split("=");
+    if (extra !== undefined || key === undefined || value === undefined || !QUERY_KEYS.has(key) || seen.has(key))
+      return false;
+    seen.add(key);
+    if (!PLACEHOLDERS.int.test(value) && !PLACEHOLDERS.slug.test(value))
+      return false;
+  }
+  return true;
+}
+function matchEndpointRequest(requirement, pathWithQuery, method) {
+  const queryIndex = pathWithQuery.indexOf("?");
+  const path = queryIndex === -1 ? pathWithQuery : pathWithQuery.slice(0, queryIndex);
+  const search = queryIndex === -1 ? "" : pathWithQuery.slice(queryIndex);
+  if (!path.startsWith(requirement.pathPrefix))
+    return { ok: false, reason: "outside-prefix" };
+  if (!isAllowedEndpointQuery(search))
+    return { ok: false, reason: "query" };
+  const relative2 = path.slice(requirement.pathPrefix.length);
+  const routes = requirement.routes.filter((route2) => endpointRouteMatches(route2.path, relative2));
+  if (!routes.length)
+    return { ok: false, reason: "route" };
+  const route = routes.find((candidate) => candidate.methods.includes(method.toUpperCase()));
+  return route ? { ok: true, route } : { ok: false, reason: "method" };
+}
+function isSafeKeyPattern(pattern) {
+  if (typeof pattern !== "string" || pattern.length < 2 || pattern.length > ENDPOINT_LIMITS.keyPatternChars)
+    return false;
+  if (!pattern.startsWith("^") || !pattern.endsWith("$"))
+    return false;
+  let trailingEscapes = 0;
+  for (let index = pattern.length - 2;index >= 0 && pattern[index] === "\\"; index--)
+    trailingEscapes++;
+  if (trailingEscapes % 2 === 1)
+    return false;
+  try {
+    new RegExp(pattern);
   } catch {
     return false;
   }
-}
-function resolveDataDir() {
-  const configured = process.env.DATA_DIR?.trim();
-  if (configured)
-    return configured;
-  if (canWritePath("/data")) {
-    return "/data";
+  if (/\\[1-9]|\\k<|\(\?<?[=!]/.test(pattern))
+    return false;
+  const stack = [{ quantified: false, alternation: false }];
+  let lastGroup = null;
+  for (let index = 1;index < pattern.length - 1; index++) {
+    const character = pattern[index];
+    if (character === "\\") {
+      index++;
+      lastGroup = null;
+      continue;
+    }
+    if (character === "[") {
+      index++;
+      while (index < pattern.length && pattern[index] !== "]") {
+        if (pattern[index] === "\\")
+          index++;
+        index++;
+      }
+      lastGroup = null;
+      continue;
+    }
+    if (character === "(") {
+      if (pattern[index + 1] === "?") {
+        if (pattern[index + 2] !== ":")
+          return false;
+        index += 2;
+      }
+      stack.push({ quantified: false, alternation: false });
+      lastGroup = null;
+      continue;
+    }
+    if (character === ")") {
+      lastGroup = stack.pop() ?? null;
+      if (!lastGroup || !stack.length)
+        return false;
+      continue;
+    }
+    if (character === "|") {
+      stack[stack.length - 1].alternation = true;
+      lastGroup = null;
+      continue;
+    }
+    const quantifier = character === "*" || character === "+" || character === "?" || character === "{" && /^\{\d+(,\d*)?\}/.test(pattern.slice(index));
+    if (quantifier) {
+      if (lastGroup && (lastGroup.quantified || lastGroup.alternation))
+        return false;
+      stack[stack.length - 1].quantified = true;
+      if (character === "{")
+        index = pattern.indexOf("}", index);
+      if (pattern[index + 1] === "?")
+        index++;
+      lastGroup = null;
+      continue;
+    }
+    lastGroup = null;
   }
-  return join3(process.cwd(), ".zoer-data");
+  return stack.length === 1 && !stack[0].alternation;
 }
-var DATA_DIR = resolveDataDir();
+function isValidPathPrefix(value) {
+  if (typeof value !== "string" || value.length < 1 || value.length > ENDPOINT_LIMITS.pathChars || !value.startsWith("/") || !value.endsWith("/"))
+    return false;
+  if (value === "/")
+    return true;
+  return value.slice(1, -1).split("/").every(isLiteralSegment);
+}
+function validateEndpointRequirements(manifest) {
+  const value = manifest.requiredEndpoints;
+  if (value === undefined)
+    return null;
+  if (!Array.isArray(value) || value.length < 1 || value.length > ENDPOINT_LIMITS.requirements)
+    return "integration requiredEndpoints must contain 1 to 8 entries";
+  const aliases = new Set;
+  const connectionAliases = new Set((manifest.requiredConnections ?? []).map((entry) => entry.alias));
+  for (const entry of value) {
+    if (!isPlainObject(entry))
+      return "every required endpoint must be an object";
+    const extra = unknownKey(entry, ["alias", "purpose", "multiple", "pathPrefix", "keyHeader", "keyPattern", "maxBodyBytes", "probe", "routes"]);
+    if (extra)
+      return `required endpoint has unsupported field ${extra}`;
+    if (typeof entry.alias !== "string" || !MANIFEST_ALIAS.test(entry.alias))
+      return `required endpoint alias ${String(entry.alias)} is invalid`;
+    const prefix = `required endpoint ${entry.alias}`;
+    if (aliases.has(entry.alias))
+      return `duplicate required endpoint alias ${entry.alias}`;
+    if (connectionAliases.has(entry.alias))
+      return `${prefix} alias is already used by a required connection`;
+    aliases.add(entry.alias);
+    if (!isBoundedText(entry.purpose, 240))
+      return `${prefix} requires a purpose of at most 240 characters`;
+    if (entry.multiple !== undefined && typeof entry.multiple !== "boolean")
+      return `${prefix} has an invalid multiple flag`;
+    if (!isValidPathPrefix(entry.pathPrefix))
+      return `${prefix} pathPrefix must be an absolute path ending with "/" without ".." or empty segments`;
+    if (typeof entry.keyHeader !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(entry.keyHeader) || DENIED_KEY_HEADERS.has(entry.keyHeader)) {
+      return `${prefix} keyHeader must be a lowercase header name other than authorization, cookie, host or a framing header`;
+    }
+    if (!isSafeKeyPattern(entry.keyPattern))
+      return `${prefix} keyPattern must be an anchored pattern of at most 200 characters without nested quantifiers, backreferences or lookarounds`;
+    if (entry.maxBodyBytes !== undefined && !isIntegerInRange(entry.maxBodyBytes, 1, ENDPOINT_LIMITS.maxBodyBytes))
+      return `${prefix} maxBodyBytes must be an integer from 1 to 8388608`;
+    if (!Array.isArray(entry.routes) || entry.routes.length < 1 || entry.routes.length > ENDPOINT_LIMITS.routes)
+      return `${prefix} routes must contain 1 to 64 entries`;
+    const templates = new Set;
+    for (const route of entry.routes) {
+      if (!isPlainObject(route))
+        return `${prefix} has an invalid route`;
+      const routeExtra = unknownKey(route, ["path", "methods", "effect"]);
+      if (routeExtra)
+        return `${prefix} route has unsupported field ${routeExtra}`;
+      if (!parseEndpointRouteTemplate(route.path))
+        return `${prefix} route ${String(route.path)} must use literal segments, {hex32}, {int}, {slug} or {a|b} alternatives`;
+      if (templates.has(route.path))
+        return `${prefix} route ${String(route.path)} is duplicated`;
+      templates.add(route.path);
+      if (!Array.isArray(route.methods) || !route.methods.length || route.methods.some((method) => !METHODS.includes(method)) || new Set(route.methods).size !== route.methods.length)
+        return `${prefix} route ${String(route.path)} methods must be distinct GET, HEAD, POST, PUT, PATCH or DELETE`;
+      if (!EFFECTS.includes(route.effect))
+        return `${prefix} route ${String(route.path)} has an invalid effect`;
+    }
+    const probeMatch = typeof entry.probe === "string" && !entry.probe.includes("?") ? matchEndpointRequest({ pathPrefix: entry.pathPrefix, routes: entry.routes }, `${entry.pathPrefix}${entry.probe}`, "GET") : null;
+    if (!probeMatch?.ok || probeMatch.route.effect !== "read")
+      return `${prefix} probe must be a concrete path of a declared GET route with effect read`;
+  }
+  if (!manifest.actions.some((action) => action.requiredCapabilities?.includes("network-egress"))) {
+    return "integration requiredEndpoints require an action with network-egress";
+  }
+  return null;
+}
 
-// backend/src/request-context.ts
-import { AsyncLocalStorage } from "async_hooks";
-var requestContextStorage = new AsyncLocalStorage;
-function getRequestContext() {
-  return requestContextStorage.getStore();
+// backend/src/manifest-extensions/file-rules.ts
+var FILE_RULE_LIMITS = {
+  ruleSets: 16,
+  patternsPerList: 256,
+  patternChars: 512,
+  maxFiles: 1e5,
+  maxFileBytes: 4 * 1024 * 1024 * 1024,
+  extensions: 64,
+  executableExtensions: 32,
+  executableDirs: 64,
+  hiddenNamesPerKey: 64,
+  maxPlaceholderBytes: 65536,
+  archiveEntries: 1e5,
+  archiveUncompressedBytes: 64 * 1024 * 1024 * 1024,
+  pathChars: 512
+};
+var RULE_ID = /^[a-z][a-z0-9._-]{0,63}$/;
+var EXTENSION = /^[a-z0-9]{1,16}$/;
+var HIDDEN_NAME = /^\.[A-Za-z0-9._-]{1,127}$/;
+function validGlobList(value, max) {
+  return Array.isArray(value) && value.length <= max && value.every((pattern) => parseFileGlob(pattern) !== null) && new Set(value).size === value.length;
+}
+function validateHiddenAllowMap(value, label, prefix) {
+  if (value === undefined)
+    return null;
+  if (!isPlainObject(value))
+    return `${prefix} hidden.${label} must be an object keyed by directory glob`;
+  const entries = Object.entries(value);
+  if (entries.length > FILE_RULE_LIMITS.patternsPerList)
+    return `${prefix} hidden.${label} must contain at most 256 directory globs`;
+  for (const [glob, names] of entries) {
+    if (!parseFileGlob(glob))
+      return `${prefix} hidden.${label} key ${glob} is not a valid glob`;
+    if (!Array.isArray(names) || !names.length || names.length > FILE_RULE_LIMITS.hiddenNamesPerKey || names.some((name) => typeof name !== "string" || !HIDDEN_NAME.test(name) || name === "..") || new Set(names).size !== names.length) {
+      return `${prefix} hidden.${label} for ${glob} must list 1 to 64 distinct hidden names such as .htaccess`;
+    }
+  }
+  return null;
+}
+function validExtensions(value, max) {
+  return Array.isArray(value) && value.length >= 1 && value.length <= max && value.every((extension) => typeof extension === "string" && EXTENSION.test(extension)) && new Set(value).size === value.length;
+}
+function validateFileRuleSet(value) {
+  if (!isPlainObject(value))
+    return "every file rule set must be an object";
+  if (typeof value.id !== "string" || !RULE_ID.test(value.id))
+    return `file rule set id ${String(value.id)} is invalid`;
+  const prefix = `file rule set ${value.id}`;
+  const extra = unknownKey(value, ["id", "maxFiles", "maxFileBytes", "include", "exclude", "hidden", "macMetadata", "executables", "digests", "extensions", "archive"]);
+  if (extra)
+    return `${prefix} has unsupported field ${extra}`;
+  if (value.maxFiles !== undefined && !isIntegerInRange(value.maxFiles, 1, FILE_RULE_LIMITS.maxFiles))
+    return `${prefix} maxFiles must be an integer from 1 to 100,000`;
+  if (value.maxFileBytes !== undefined && !isIntegerInRange(value.maxFileBytes, 1, FILE_RULE_LIMITS.maxFileBytes))
+    return `${prefix} maxFileBytes must be an integer from 1 to 4 GiB`;
+  for (const key of ["include", "exclude"]) {
+    if (value[key] !== undefined && !validGlobList(value[key], FILE_RULE_LIMITS.patternsPerList))
+      return `${prefix} ${key} must contain at most 256 distinct valid globs`;
+  }
+  if (value.hidden !== undefined) {
+    if (!isPlainObject(value.hidden))
+      return `${prefix} hidden must be an object`;
+    const hiddenExtra = unknownKey(value.hidden, ["default", "allowNames", "allowDirs"]);
+    if (hiddenExtra)
+      return `${prefix} hidden has unsupported field ${hiddenExtra}`;
+    if (value.hidden.default !== undefined && value.hidden.default !== "deny" && value.hidden.default !== "allow")
+      return `${prefix} hidden.default must be deny or allow`;
+    const namesError = validateHiddenAllowMap(value.hidden.allowNames, "allowNames", prefix) ?? validateHiddenAllowMap(value.hidden.allowDirs, "allowDirs", prefix);
+    if (namesError)
+      return namesError;
+  }
+  if (value.macMetadata !== undefined && value.macMetadata !== "reject" && value.macMetadata !== "allow")
+    return `${prefix} macMetadata must be reject or allow`;
+  if (value.executables !== undefined) {
+    const executables = value.executables;
+    if (!isPlainObject(executables))
+      return `${prefix} executables must be an object`;
+    const executablesExtra = unknownKey(executables, ["under", "extensions", "allowPlaceholders", "maxPlaceholderBytes"]);
+    if (executablesExtra)
+      return `${prefix} executables has unsupported field ${executablesExtra}`;
+    if (!validGlobList(executables.under, FILE_RULE_LIMITS.executableDirs) || !executables.under.length)
+      return `${prefix} executables.under must contain 1 to 64 distinct valid globs`;
+    if (!validExtensions(executables.extensions, FILE_RULE_LIMITS.executableExtensions))
+      return `${prefix} executables.extensions must contain 1 to 32 distinct lowercase extensions`;
+    if (executables.allowPlaceholders !== undefined && executables.allowPlaceholders !== "php-silence")
+      return `${prefix} executables.allowPlaceholders must be php-silence`;
+    if (executables.maxPlaceholderBytes !== undefined && (!isIntegerInRange(executables.maxPlaceholderBytes, 1, FILE_RULE_LIMITS.maxPlaceholderBytes) || executables.allowPlaceholders === undefined)) {
+      return `${prefix} executables.maxPlaceholderBytes requires allowPlaceholders and must be 1 to 65,536`;
+    }
+  }
+  if (value.digests !== undefined && (!Array.isArray(value.digests) || !value.digests.length || value.digests.some((digest) => digest !== "sha256" && digest !== "sha256-blocks-v1") || new Set(value.digests).size !== value.digests.length)) {
+    return `${prefix} digests must list sha256 and/or sha256-blocks-v1`;
+  }
+  if (value.extensions !== undefined && !validExtensions(value.extensions, FILE_RULE_LIMITS.extensions))
+    return `${prefix} extensions must contain 1 to 64 distinct lowercase extensions without dots`;
+  if (value.archive !== undefined) {
+    const archive = value.archive;
+    if (!isPlainObject(archive))
+      return `${prefix} archive must be an object`;
+    const archiveExtra = unknownKey(archive, ["maxEntries", "maxUncompressedBytes", "zip64"]);
+    if (archiveExtra)
+      return `${prefix} archive has unsupported field ${archiveExtra}`;
+    if (archive.maxEntries !== undefined && !isIntegerInRange(archive.maxEntries, 1, FILE_RULE_LIMITS.archiveEntries))
+      return `${prefix} archive.maxEntries must be an integer from 1 to 100,000`;
+    if (archive.maxUncompressedBytes !== undefined && !isIntegerInRange(archive.maxUncompressedBytes, 1, FILE_RULE_LIMITS.archiveUncompressedBytes))
+      return `${prefix} archive.maxUncompressedBytes must be an integer from 1 to 64 GiB`;
+    if (archive.zip64 !== undefined && archive.zip64 !== "reject" && archive.zip64 !== "allow")
+      return `${prefix} archive.zip64 must be reject or allow`;
+  }
+  return null;
+}
+function validateFileRules(manifest) {
+  const value = manifest.fileRules;
+  if (value === undefined)
+    return null;
+  if (!Array.isArray(value) || value.length < 1 || value.length > FILE_RULE_LIMITS.ruleSets)
+    return "integration fileRules must contain 1 to 16 rule sets";
+  const ids = new Set;
+  for (const ruleSet of value) {
+    const error = validateFileRuleSet(ruleSet);
+    if (error)
+      return `integration ${error}`;
+    const id = ruleSet.id;
+    if (ids.has(id))
+      return `duplicate integration file rule set id ${id}`;
+    ids.add(id);
+  }
+  return null;
 }
 
-// backend/src/logger.ts
-var LOG_LEVEL_PRIORITY = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3
+// backend/src/manifest-extensions/hosted-routes.ts
+var HOSTED_ROUTES_PERMISSION = "routes:hosted";
+var HOSTED_ROUTE_LIMITS = { ports: 8, routesPerFamily: 500, displayNameChars: 100, handoffTtlMs: 120000 };
+var FAMILY = /^[a-z][a-z0-9-]{0,31}$/;
+function validateHostedRoutes(manifest) {
+  const spec = manifest.hostedRoutes;
+  const permitted = manifest.permissions?.includes(HOSTED_ROUTES_PERMISSION) ?? false;
+  if (spec === undefined)
+    return permitted ? "permission routes:hosted requires integration hostedRoutes" : null;
+  const prefix = "integration hostedRoutes";
+  if (!isPlainObject(spec))
+    return `${prefix} must be an object`;
+  const extra = unknownKey(spec, ["family", "profile", "ports"]);
+  if (extra)
+    return `${prefix} has unsupported field ${extra}`;
+  if (typeof spec.family !== "string" || !FAMILY.test(spec.family))
+    return `${prefix} family must match ^[a-z][a-z0-9-]{0,31}$`;
+  if (spec.profile !== undefined && spec.profile !== "plain" && spec.profile !== "https-upgrade")
+    return `${prefix} profile must be plain or https-upgrade`;
+  if (!Array.isArray(spec.ports) || spec.ports.length < 1 || spec.ports.length > HOSTED_ROUTE_LIMITS.ports || spec.ports.some((port) => !isIntegerInRange(port, 1, 65535)) || new Set(spec.ports).size !== spec.ports.length) {
+    return `${prefix} ports must contain 1 to 8 distinct TCP ports`;
+  }
+  if (!permitted)
+    return `${prefix} requires the routes:hosted permission`;
+  if (!manifest.actions.some((action) => action.requiredCapabilities?.includes("runtime-resources"))) {
+    return `${prefix} requires an action with runtime-resources (routes target runtime resources)`;
+  }
+  return null;
+}
+
+// backend/src/manifest-extensions/presets.ts
+var PRESET_LIMITS = {
+  maxPerAction: 100,
+  maxPerPlugin: 500,
+  nameChars: 80,
+  inputBytes: 64 * 1024,
+  externalRefChars: 200
 };
-var currentLevel = process.env.LOG_LEVEL || "info";
-var jsonFormat = process.env.LOG_FORMAT === "json";
-function shouldLog(level) {
-  return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[currentLevel];
+function validateActionPresets(action) {
+  const spec = action.presets;
+  if (spec === undefined)
+    return null;
+  const prefix = `integration action ${action.id} presets`;
+  if (!isPlainObject(spec))
+    return `${prefix} must be an object`;
+  const extra = unknownKey(spec, ["max"]);
+  if (extra)
+    return `${prefix} has unsupported field ${extra}`;
+  if (!isIntegerInRange(spec.max, 1, PRESET_LIMITS.maxPerAction))
+    return `${prefix} max must be an integer from 1 to 100`;
+  if (!isPlainObject(action.inputSchema))
+    return `${prefix} requires an inputSchema`;
+  return null;
 }
-function errorFields(error) {
-  if (!error)
-    return {};
-  if (error instanceof Error) {
-    return {
-      error: error.message,
-      ...error.stack ? { stack: error.stack } : {},
-      ...error.name && error.name !== "Error" ? { errorName: error.name } : {}
-    };
-  }
-  return { error: String(error) };
-}
-function format(level, component, message, error, extra) {
-  const ctx = getRequestContext();
-  const timestamp = new Date().toISOString();
-  if (jsonFormat) {
-    const payload = {
-      ts: timestamp,
-      level,
-      component,
-      message,
-      ...ctx?.requestId ? { requestId: ctx.requestId } : {},
-      ...ctx?.userId ? { userId: ctx.userId } : {},
-      ...errorFields(error),
-      ...extra ?? {}
-    };
-    return JSON.stringify(payload);
-  }
-  const errStr = error instanceof Error ? ` | ${error.message}` : error ? ` | ${String(error)}` : "";
-  const idStr = ctx?.requestId ? ` {${ctx.requestId.slice(0, 8)}}` : "";
-  return `${timestamp} [${level.toUpperCase()}] [${component}]${idStr} ${message}${errStr}`;
-}
-var logger = {
-  debug(component, message, error, extra) {
-    if (shouldLog("debug"))
-      console.debug(format("debug", component, message, error, extra));
-  },
-  info(component, message, error, extra) {
-    if (shouldLog("info"))
-      console.info(format("info", component, message, error, extra));
-  },
-  warn(component, message, error, extra) {
-    if (shouldLog("warn"))
-      console.warn(format("warn", component, message, error, extra));
-  },
-  error(component, message, error, extra) {
-    if (shouldLog("error"))
-      console.error(format("error", component, message, error, extra));
-  }
+
+// backend/src/manifest-extensions/resumable.ts
+var RESUMABLE_LIMITS = {
+  stepTimeoutMs: { min: 5000, max: 900000 },
+  maxSteps: { min: 1, max: 1e5 },
+  maxRunHours: { min: 1, max: 720 },
+  retryDelays: { minCount: 1, maxCount: 8, min: 250, max: 300000 },
+  maxConsecutive: { min: 1, max: 50 },
+  checkpointBytes: 64 * 1024,
+  waitMs: 3600000,
+  retryAfterMs: 300000
 };
+var LOCK_GROUP = /^[a-z][a-z0-9._-]{0,63}$/;
+var KEYS = ["stepTimeoutMs", "maxSteps", "maxRunHours", "retry", "lock", "autoResume", "cleanup"];
+function validateResumableAction(action) {
+  const spec = action.resumable;
+  if (spec === undefined)
+    return null;
+  const prefix = `integration action ${action.id} resumable`;
+  if (!isPlainObject(spec))
+    return `${prefix} must be an object`;
+  const extra = unknownKey(spec, KEYS);
+  if (extra)
+    return `${prefix} has unsupported field ${extra}`;
+  if (action.execution.kind === "browser-session")
+    return `${prefix} is not allowed on browser-session actions`;
+  if (!isPlainObject(action.inputSchema))
+    return `${prefix} requires an inputSchema`;
+  if (spec.stepTimeoutMs !== undefined && !isIntegerInRange(spec.stepTimeoutMs, RESUMABLE_LIMITS.stepTimeoutMs.min, RESUMABLE_LIMITS.stepTimeoutMs.max)) {
+    return `${prefix} stepTimeoutMs must be an integer from 5,000 to 900,000`;
+  }
+  if (spec.maxSteps !== undefined && !isIntegerInRange(spec.maxSteps, RESUMABLE_LIMITS.maxSteps.min, RESUMABLE_LIMITS.maxSteps.max)) {
+    return `${prefix} maxSteps must be an integer from 1 to 100,000`;
+  }
+  if (spec.maxRunHours !== undefined && !isIntegerInRange(spec.maxRunHours, RESUMABLE_LIMITS.maxRunHours.min, RESUMABLE_LIMITS.maxRunHours.max)) {
+    return `${prefix} maxRunHours must be an integer from 1 to 720`;
+  }
+  if (spec.retry !== undefined) {
+    if (!isPlainObject(spec.retry))
+      return `${prefix} retry must be an object`;
+    const retryExtra = unknownKey(spec.retry, ["delaysMs", "maxConsecutive"]);
+    if (retryExtra)
+      return `${prefix} retry has unsupported field ${retryExtra}`;
+    const delays = spec.retry.delaysMs;
+    const limits = RESUMABLE_LIMITS.retryDelays;
+    if (delays !== undefined && (!Array.isArray(delays) || delays.length < limits.minCount || delays.length > limits.maxCount || delays.some((delay) => !isIntegerInRange(delay, limits.min, limits.max)))) {
+      return `${prefix} retry.delaysMs must contain 1 to 8 integers from 250 to 300,000`;
+    }
+    if (spec.retry.maxConsecutive !== undefined && !isIntegerInRange(spec.retry.maxConsecutive, RESUMABLE_LIMITS.maxConsecutive.min, RESUMABLE_LIMITS.maxConsecutive.max)) {
+      return `${prefix} retry.maxConsecutive must be an integer from 1 to 50`;
+    }
+  }
+  if (spec.lock !== undefined) {
+    if (!isPlainObject(spec.lock))
+      return `${prefix} lock must be an object`;
+    const lockExtra = unknownKey(spec.lock, ["input", "group"]);
+    if (lockExtra)
+      return `${prefix} lock has unsupported field ${lockExtra}`;
+    if (typeof spec.lock.input !== "string" || !isRequiredStringProperty(action.inputSchema, spec.lock.input)) {
+      return `${prefix} lock.input must name a required top-level string property of inputSchema`;
+    }
+    if (spec.lock.group !== undefined && (typeof spec.lock.group !== "string" || !LOCK_GROUP.test(spec.lock.group))) {
+      return `${prefix} lock.group must match ^[a-z][a-z0-9._-]{0,63}$`;
+    }
+  }
+  if (spec.autoResume !== undefined && spec.autoResume !== "after-restart" && spec.autoResume !== "manual") {
+    return `${prefix} autoResume must be "after-restart" or "manual"`;
+  }
+  if (spec.cleanup !== undefined && typeof spec.cleanup !== "boolean")
+    return `${prefix} cleanup must be a boolean`;
+  return null;
+}
+function isRequiredStringProperty(schema, name) {
+  const properties = schema.properties;
+  if (!isPlainObject(properties) || !Object.hasOwn(properties, name))
+    return false;
+  const property = properties[name];
+  return isPlainObject(property) && property.type === "string" && Array.isArray(schema.required) && schema.required.includes(name);
+}
+
+// backend/src/manifest-extensions/runtime.ts
+var RUNTIME_PERMISSIONS = [
+  "runtime:read",
+  "runtime:lifecycle",
+  "runtime:manage",
+  "runtime:snapshots",
+  "runtime:backups",
+  "runtime:commands:read",
+  "runtime:commands:write",
+  "runtime:files"
+];
+var PROFILE = /^[a-z][a-z0-9-]{0,63}$/;
+var COMMAND_TARGETS = ["computer", "runtime"];
+var COMMAND_EFFECTS = ["local_write", "destructive"];
+function validateRuntimeProfiles(action) {
+  for (const runtime of action.requiredRuntimes ?? []) {
+    if (runtime.profiles === undefined)
+      continue;
+    const profiles = runtime.profiles;
+    if (!Array.isArray(profiles) || profiles.length < 1 || profiles.length > 8 || profiles.some((profile) => typeof profile !== "string" || !PROFILE.test(profile)) || new Set(profiles).size !== profiles.length) {
+      return `integration action ${action.id} runtime ${runtime.alias} profiles must contain 1 to 8 distinct profile ids`;
+    }
+  }
+  return null;
+}
+var COMPUTER_COMMAND_FIELDS = ["id", "bundle", "argv", "timeoutMs", "targets", "effect"];
+function computerCommandsExecutor(commands, actions) {
+  const runtimeOnly = commands.length > 0 && commands.every((command) => Array.isArray(command?.targets) && command.targets.length > 0 && !command.targets.includes("computer"));
+  const computerExec = actions.some((action) => action?.requiredCapabilities?.includes("computer-exec") === true);
+  if (!runtimeOnly)
+    return { kind: "computer", satisfied: computerExec };
+  return {
+    kind: "runtime",
+    satisfied: computerExec || actions.some((action) => action?.requiredCapabilities?.includes("runtime-resources") === true && (action.requiredRuntimes ?? []).some((requirement) => requirement?.operations?.includes("runtime.exec.v1") === true))
+  };
+}
+function validateComputerCommandExtensions(command) {
+  const id = String(command.id);
+  if (command.targets !== undefined) {
+    const targets = command.targets;
+    if (!Array.isArray(targets) || !targets.length || targets.some((target) => !COMMAND_TARGETS.includes(target)) || new Set(targets).size !== targets.length) {
+      return `computer command ${id} targets must list computer and/or runtime`;
+    }
+  }
+  if (command.effect !== undefined && !COMMAND_EFFECTS.includes(command.effect)) {
+    return `computer command ${id} effect must be local_write or destructive`;
+  }
+  return null;
+}
+function validateRuntimeExtensions(manifest) {
+  for (const action of manifest.actions) {
+    const error = validateRuntimeProfiles(action);
+    if (error)
+      return error;
+  }
+  for (const command of manifest.computerCommands ?? []) {
+    if (!isPlainObject(command))
+      continue;
+    const error = validateComputerCommandExtensions(command);
+    if (error)
+      return error;
+  }
+  return null;
+}
+
+// backend/src/manifest-extensions/index.ts
+var FILESETS_PERMISSION = "workspace:filesets";
+var FILE_TRANSFER_CAPABILITY = "file-transfer";
+var SHARED_SERVICE_PERMISSIONS = [FILESETS_PERMISSION, "routes:hosted", ...RUNTIME_PERMISSIONS];
+function validateActionExtensions(action, manifest) {
+  const error = validateResumableAction(action) ?? validateActionPresets(action) ?? validateActionCrawl(action, manifest);
+  if (error)
+    return error;
+  if (action.requiredCapabilities?.includes(FILE_TRANSFER_CAPABILITY)) {
+    if (!Array.isArray(manifest.permissions) || !manifest.permissions.includes(FILESETS_PERMISSION))
+      return `integration action ${action.id} file-transfer requires the workspace:filesets permission`;
+    if (!action.requiredCapabilities.some((capability) => capability === "network-egress" || capability === "runtime-resources")) {
+      return `integration action ${action.id} file-transfer requires network-egress or runtime-resources`;
+    }
+  }
+  return null;
+}
+function validateManifestExtensions(manifest) {
+  for (const action of manifest.actions) {
+    const error = validateActionExtensions(action, manifest);
+    if (error)
+      return error;
+  }
+  return validateManifestLevelExtensions(manifest);
+}
+function validateManifestLevelExtensions(manifest) {
+  return validateCrawlPolicy(manifest) ?? validateEndpointRequirements(manifest) ?? validateFileRules(manifest) ?? validateHostedRoutes(manifest) ?? validateRuntimeExtensions(manifest);
+}
 
 // backend/src/integration-schema.ts
 var import__2020 = __toESM(require_2020(), 1);
@@ -7440,6 +8470,62 @@ function validateIntegrationSchema(schema) {
 }
 
 // backend/src/integration-contracts.ts
+var INTEGRATION_REQUIRED_CAPABILITIES = [
+  "browser-session",
+  "model-runtime",
+  "database-registry",
+  "dataset-registry",
+  "secret-grant",
+  "artifact-store",
+  "notebook-runtime",
+  "network-egress",
+  "runtime-resources",
+  "computer-exec",
+  "agent-runtime",
+  "file-transfer"
+];
+var COMPUTER_COMMAND_MAX_TIMEOUT_MS = 30 * 60000;
+function validateComputerCommands(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 32)
+    return "integration computerCommands must contain 1 to 32 entries";
+  const ids = new Set;
+  for (const command of value) {
+    if (!command || typeof command !== "object" || Array.isArray(command))
+      return "every computer command must be an object";
+    const unknownKey2 = Object.keys(command).find((key) => !COMPUTER_COMMAND_FIELDS.includes(key));
+    if (unknownKey2)
+      return `computer command has unsupported field ${unknownKey2}`;
+    if (typeof command.id !== "string" || !/^[a-z][a-z0-9._-]{0,63}$/.test(command.id))
+      return "every computer command requires a valid id";
+    if (ids.has(command.id))
+      return `duplicate computer command id: ${command.id}`;
+    ids.add(command.id);
+    if (typeof command.bundle !== "string" || !isSafePackageDirectory(command.bundle)) {
+      return `computer command ${command.id} bundle must be a package-relative directory without "..", absolute or hidden segments`;
+    }
+    if (!Array.isArray(command.argv) || command.argv.length < 1 || command.argv.length > 64 || command.argv.some((arg) => typeof arg !== "string" || !arg.length || arg.length > 1024 || /[\0\r\n]/.test(arg))) {
+      return `computer command ${command.id} argv must contain 1 to 64 non-empty single-line strings of at most 1,024 characters`;
+    }
+    if (!Number.isInteger(command.timeoutMs) || command.timeoutMs < 1000 || command.timeoutMs > COMPUTER_COMMAND_MAX_TIMEOUT_MS) {
+      return `computer command ${command.id} timeoutMs must be an integer from 1,000 to 1,800,000`;
+    }
+    const extensionError = validateComputerCommandExtensions(command);
+    if (extensionError)
+      return extensionError;
+  }
+  return null;
+}
+function isSafePackageDirectory(path) {
+  if (!path || path.length > 240 || path.startsWith("/") || path.includes("\\"))
+    return false;
+  return path.split("/").every((segment) => /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/.test(segment) && segment !== "..");
+}
+function isValidNetworkSession(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return false;
+  const session = value;
+  return Object.keys(session).every((key) => key === "cookies" || key === "formPost") && (session.cookies === undefined || session.cookies === "run") && (session.formPost === undefined || typeof session.formPost === "boolean") && (session.cookies === "run" || session.formPost === true);
+}
 var stopRoute = (route) => typeof route === "string" && /^\/[^\s]{0,499}$/.test(route) && !route.startsWith("//");
 var stopLabel = (label) => typeof label === "string" && !!label.trim() && label.length <= 40;
 var stopTitle = (title) => typeof title === "string" && !!title.trim() && title.length <= 160;
@@ -7512,9 +8598,6 @@ function validateIntegrationManifest(value) {
     if ((action.effect === "external_write" || action.effect === "destructive") && action.approval !== "always") {
       return { valid: false, error: `integration action ${action.id} must always require approval for ${action.effect}` };
     }
-    if (Array.isArray(action.requiredCapabilities) && action.requiredCapabilities.includes("jobs-native") && action.effect !== "read" && action.effect !== "local_write") {
-      return { valid: false, error: `integration action ${action.id} may use jobs-native only for read or local_write effects` };
-    }
     if (!action.execution || typeof action.execution !== "object") {
       return { valid: false, error: `integration action ${action.id} requires an execution tier` };
     }
@@ -7536,7 +8619,7 @@ function validateIntegrationManifest(value) {
       }
       const capabilities = new Set;
       for (const capability of action.requiredCapabilities) {
-        if (!["browser-session", "model-runtime", "database-registry", "dataset-registry", "secret-grant", "artifact-store", "notebook-runtime", "network-egress", "jobs-native", "runtime-resources"].includes(capability)) {
+        if (!INTEGRATION_REQUIRED_CAPABILITIES.includes(capability)) {
           return { valid: false, error: `integration action ${action.id} has invalid required capability` };
         }
         if (capabilities.has(capability)) {
@@ -7642,6 +8725,17 @@ function validateIntegrationManifest(value) {
         return { valid: false, error: `integration action ${action.id} network-egress requires maxNetworkRequests` };
       }
     }
+    if (action.networkSession !== undefined) {
+      if (!isValidNetworkSession(action.networkSession)) {
+        return { valid: false, error: `integration action ${action.id} networkSession accepts only cookies: "run" and formPost: boolean, with at least one enabled` };
+      }
+      if (!action.requiredCapabilities?.includes("network-egress")) {
+        return { valid: false, error: `integration action ${action.id} networkSession requires network-egress` };
+      }
+      if (action.effect !== "read" && action.effect !== "local_write") {
+        return { valid: false, error: `integration action ${action.id} networkSession is allowed only for read or local_write effects` };
+      }
+    }
     if (action.requiredSecrets) {
       if (!Array.isArray(action.requiredSecrets)) {
         return { valid: false, error: `integration action ${action.id} requiredSecrets must be an array` };
@@ -7714,6 +8808,9 @@ function validateIntegrationManifest(value) {
           return { valid: false, error: `integration action ${action.id} runtime ${runtime.alias} has duplicate operations` };
       }
     }
+    const extensionError2 = validateActionExtensions(action, manifest);
+    if (extensionError2)
+      return { valid: false, error: extensionError2 };
   }
   if (manifest.networkAllowlist !== undefined) {
     if (!Array.isArray(manifest.networkAllowlist) || manifest.networkAllowlist.length > 64) {
@@ -7732,6 +8829,21 @@ function validateIntegrationManifest(value) {
     if (manifest.networkAllowlist.length > 0 && !manifest.actions.some((action) => action.requiredCapabilities?.some((capability) => capability === "network-egress" || capability === "browser-session"))) {
       return { valid: false, error: "integration networkAllowlist requires an action with network-egress or browser-session capability" };
     }
+  }
+  if (manifest.computerCommands !== undefined) {
+    const commandError = validateComputerCommands(manifest.computerCommands);
+    if (commandError)
+      return { valid: false, error: commandError };
+    const executor = computerCommandsExecutor(manifest.computerCommands, manifest.actions);
+    if (!executor.satisfied) {
+      return {
+        valid: false,
+        error: executor.kind === "runtime" ? "integration computerCommands targeting only runtime require an action with runtime-resources whose requiredRuntimes operations include runtime.exec.v1 (or a computer-exec action)" : "integration computerCommands require an action with the computer-exec capability"
+      };
+    }
+  }
+  if (manifest.actions.some((action) => action.requiredCapabilities?.includes("computer-exec")) && !manifest.computerCommands?.length) {
+    return { valid: false, error: "computer-exec actions require declared integration computerCommands" };
   }
   if (manifest.ui && !Array.isArray(manifest.ui))
     return { valid: false, error: "integration ui must be an array" };
@@ -7850,1101 +8962,24 @@ function validateIntegrationManifest(value) {
       }
     }
   }
+  const connectionError = validateOAuthConnectionRequirements(manifest.requiredConnections, manifest.networkAllowlist);
+  if (connectionError)
+    return { valid: false, error: connectionError };
+  if (manifest.requiredConnections?.length && !manifest.actions.some((action) => action.requiredCapabilities?.includes("network-egress"))) {
+    return { valid: false, error: "integration requiredConnections require an action with network-egress" };
+  }
   const utilityError = validateUtilityContributions(manifest.utilities, { actionIds: ids, sandboxWorkspace: Boolean(manifest.workspace?.entrypoint && manifest.permissions?.includes("workspace:sandbox")) });
   if (utilityError)
     return { valid: false, error: utilityError };
+  const extensionError = validateManifestLevelExtensions(manifest);
+  if (extensionError)
+    return { valid: false, error: extensionError };
   return { valid: true };
 }
 
-// backend/src/plugin-transfer-lock.ts
-import { AsyncLocalStorage as AsyncLocalStorage2 } from "async_hooks";
-import { existsSync as existsSync2 } from "fs";
-import { join as join4 } from "path";
-var locks = new Set;
-var owner = new AsyncLocalStorage2;
-var transferRoot = join4(DATA_DIR, "procurement-transfers");
-function assertPluginWritable(id) {
-  if (owner.getStore() === id)
-    return;
-  if (locks.has(id) || id === "bc-bid-monitor" && existsSync2(join4(transferRoot, "restore-pending.json")))
-    throw new Error("Procurement backup or restore is in progress. Finish or retry it before changing data.");
-}
-
-// backend/src/plugins.ts
-import { access, readFile as readFile2, writeFile, mkdir, readdir as readdir3, realpath, watch } from "fs/promises";
-import { isAbsolute, join as join5, relative as relative2, resolve as resolve2 } from "path";
-
-// backend/src/ai-plugin.ts
-var dynamicProviders = new Map;
-function registerAiProvider(def) {
-  if (!def.id || !def.label || !def.installCommand) {
-    logger.warn("ai-plugin", `Invalid AI provider definition: missing required fields`);
-    return false;
-  }
-  const id = def.id.replace(/[^a-z0-9-]/gi, "").toLowerCase();
-  if (!id) {
-    logger.warn("ai-plugin", `Invalid AI provider id after sanitization`);
-    return false;
-  }
-  dynamicProviders.set(id, { ...def, id });
-  logger.info("ai-plugin", `Registered AI provider: ${def.label} (${id})`);
-  return true;
-}
-function unregisterAiProvider(id) {
-  const removed = dynamicProviders.delete(id);
-  if (removed) {
-    logger.info("ai-plugin", `Unregistered AI provider: ${id}`);
-  }
-  return removed;
-}
-
-// backend/src/runtime-contracts.ts
-var CAPABILITY_KEYS = [
-  "files",
-  "terminal",
-  "search",
-  "notebooks",
-  "stats",
-  "browser",
-  "desktop",
-  "snapshots",
-  "secrets"
-];
-function normalizeRuntimeCapabilities(capabilities) {
-  return {
-    files: Boolean(capabilities.files),
-    terminal: Boolean(capabilities.terminal),
-    search: Boolean(capabilities.search),
-    notebooks: Boolean(capabilities.notebooks),
-    stats: Boolean(capabilities.stats),
-    browser: Boolean(capabilities.browser),
-    desktop: Boolean(capabilities.desktop),
-    snapshots: Boolean(capabilities.snapshots),
-    secrets: Boolean(capabilities.secrets),
-    experimental: Boolean(capabilities.experimental)
-  };
-}
-function inspectRuntimeConnectorManifest(manifest) {
-  const warnings = [];
-  if (!/^[a-z0-9-]+$/.test(manifest.id)) {
-    warnings.push("Connector id must use lowercase letters, numbers, and dashes.");
-  }
-  for (const key of CAPABILITY_KEYS) {
-    if (typeof manifest.capabilities[key] !== "boolean") {
-      warnings.push(`Capability ${key} must be boolean.`);
-    }
-  }
-  if (manifest.capabilities.desktop && !manifest.capabilities.files) {
-    warnings.push("Desktop runtimes should expose files so users can inspect workspace state.");
-  }
-  const actionIds = new Set;
-  for (const action of manifest.actions ?? []) {
-    if (!/^[a-z][a-z0-9._-]{0,127}$/.test(action.id) || !action.title?.trim() || !action.description?.trim()) {
-      warnings.push("Connector actions require a bounded id, title, and description.");
-      continue;
-    }
-    if (actionIds.has(action.id))
-      warnings.push(`Connector action ${action.id} is duplicated.`);
-    actionIds.add(action.id);
-    if (!["read", "local_write", "external_write", "destructive"].includes(action.effect)) {
-      warnings.push(`Connector action ${action.id} has an invalid effect.`);
-    }
-  }
-  return {
-    id: manifest.id,
-    name: manifest.name,
-    description: manifest.description,
-    version: manifest.version,
-    author: manifest.author ?? null,
-    ...manifest.workspace ? { workspace: manifest.workspace } : {},
-    capabilities: normalizeRuntimeCapabilities(manifest.capabilities),
-    status: warnings.length === 0 ? "available" : "invalid",
-    warnings
-  };
-}
-
-// backend/src/runtime-connectors.ts
-var drivers = new Map;
-function registerRuntimeDriver(driver) {
-  const id = driver.manifest.id.replace(/[^a-z0-9-]/gi, "").toLowerCase();
-  if (!id || id !== driver.manifest.id)
-    return false;
-  if (inspectRuntimeConnectorManifest(driver.manifest).status === "invalid")
-    return false;
-  drivers.set(id, driver);
-  return true;
-}
-function unregisterRuntimeDriver(id) {
-  return drivers.delete(id);
-}
-
-// backend/src/plugin-run-cancellation.ts
-class MaintenancePauseAbort extends Error {
-  constructor(message = "Paused for Zoer update") {
-    super(message);
-    this.name = "MaintenancePauseAbort";
-  }
-}
-class PluginRunRegistry {
-  active = new Map;
-  sequence = 0;
-  globalPause = null;
-  register(input) {
-    assertPluginWritable(input.pluginId);
-    const key = `${input.stepId}:${++this.sequence}`;
-    const controller = new AbortController;
-    const entry = {
-      pluginId: input.pluginId,
-      runId: input.runId,
-      stepId: input.stepId,
-      controller,
-      kind: input.kind ?? "isolated",
-      pausable: input.pausable ?? false,
-      pause: null,
-      lastPause: null,
-      listeners: new Set
-    };
-    this.active.set(key, entry);
-    if (this.globalPause && entry.pausable)
-      this.applyPause(entry, this.globalPause);
-    return {
-      signal: controller.signal,
-      pause: {
-        get requested() {
-          return entry.pause;
-        },
-        get lastRequested() {
-          return entry.lastPause;
-        },
-        onRequest(listener) {
-          entry.listeners.add(listener);
-          return () => {
-            entry.listeners.delete(listener);
-          };
-        }
-      },
-      release: () => {
-        this.active.delete(key);
-      }
-    };
-  }
-  applyPause(entry, request) {
-    if (entry.controller.signal.aborted)
-      return;
-    entry.pause = request;
-    entry.lastPause = request;
-    for (const listener of entry.listeners) {
-      try {
-        listener(request);
-      } catch {}
-    }
-    if (entry.kind === "host")
-      entry.controller.abort(new MaintenancePauseAbort);
-  }
-  requestPause(request) {
-    this.globalPause = request;
-    const stepIds = [];
-    for (const entry of this.active.values()) {
-      if (!entry.pausable || entry.controller.signal.aborted)
-        continue;
-      if (entry.pause?.drainId !== request.drainId)
-        this.applyPause(entry, request);
-      stepIds.push(entry.stepId);
-    }
-    return stepIds;
-  }
-  hardStopPaused() {
-    let stopped = 0;
-    for (const entry of this.active.values()) {
-      if (!entry.pause || entry.controller.signal.aborted)
-        continue;
-      entry.controller.abort(new MaintenancePauseAbort("Paused for Zoer update (grace period ended)"));
-      stopped += 1;
-    }
-    return stopped;
-  }
-  clearPause() {
-    this.globalPause = null;
-    for (const entry of this.active.values()) {
-      if (!entry.controller.signal.aborted)
-        entry.pause = null;
-    }
-  }
-  listActive() {
-    return [...this.active.values()].map((entry) => ({
-      pluginId: entry.pluginId,
-      runId: entry.runId,
-      stepId: entry.stepId,
-      kind: entry.kind,
-      pausable: entry.pausable,
-      pausing: entry.pause !== null
-    }));
-  }
-  cancelRun(runId, reason) {
-    let cancelled = 0;
-    for (const entry of this.active.values()) {
-      if (entry.runId !== runId || entry.controller.signal.aborted)
-        continue;
-      entry.pause = null;
-      entry.lastPause = null;
-      entry.controller.abort(new Error(reason));
-      cancelled++;
-    }
-    return cancelled;
-  }
-  cancelPlugin(pluginId, reason) {
-    let cancelled = 0;
-    for (const entry of this.active.values()) {
-      if (entry.pluginId !== pluginId || entry.controller.signal.aborted)
-        continue;
-      entry.pause = null;
-      entry.lastPause = null;
-      entry.controller.abort(new Error(reason));
-      cancelled += 1;
-    }
-    return cancelled;
-  }
-}
-var pluginRunRegistry = new PluginRunRegistry;
-
-// backend/src/plugins.ts
-var PLUGIN_TYPES = new Set([
-  "wasm-tool",
-  "channel",
-  "provider",
-  "middleware",
-  "ai-provider",
-  "runtime-connector",
-  "integration",
-  "utility"
-]);
-var PLUGINS_DIR = join5(DATA_DIR, "plugins");
-var BUNDLED_PLUGINS_DIR = process.env.ZOER_BUNDLED_PLUGINS_DIR || resolve2(import.meta.dir, "../../plugins");
-var PLUGIN_CONFIG_PATH = join5(DATA_DIR, "plugin-configs.json");
-var PLUGIN_STATE_PATH = join5(DATA_DIR, "plugin-states.json");
-var packages = new Map;
-var UTILITIES_DIR = join5(DATA_DIR, "utilities");
-var BUNDLED_UTILITIES_DIR = process.env.ZOER_BUNDLED_UTILITIES_DIR || resolve2(import.meta.dir, "../../utilities");
-async function readPluginConfigs() {
-  try {
-    const raw = await readFile2(PLUGIN_CONFIG_PATH, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-async function readPluginStates() {
-  try {
-    const raw = await readFile2(PLUGIN_STATE_PATH, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-async function writePluginStates(states) {
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(PLUGIN_STATE_PATH, JSON.stringify(states, null, 2) + `
-`);
-}
-async function persistPluginEnabled(pluginId, enabled) {
-  const states = await readPluginStates();
-  states[pluginId] = { enabled };
-  await writePluginStates(states);
-}
-function isDeclarativePackage(type) {
-  return type === "integration" || type === "utility";
-}
-function pluginExecutionMode(type) {
-  return isDeclarativePackage(type) ? "declarative" : "legacy-in-process";
-}
-async function loadPlugin(pluginDir, options = {}) {
-  try {
-    const manifestPath = join5(pluginDir, "manifest.json");
-    const raw = await readFile2(manifestPath, "utf-8");
-    const manifest = JSON.parse(raw);
-    if (!manifest.id || !manifest.name || !PLUGIN_TYPES.has(manifest.type)) {
-      logger.warn("plugins", `Invalid manifest in ${pluginDir}`);
-      return null;
-    }
-    const existing = packages.get(manifest.id);
-    if (existing && existing.manifest.type !== manifest.type) {
-      logger.warn("plugins", `Rejected package kind change for ${manifest.id}`);
-      return null;
-    }
-    if (existing && resolve2(existing.pluginDir) !== resolve2(pluginDir)) {
-      logger.warn("plugins", `Rejected duplicate plugin id ${manifest.id} from ${pluginDir}`);
-      return null;
-    }
-    if (isDeclarativePackage(manifest.type)) {
-      const utilityError = manifest.type === "utility" ? validateStandaloneUtility(manifest.utility, manifest.integration) : manifest.utility !== undefined ? "Plugin manifests cannot declare standalone utility metadata" : null;
-      const validation = utilityError ? { valid: false, error: utilityError } : validateIntegrationManifest(manifest.integration);
-      if (!validation.valid) {
-        const instance2 = {
-          manifest,
-          status: "error",
-          config: {},
-          error: validation.error,
-          loadedAt: new Date().toISOString(),
-          pluginDir,
-          executionMode: "declarative"
-        };
-        packages.set(manifest.id, instance2);
-        return instance2;
-      }
-    }
-    const configs = await readPluginConfigs();
-    const config = configs[manifest.id] || {};
-    const states = await readPluginStates();
-    const persistedState = states[manifest.id];
-    const enabled = persistedState?.enabled ?? options.enableByDefault ?? true;
-    if (!persistedState && options.enableByDefault === false) {
-      await persistPluginEnabled(manifest.id, false);
-    }
-    if (!enabled) {
-      const instance2 = {
-        manifest,
-        status: "disabled",
-        config,
-        loadedAt: new Date().toISOString(),
-        pluginDir,
-        executionMode: pluginExecutionMode(manifest.type)
-      };
-      packages.set(manifest.id, instance2);
-      return instance2;
-    }
-    if (manifest.config) {
-      for (const [key, schema] of Object.entries(manifest.config)) {
-        if (schema.required && config[key] === undefined) {
-          if (schema.default !== undefined) {
-            config[key] = schema.default;
-          } else {
-            const instance2 = {
-              manifest,
-              status: "error",
-              config,
-              error: `Missing required config: ${key}`,
-              loadedAt: new Date().toISOString(),
-              pluginDir,
-              executionMode: pluginExecutionMode(manifest.type)
-            };
-            packages.set(manifest.id, instance2);
-            return instance2;
-          }
-        }
-      }
-    }
-    let module;
-    if (!isDeclarativePackage(manifest.type)) {
-      try {
-        if (!manifest.entrypoint)
-          throw new Error("Plugin entrypoint required");
-        const pluginRoot = await realpath(pluginDir);
-        const entryPath = await realpath(resolve2(pluginDir, manifest.entrypoint));
-        const relativeEntry = relative2(pluginRoot, entryPath);
-        if (isAbsolute(relativeEntry) || relativeEntry.startsWith("..")) {
-          throw new Error("Plugin entrypoint must remain inside the plugin directory");
-        }
-        module = await import(entryPath);
-      } catch (err) {
-        const instance2 = {
-          manifest,
-          status: "error",
-          config,
-          error: `Failed to load plugin module: ${err.message}`,
-          loadedAt: new Date().toISOString(),
-          pluginDir,
-          executionMode: "legacy-in-process"
-        };
-        packages.set(manifest.id, instance2);
-        logger.warn("plugins", `Failed to load module for ${manifest.name}: ${err.message}`);
-        return instance2;
-      }
-    }
-    const instance = {
-      manifest,
-      status: "loaded",
-      config,
-      loadedAt: new Date().toISOString(),
-      pluginDir,
-      executionMode: pluginExecutionMode(manifest.type),
-      module
-    };
-    if (manifest.type === "ai-provider" && manifest.aiProvider) {
-      const ok = registerAiProvider(manifest.aiProvider);
-      if (!ok) {
-        instance.status = "error";
-        instance.error = "Failed to register AI provider definition";
-        packages.set(manifest.id, instance);
-        return instance;
-      }
-    }
-    if (manifest.type === "runtime-connector" && manifest.runtimeConnector) {
-      const driver = module?.createRuntimeDriver?.(config, manifest.runtimeConnector) ?? module?.runtimeDriver;
-      if (!driver) {
-        instance.status = "error";
-        instance.error = "Runtime connector plugin did not export createRuntimeDriver or runtimeDriver";
-        packages.set(manifest.id, instance);
-        return instance;
-      }
-      const ok = registerRuntimeDriver(driver);
-      if (!ok) {
-        instance.status = "error";
-        instance.error = "Failed to register runtime connector";
-        packages.set(manifest.id, instance);
-        return instance;
-      }
-    }
-    try {
-      if (module?.activate) {
-        await module.activate(config);
-      }
-      instance.status = "active";
-    } catch (err) {
-      instance.status = "error";
-      instance.error = err.message;
-      if (manifest.type === "ai-provider" && manifest.aiProvider) {
-        unregisterAiProvider(manifest.aiProvider.id);
-      }
-      if (manifest.type === "runtime-connector" && manifest.runtimeConnector) {
-        unregisterRuntimeDriver(manifest.runtimeConnector.id);
-      }
-      logger.warn("plugins", `Failed to activate ${manifest.name}: ${err.message}`);
-    }
-    packages.set(manifest.id, instance);
-    logger.info("plugins", `Loaded plugin: ${manifest.name} v${manifest.version} (${manifest.type})`);
-    return instance;
-  } catch (err) {
-    logger.warn("plugins", `Failed to load plugin from ${pluginDir}: ${err.message}`);
-    return null;
-  }
-}
-async function unloadPlugin(pluginId) {
-  const instance = packages.get(pluginId);
-  if (!instance)
-    return false;
-  const wasRegistered = instance.status === "active" || instance.status === "loaded";
-  try {
-    if (instance.module?.deactivate) {
-      await instance.module.deactivate();
-    }
-  } catch (err) {
-    logger.warn("plugins", `Error deactivating ${instance.manifest.name}: ${err.message}`);
-  }
-  if (wasRegistered && instance.manifest.type === "ai-provider" && instance.manifest.aiProvider) {
-    unregisterAiProvider(instance.manifest.aiProvider.id);
-  }
-  if (wasRegistered && instance.manifest.type === "runtime-connector" && instance.manifest.runtimeConnector) {
-    unregisterRuntimeDriver(instance.manifest.runtimeConnector.id);
-  }
-  packages.delete(pluginId);
-  logger.info("plugins", `Unloaded plugin: ${instance.manifest.name}`);
-  return true;
-}
-async function disablePlugin(pluginId) {
-  assertPluginWritable(pluginId);
-  const instance = packages.get(pluginId);
-  if (!instance)
-    return;
-  const cancelled = pluginRunRegistry.cancelPlugin(pluginId, "Plugin was disabled.");
-  if (cancelled > 0)
-    logger.info("plugins", `Cancelled ${cancelled} running action(s) for disabled plugin ${pluginId}`);
-  const wasRegistered = instance.status === "active" || instance.status === "loaded";
-  if (instance.status !== "disabled") {
-    try {
-      await instance.module?.deactivate?.();
-    } catch (err) {
-      logger.warn("plugins", `Error deactivating ${instance.manifest.name}: ${err.message}`);
-    }
-    if (wasRegistered && instance.manifest.type === "ai-provider" && instance.manifest.aiProvider) {
-      unregisterAiProvider(instance.manifest.aiProvider.id);
-    }
-    if (wasRegistered && instance.manifest.type === "runtime-connector" && instance.manifest.runtimeConnector) {
-      unregisterRuntimeDriver(instance.manifest.runtimeConnector.id);
-    }
-  }
-  instance.module = undefined;
-  instance.status = "disabled";
-  instance.error = undefined;
-  await persistPluginEnabled(pluginId, false);
-  logger.info("plugins", `Disabled plugin: ${instance.manifest.name}`);
-  return instance;
-}
-function getPlugin(pluginId) {
-  return packages.get(pluginId);
-}
-
-// backend/src/plugin-trust-store.ts
-import { createHash as createHash2, createPublicKey, randomUUID } from "crypto";
-import { mkdir as mkdir2, rename, writeFile as writeFile2 } from "fs/promises";
-import { readFileSync } from "fs";
-import { dirname as dirname2, join as join6 } from "path";
-class PluginTrustStoreError extends Error {
-  code;
-  status;
-  constructor(message, code, status = 400) {
-    super(message);
-    this.code = code;
-    this.status = status;
-    this.name = "PluginTrustStoreError";
-  }
-}
-function parseEnvironmentKeys() {
-  const raw = process.env.PLUGIN_TRUSTED_KEYS_JSON?.trim();
-  if (!raw)
-    return {};
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-      return {};
-    return Object.fromEntries(Object.entries(parsed).filter((entry) => typeof entry[1] === "string"));
-  } catch {
-    return {};
-  }
-}
-function emptyFile() {
-  return { version: 1, keys: [], revokedKeyIds: [] };
-}
-function parseFile(path) {
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8"));
-    return {
-      version: 1,
-      keys: Array.isArray(parsed.keys) ? parsed.keys : [],
-      revokedKeyIds: Array.isArray(parsed.revokedKeyIds) ? parsed.revokedKeyIds.filter((entry) => typeof entry === "string") : []
-    };
-  } catch {
-    return emptyFile();
-  }
-}
-function validateKeyId(keyId) {
-  const normalized = keyId.trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(normalized)) {
-    throw new PluginTrustStoreError("keyId must be 1-128 safe identifier characters", "invalid_key_id");
-  }
-  return normalized;
-}
-function inspectEd25519(publicKeyPem) {
-  try {
-    const key = createPublicKey(publicKeyPem.trim());
-    if (key.asymmetricKeyType !== "ed25519") {
-      throw new PluginTrustStoreError("Only Ed25519 public keys are accepted", "invalid_public_key");
-    }
-    const der = key.export({ type: "spki", format: "der" });
-    return {
-      canonicalPem: key.export({ type: "spki", format: "pem" }).toString(),
-      fingerprintSha256: createHash2("sha256").update(der).digest("hex")
-    };
-  } catch (error) {
-    if (error instanceof PluginTrustStoreError)
-      throw error;
-    throw new PluginTrustStoreError("Public key is not a valid Ed25519 PEM key", "invalid_public_key");
-  }
-}
-
-class PluginTrustStore {
-  path;
-  file;
-  mutation = Promise.resolve();
-  environmentKeys;
-  constructor(path = join6(DATA_DIR, "plugin-trusted-keys.json"), environmentKeys = parseEnvironmentKeys()) {
-    this.path = path;
-    this.file = parseFile(path);
-    this.environmentKeys = { ...environmentKeys };
-  }
-  async persist() {
-    await mkdir2(dirname2(this.path), { recursive: true });
-    const temporary = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
-    await writeFile2(temporary, `${JSON.stringify(this.file, null, 2)}
-`, { mode: 384 });
-    await rename(temporary, this.path);
-  }
-  enqueue(operation) {
-    let resolveResult;
-    let rejectResult;
-    const result = new Promise((resolve3, reject) => {
-      resolveResult = resolve3;
-      rejectResult = reject;
-    });
-    this.mutation = this.mutation.then(async () => {
-      try {
-        resolveResult(await operation());
-      } catch (error) {
-        rejectResult(error);
-      }
-    });
-    return result;
-  }
-  resolve(keyId) {
-    if (this.file.revokedKeyIds.includes(keyId))
-      return;
-    const admin = this.file.keys.find((key) => key.keyId === keyId && !key.revokedAt);
-    return admin?.publicKeyPem ?? this.environmentKeys[keyId];
-  }
-  isRevoked(keyId) {
-    return this.file.revokedKeyIds.includes(keyId);
-  }
-  list() {
-    const result = new Map;
-    for (const [keyId, pem] of Object.entries(this.environmentKeys)) {
-      let fingerprintSha256 = "invalid";
-      try {
-        fingerprintSha256 = inspectEd25519(pem).fingerprintSha256;
-      } catch {}
-      const revoked = this.file.revokedKeyIds.includes(keyId);
-      result.set(keyId, {
-        keyId,
-        fingerprintSha256,
-        source: "environment",
-        status: revoked ? "revoked" : "active",
-        createdAt: null,
-        revokedAt: revoked ? this.file.keys.find((key) => key.keyId === keyId)?.revokedAt ?? null : null
-      });
-    }
-    for (const key of this.file.keys) {
-      result.set(key.keyId, {
-        keyId: key.keyId,
-        fingerprintSha256: key.fingerprintSha256,
-        source: "admin",
-        status: key.revokedAt || this.file.revokedKeyIds.includes(key.keyId) ? "revoked" : "active",
-        createdAt: key.createdAt,
-        revokedAt: key.revokedAt
-      });
-    }
-    return [...result.values()].sort((left, right) => left.keyId.localeCompare(right.keyId));
-  }
-  add(keyId, publicKeyPem) {
-    return this.enqueue(async () => {
-      const id = validateKeyId(keyId);
-      if (this.environmentKeys[id] || this.file.keys.some((key2) => key2.keyId === id)) {
-        throw new PluginTrustStoreError(`Trusted key ${id} already exists`, "key_exists", 409);
-      }
-      const inspected = inspectEd25519(publicKeyPem);
-      const key = {
-        keyId: id,
-        publicKeyPem: inspected.canonicalPem,
-        fingerprintSha256: inspected.fingerprintSha256,
-        createdAt: new Date().toISOString(),
-        revokedAt: null
-      };
-      this.file.keys.push(key);
-      this.file.revokedKeyIds = this.file.revokedKeyIds.filter((entry) => entry !== id);
-      await this.persist();
-      return this.list().find((entry) => entry.keyId === id);
-    });
-  }
-  revoke(keyId) {
-    return this.enqueue(async () => {
-      const id = validateKeyId(keyId);
-      if (!this.environmentKeys[id] && !this.file.keys.some((key) => key.keyId === id)) {
-        throw new PluginTrustStoreError(`Trusted key ${id} was not found`, "key_not_found", 404);
-      }
-      const timestamp = new Date().toISOString();
-      this.file.revokedKeyIds = [...new Set([...this.file.revokedKeyIds, id])];
-      const stored = this.file.keys.find((key) => key.keyId === id);
-      if (stored)
-        stored.revokedAt ??= timestamp;
-      await this.persist();
-      return this.list().find((entry) => entry.keyId === id);
-    });
-  }
-}
-var pluginTrustStore = new PluginTrustStore;
-
-// backend/src/plugin-resource-bindings.ts
-import { mkdir as mkdir3, readFile as readFile3, writeFile as writeFile3 } from "fs/promises";
-import { dirname as dirname3, join as join7 } from "path";
-class PluginResourceBindingStore {
-  path;
-  mutationQueue = Promise.resolve();
-  constructor(path = join7(DATA_DIR, "plugin-resource-bindings.json")) {
-    this.path = path;
-  }
-  async read() {
-    try {
-      const parsed = JSON.parse(await readFile3(this.path, "utf-8"));
-      return {
-        version: 1,
-        databaseBindings: Array.isArray(parsed.databaseBindings) ? parsed.databaseBindings.filter((binding) => Boolean(binding && typeof binding.pluginId === "string" && binding.pluginId.trim() && typeof binding.alias === "string" && binding.alias.trim() && typeof binding.databaseId === "string" && binding.databaseId.trim() && (binding.access === "read" || binding.access === "read-write" || binding.access === "schema") && typeof binding.updatedAt === "string")) : [],
-        datasetBindings: Array.isArray(parsed.datasetBindings) ? parsed.datasetBindings.filter((binding) => Boolean(binding && typeof binding.pluginId === "string" && binding.pluginId.trim() && typeof binding.alias === "string" && binding.alias.trim() && typeof binding.datasetId === "string" && binding.datasetId.trim() && (binding.access === "metadata" || binding.access === "query" || binding.access === "source-files") && typeof binding.updatedAt === "string")) : [],
-        secretBindings: Array.isArray(parsed.secretBindings) ? parsed.secretBindings.filter((binding) => Boolean(binding && typeof binding.pluginId === "string" && binding.pluginId.trim() && typeof binding.alias === "string" && binding.alias.trim() && typeof binding.secretId === "string" && binding.secretId.trim() && typeof binding.updatedAt === "string")) : []
-      };
-    } catch {
-      return { version: 1, databaseBindings: [], datasetBindings: [], secretBindings: [] };
-    }
-  }
-  async write(data) {
-    await mkdir3(dirname3(this.path), { recursive: true });
-    await writeFile3(this.path, `${JSON.stringify(data, null, 2)}
-`, "utf-8");
-  }
-  mutate(operation) {
-    let resolveResult;
-    let rejectResult;
-    const result = new Promise((resolve3, reject) => {
-      resolveResult = resolve3;
-      rejectResult = reject;
-    });
-    this.mutationQueue = this.mutationQueue.then(async () => {
-      const data = await this.read();
-      const value = await operation(data);
-      await this.write(data);
-      resolveResult(value);
-    }).catch(rejectResult);
-    return result;
-  }
-  async listDatabaseBindings(pluginId) {
-    const data = await this.read();
-    return data.databaseBindings.filter((binding) => binding.pluginId === pluginId);
-  }
-  async listDatabaseDependents(databaseId) {
-    const data = await this.read();
-    return data.databaseBindings.filter((binding) => binding.databaseId === databaseId);
-  }
-  async setDatabaseBinding(pluginId, requirement, databaseId) {
-    return this.mutate((data) => {
-      const binding = {
-        pluginId,
-        alias: requirement.alias,
-        databaseId,
-        access: requirement.access,
-        updatedAt: new Date().toISOString()
-      };
-      data.databaseBindings = data.databaseBindings.filter((entry) => entry.pluginId !== pluginId || entry.alias !== requirement.alias);
-      data.databaseBindings.push(binding);
-      return binding;
-    });
-  }
-  async removeDatabaseBinding(pluginId, alias) {
-    return this.mutate((data) => {
-      const previousLength = data.databaseBindings.length;
-      data.databaseBindings = data.databaseBindings.filter((entry) => entry.pluginId !== pluginId || entry.alias !== alias);
-      return data.databaseBindings.length !== previousLength;
-    });
-  }
-  async listDatasetBindings(pluginId) {
-    const data = await this.read();
-    return data.datasetBindings.filter((binding) => binding.pluginId === pluginId);
-  }
-  async listDatasetDependents(datasetId) {
-    const data = await this.read();
-    return data.datasetBindings.filter((binding) => binding.datasetId === datasetId);
-  }
-  async setDatasetBinding(pluginId, requirement, datasetId) {
-    return this.mutate((data) => {
-      const binding = {
-        pluginId,
-        alias: requirement.alias,
-        datasetId,
-        access: requirement.access,
-        updatedAt: new Date().toISOString()
-      };
-      data.datasetBindings = data.datasetBindings.filter((entry) => entry.pluginId !== pluginId || entry.alias !== requirement.alias);
-      data.datasetBindings.push(binding);
-      return binding;
-    });
-  }
-  async removeDatasetBinding(pluginId, alias) {
-    return this.mutate((data) => {
-      const previousLength = data.datasetBindings.length;
-      data.datasetBindings = data.datasetBindings.filter((entry) => entry.pluginId !== pluginId || entry.alias !== alias);
-      return data.datasetBindings.length !== previousLength;
-    });
-  }
-  async listSecretBindings(pluginId) {
-    const data = await this.read();
-    return data.secretBindings.filter((binding) => binding.pluginId === pluginId);
-  }
-  async setSecretBinding(pluginId, requirement, secretId) {
-    return this.mutate((data) => {
-      const binding = {
-        pluginId,
-        alias: requirement.alias,
-        secretId,
-        updatedAt: new Date().toISOString()
-      };
-      data.secretBindings = data.secretBindings.filter((entry) => entry.pluginId !== pluginId || entry.alias !== requirement.alias);
-      data.secretBindings.push(binding);
-      return binding;
-    });
-  }
-  async removeSecretBinding(pluginId, alias) {
-    return this.mutate((data) => {
-      const previousLength = data.secretBindings.length;
-      data.secretBindings = data.secretBindings.filter((entry) => entry.pluginId !== pluginId || entry.alias !== alias);
-      return data.secretBindings.length !== previousLength;
-    });
-  }
-  async removeAllForPlugin(pluginId) {
-    return this.mutate((data) => {
-      const databaseCount = data.databaseBindings.filter((entry) => entry.pluginId === pluginId).length;
-      const datasetCount = data.datasetBindings.filter((entry) => entry.pluginId === pluginId).length;
-      const secretCount = data.secretBindings.filter((entry) => entry.pluginId === pluginId).length;
-      data.databaseBindings = data.databaseBindings.filter((entry) => entry.pluginId !== pluginId);
-      data.datasetBindings = data.datasetBindings.filter((entry) => entry.pluginId !== pluginId);
-      data.secretBindings = data.secretBindings.filter((entry) => entry.pluginId !== pluginId);
-      return { databaseBindings: databaseCount, datasetBindings: datasetCount, secretBindings: secretCount };
-    });
-  }
-}
-var pluginResourceBindings = new PluginResourceBindingStore;
-
-// backend/src/plugin-package-provenance.ts
-function isDevelopmentSource(record) {
-  return record.source.kind === "repository" || record.source.kind === "local" && record.source.dev === true;
-}
-function devSourcesAllowed(value = process.env.PLUGIN_ALLOW_DEV_SOURCES) {
-  return value !== "0";
-}
-
-// backend/src/plugin-upgrade-plan.ts
-import { createHash as createHash3 } from "crypto";
-function bindPluginUpgradePlan(plan, currentDigestSha256, candidateDigestSha256) {
-  const fingerprintSha256 = createHash3("sha256").update(JSON.stringify({ ...plan, fingerprintSha256: undefined, currentDigestSha256, candidateDigestSha256 })).digest("hex");
-  return { ...plan, fingerprintSha256 };
-}
-function difference(left, right) {
-  const other = new Set(right);
-  return [...new Set(left)].filter((value) => !other.has(value)).sort();
-}
-function listActionCapabilityStrings(actions) {
-  return actions.flatMap((action) => [
-    ...action.requiredCapabilities ?? [],
-    ...action.resourceLimits?.timeoutMs && action.resourceLimits.timeoutMs > 120000 ? [`worker:timeout:${action.resourceLimits.timeoutMs}`] : [],
-    ...action.resourceLimits?.maxOutputBytes && action.resourceLimits.maxOutputBytes > 4194304 ? [`worker:output:${action.resourceLimits.maxOutputBytes}`] : [],
-    ...action.resourceLimits?.maxBrowserPages ? [`browser:pages:${action.resourceLimits.maxBrowserPages}`] : [],
-    ...action.resourceLimits?.maxNetworkResponseBytes ? [`network:response-bytes:${action.resourceLimits.maxNetworkResponseBytes}`] : [],
-    ...(action.requiredDatabases ?? []).map((entry) => `database:${entry.alias}:${entry.access}`),
-    ...(action.requiredSecrets ?? []).map((entry) => `secret:${entry.alias}:${entry.delivery ?? "worker"}${entry.optional ? ":optional" : ":required"}`),
-    ...(action.requiredDatasets ?? []).map((entry) => `dataset:${entry.alias}:${entry.access}${entry.optional ? ":optional" : ":required"}`),
-    ...(action.requiredAdapters ?? []).map((entry) => `adapter:${entry.alias}:${entry.adapterId}:${[...entry.operations].sort().join("|")}:${entry.optional ? "optional" : "required"}`),
-    ...(action.requiredRuntimes ?? []).map((entry) => `runtime:${entry.alias}:${[...entry.connectorIds].sort().join("|")}:${[...entry.operations].sort().join("|")}${entry.optional ? ":optional" : ":required"}`)
-  ]);
-}
-function buildPluginUpgradePlan(current, candidate, options) {
-  const intent = options?.intent ?? "upgrade";
-  if (current.id !== candidate.id)
-    throw new Error("Plugin IDs do not match");
-  const currentIntegration = current.integration;
-  const candidateIntegration = candidate.integration;
-  if (!currentIntegration || !candidateIntegration)
-    throw new Error("Upgrade planning supports integration plugins only");
-  const comparison = comparePluginVersions(current.version, candidate.version);
-  const direction = comparison === null || comparison === 0 ? "same" : comparison < 0 ? "upgrade" : "downgrade";
-  const currentActions = new Map(currentIntegration.actions.map((action) => [action.id, action]));
-  const candidateActions = new Map(candidateIntegration.actions.map((action) => [action.id, action]));
-  const actionChanges = [];
-  for (const [actionId, action] of candidateActions) {
-    const before = currentActions.get(actionId);
-    if (!before)
-      actionChanges.push({ actionId, change: "added", after: { effect: action.effect, approval: action.approval } });
-    else if (before.effect !== action.effect || before.approval !== action.approval)
-      actionChanges.push({
-        actionId,
-        change: "risk-changed",
-        before: { effect: before.effect, approval: before.approval },
-        after: { effect: action.effect, approval: action.approval }
-      });
-  }
-  for (const [actionId, action] of currentActions)
-    if (!candidateActions.has(actionId))
-      actionChanges.push({ actionId, change: "removed", before: { effect: action.effect, approval: action.approval } });
-  actionChanges.sort((left, right) => left.actionId.localeCompare(right.actionId));
-  const addedPermissions = difference(candidateIntegration.permissions ?? [], currentIntegration.permissions ?? []);
-  const removedPermissions = difference(currentIntegration.permissions ?? [], candidateIntegration.permissions ?? []);
-  const addedNetworkHosts = difference(candidateIntegration.networkAllowlist ?? [], currentIntegration.networkAllowlist ?? []);
-  const removedNetworkHosts = difference(currentIntegration.networkAllowlist ?? [], candidateIntegration.networkAllowlist ?? []);
-  const addedCapabilities = difference(listActionCapabilityStrings(candidateIntegration.actions), listActionCapabilityStrings(currentIntegration.actions));
-  const removedCapabilities = difference(listActionCapabilityStrings(currentIntegration.actions), listActionCapabilityStrings(candidateIntegration.actions));
-  const blockers = [];
-  if (intent !== "reload") {
-    if (comparison === null)
-      blockers.push("Both installed and candidate versions must use semantic versioning.");
-    if (direction === "same")
-      blockers.push("Candidate version must differ from the installed version.");
-    if (direction === "downgrade" && intent !== "rollback")
-      blockers.push("Downgrades require a separate restore workflow and cannot use Upgrade.");
-  }
-  return {
-    pluginId: current.id,
-    intent,
-    fromVersion: current.version,
-    toVersion: candidate.version,
-    direction,
-    addedPermissions,
-    removedPermissions,
-    addedNetworkHosts,
-    removedNetworkHosts,
-    addedCapabilities,
-    removedCapabilities,
-    actionChanges,
-    blockers,
-    requiresReview: Boolean(addedPermissions.length || addedNetworkHosts.length || addedCapabilities.length || actionChanges.length)
-  };
-}
-
-// backend/src/plugin-consent.ts
-import { createHash as createHash4, randomUUID as randomUUID2 } from "crypto";
-import { mkdir as mkdir4, readFile as readFile4, rename as rename2, writeFile as writeFile4 } from "fs/promises";
-import { dirname as dirname4, join as join8 } from "path";
-function computePermissionFingerprint(manifest) {
-  const integration = manifest.integration;
-  const actions = integration?.actions ?? [];
-  const payload = {
-    permissions: [...integration?.permissions ?? []].sort(),
-    networkAllowlist: [...integration?.networkAllowlist ?? []].sort(),
-    capabilities: [...new Set(listActionCapabilityStrings(actions))].sort(),
-    actions: actions.map((action) => ({
-      id: action.id,
-      effect: action.effect,
-      approval: action.approval,
-      kind: action.execution.kind,
-      handler: action.execution.handler
-    })).sort((left, right) => left.id.localeCompare(right.id))
-  };
-  return createHash4("sha256").update(JSON.stringify(payload)).digest("hex");
-}
-
-class PluginConsentStore {
-  path;
-  mutation = Promise.resolve();
-  constructor(path = join8(DATA_DIR, "plugin-consents.json")) {
-    this.path = path;
-  }
-  async readFileStore() {
-    try {
-      const value = JSON.parse(await readFile4(this.path, "utf8"));
-      if (value?.version === 1 && value.consents && typeof value.consents === "object")
-        return value;
-    } catch (error) {
-      if (error?.code !== "ENOENT")
-        logger.warn("plugins", `Failed to read plugin consents: ${error?.message}`);
-    }
-    return { version: 1, consents: {} };
-  }
-  async persist(store) {
-    await mkdir4(dirname4(this.path), { recursive: true });
-    const temp = join8(dirname4(this.path), `.plugin-consents-${randomUUID2()}.json`);
-    await writeFile4(temp, JSON.stringify(store, null, 2) + `
-`, { flag: "wx", mode: 384 });
-    await rename2(temp, this.path);
-  }
-  enqueue(operation) {
-    const next = this.mutation.then(operation, operation);
-    this.mutation = next.then(() => {
-      return;
-    }, () => {
-      return;
-    });
-    return next;
-  }
-  async read(pluginId) {
-    const store = await this.readFileStore();
-    return store.consents[pluginId] ?? null;
-  }
-  async record(input) {
-    return this.enqueue(async () => {
-      const store = await this.readFileStore();
-      const record = { ...input, approvedAt: new Date().toISOString() };
-      store.consents[input.pluginId] = record;
-      await this.persist(store);
-      return record;
-    });
-  }
-  async revoke(pluginId) {
-    return this.enqueue(async () => {
-      const store = await this.readFileStore();
-      if (!(pluginId in store.consents))
-        return;
-      delete store.consents[pluginId];
-      await this.persist(store);
-    });
-  }
-  async seedMissing(plugins) {
-    return this.enqueue(async () => {
-      const store = await this.readFileStore();
-      let seeded = 0;
-      for (const plugin of plugins) {
-        if (!isDeclarativePackage(plugin.manifest.type) || !plugin.manifest.integration)
-          continue;
-        if (store.consents[plugin.manifest.id])
-          continue;
-        store.consents[plugin.manifest.id] = {
-          pluginId: plugin.manifest.id,
-          version: plugin.manifest.version,
-          permissionFingerprintSha256: computePermissionFingerprint(plugin.manifest),
-          approvedAt: new Date().toISOString(),
-          approvedVia: "migration"
-        };
-        seeded += 1;
-      }
-      if (seeded > 0)
-        await this.persist(store);
-      return seeded;
-    });
-  }
-}
-var pluginConsentStore = new PluginConsentStore;
-
-// backend/src/plugin-package-manager.ts
-var DEFAULT_LIMITS = {
-  maxArchiveBytes: 25 * 1024 * 1024,
-  maxFiles: 1000,
-  maxFileBytes: 10 * 1024 * 1024,
-  maxTotalBytes: 50 * 1024 * 1024,
-  maxPathBytes: 512
-};
+// backend/src/plugin-manifest-validation.ts
 var PLUGIN_ID = /^[a-z][a-z0-9._-]{0,127}$/;
 var PLUGIN_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-var FULL_GIT_COMMIT = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i;
-
-class PluginPackageError extends Error {
-  code;
-  status;
-  constructor(message, code, status = 400) {
-    super(message);
-    this.code = code;
-    this.status = status;
-    this.name = "PluginPackageError";
-  }
-}
-function now() {
-  return new Date().toISOString();
-}
-function cleanPath(input, limits) {
-  const path = input.replaceAll("\\", "/");
-  const hasUnsafeCharacter = Array.from(path).some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint <= 31 || codePoint === 127 || codePoint === 65533;
-  });
-  if (!path || path !== path.normalize("NFC") || hasUnsafeCharacter || path.startsWith("/") || /^[a-zA-Z]:\//.test(path) || Buffer.byteLength(path) > limits.maxPathBytes) {
-    throw new PluginPackageError(`Unsafe package path: ${input}`, "unsafe_path");
-  }
-  const parts = path.split("/");
-  if (parts.some((part) => !part || part === "." || part === ".." || part.includes("\x00"))) {
-    throw new PluginPackageError(`Unsafe package path: ${input}`, "unsafe_path");
-  }
-  return parts.join("/");
-}
-function pathInside(root, candidate) {
-  const rel = relative3(resolve3(root), resolve3(candidate));
-  return rel === "" || !isAbsolute2(rel) && rel !== ".." && !rel.startsWith(`..${sep}`);
-}
-function parseTrustedKeysFromEnv() {
-  const raw = process.env.PLUGIN_TRUSTED_KEYS_JSON?.trim();
-  if (!raw)
-    return {};
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-      return {};
-    return Object.fromEntries(Object.entries(parsed).filter((entry) => typeof entry[1] === "string"));
-  } catch {
-    return {};
-  }
-}
-function commaList(value) {
-  return value?.split(",").map((entry) => entry.trim()).filter(Boolean) ?? [];
-}
 function validatePluginPackageManifest(value, expectedKind) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { valid: false, error: "JSON plugin manifest required" };
@@ -9023,1264 +9058,47 @@ function validatePluginPackageManifest(value, expectedKind) {
     return integration;
   return { valid: true, manifest };
 }
-function crc322(data) {
-  let crc = 4294967295;
-  for (const byte of data) {
-    crc ^= byte;
-    for (let bit = 0;bit < 8; bit++)
-      crc = crc >>> 1 ^ 3988292384 & -(crc & 1);
-  }
-  return (crc ^ 4294967295) >>> 0;
-}
-function parseZipEntries(archive, limits) {
-  if (archive.length > limits.maxArchiveBytes)
-    throw new PluginPackageError("ZIP archive exceeds compressed-size limit", "archive_too_large", 413);
-  let eocd = -1;
-  const minimum = Math.max(0, archive.length - 65557);
-  for (let offset2 = archive.length - 22;offset2 >= minimum; offset2--) {
-    if (archive.readUInt32LE(offset2) === 101010256) {
-      eocd = offset2;
-      break;
-    }
-  }
-  if (eocd < 0)
-    throw new PluginPackageError("Invalid ZIP: end record not found", "invalid_zip");
-  const disk = archive.readUInt16LE(eocd + 4);
-  const centralDisk = archive.readUInt16LE(eocd + 6);
-  const diskEntries = archive.readUInt16LE(eocd + 8);
-  const entryCount = archive.readUInt16LE(eocd + 10);
-  const centralSize = archive.readUInt32LE(eocd + 12);
-  const centralOffset = archive.readUInt32LE(eocd + 16);
-  if (disk !== 0 || centralDisk !== 0 || diskEntries !== entryCount)
-    throw new PluginPackageError("Multi-disk ZIP archives are not supported", "invalid_zip");
-  if (entryCount === 65535 || centralSize === 4294967295 || centralOffset === 4294967295)
-    throw new PluginPackageError("ZIP64 archives are not supported", "invalid_zip");
-  if (entryCount > limits.maxFiles)
-    throw new PluginPackageError("ZIP contains too many files", "too_many_files", 413);
-  if (centralOffset + centralSize > eocd || centralOffset < 0)
-    throw new PluginPackageError("Invalid ZIP central directory", "invalid_zip");
-  const entries = [];
-  let offset = centralOffset;
-  let total = 0;
-  for (let index = 0;index < entryCount; index++) {
-    if (offset + 46 > archive.length || archive.readUInt32LE(offset) !== 33639248)
-      throw new PluginPackageError("Invalid ZIP directory entry", "invalid_zip");
-    const flags = archive.readUInt16LE(offset + 8);
-    const method = archive.readUInt16LE(offset + 10);
-    const crc323 = archive.readUInt32LE(offset + 16);
-    const compressedSize = archive.readUInt32LE(offset + 20);
-    const uncompressedSize = archive.readUInt32LE(offset + 24);
-    const nameLength = archive.readUInt16LE(offset + 28);
-    const extraLength = archive.readUInt16LE(offset + 30);
-    const commentLength = archive.readUInt16LE(offset + 32);
-    const externalAttributes = archive.readUInt32LE(offset + 38);
-    const localOffset = archive.readUInt32LE(offset + 42);
-    const end = offset + 46 + nameLength + extraLength + commentLength;
-    if (end > archive.length)
-      throw new PluginPackageError("Truncated ZIP directory", "invalid_zip");
-    const name = archive.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
-    if (flags & 1)
-      throw new PluginPackageError("Encrypted ZIP entries are not supported", "invalid_zip");
-    if (flags & ~2056)
-      throw new PluginPackageError(`Unsupported ZIP flags for ${name}`, "invalid_zip");
-    if (compressedSize === 4294967295 || uncompressedSize === 4294967295 || localOffset === 4294967295)
-      throw new PluginPackageError("ZIP64 entries are not supported", "invalid_zip");
-    if (uncompressedSize > limits.maxFileBytes)
-      throw new PluginPackageError(`ZIP file exceeds size limit: ${name}`, "file_too_large", 413);
-    total += uncompressedSize;
-    if (total > limits.maxTotalBytes)
-      throw new PluginPackageError("ZIP expands beyond total-size limit", "package_too_large", 413);
-    entries.push({ name, method, flags, compressedSize, uncompressedSize, localOffset, externalAttributes, crc32: crc323 });
-    offset = end;
-  }
-  if (offset !== centralOffset + centralSize)
-    throw new PluginPackageError("Invalid ZIP central-directory size", "invalid_zip");
-  return entries;
-}
-async function extractZipSafely(archive, destination, limits) {
-  const entries = parseZipEntries(archive, limits);
-  const seen = new Set;
-  let files = 0;
-  let totalBytes = 0;
-  for (const entry of entries) {
-    const isDirectory = entry.name.endsWith("/");
-    const rawName = isDirectory ? entry.name.slice(0, -1) : entry.name;
-    if (!rawName)
-      continue;
-    const name = cleanPath(rawName, limits);
-    const unixMode = entry.externalAttributes >>> 16 & 65535;
-    const type = unixMode & 61440;
-    if (type === 40960)
-      throw new PluginPackageError(`ZIP symlink is not allowed: ${name}`, "symlink_not_allowed");
-    if (type !== 0 && type !== 16384 && type !== 32768)
-      throw new PluginPackageError(`Special ZIP entry is not allowed: ${name}`, "special_file_not_allowed");
-    const folded = name.toLocaleLowerCase("en-US");
-    if (seen.has(folded))
-      throw new PluginPackageError(`Duplicate ZIP path: ${name}`, "duplicate_path");
-    seen.add(folded);
-    const output = join9(destination, ...name.split("/"));
-    if (!pathInside(destination, output))
-      throw new PluginPackageError(`Unsafe ZIP path: ${name}`, "unsafe_path");
-    if (isDirectory || type === 16384) {
-      await mkdir5(output, { recursive: true });
-      continue;
-    }
-    if (entry.method !== 0 && entry.method !== 8)
-      throw new PluginPackageError(`Unsupported ZIP compression method for ${name}`, "unsupported_compression");
-    const offset = entry.localOffset;
-    if (offset + 30 > archive.length || archive.readUInt32LE(offset) !== 67324752)
-      throw new PluginPackageError(`Invalid ZIP local entry: ${name}`, "invalid_zip");
-    const localFlags = archive.readUInt16LE(offset + 6);
-    const localMethod = archive.readUInt16LE(offset + 8);
-    const localNameLength = archive.readUInt16LE(offset + 26);
-    const localExtraLength = archive.readUInt16LE(offset + 28);
-    const dataStart = offset + 30 + localNameLength + localExtraLength;
-    const dataEnd = dataStart + entry.compressedSize;
-    if (localFlags !== entry.flags || localMethod !== entry.method || dataEnd > archive.length)
-      throw new PluginPackageError(`Inconsistent ZIP entry: ${name}`, "invalid_zip");
-    const localName = archive.subarray(offset + 30, offset + 30 + localNameLength).toString("utf8");
-    if (localName !== entry.name)
-      throw new PluginPackageError(`Mismatched ZIP filename: ${name}`, "invalid_zip");
-    const compressed = archive.subarray(dataStart, dataEnd);
-    const data = entry.method === 0 ? Buffer.from(compressed) : inflateRawSync(compressed, { maxOutputLength: limits.maxFileBytes + 1 });
-    if (data.length !== entry.uncompressedSize)
-      throw new PluginPackageError(`ZIP size mismatch: ${name}`, "invalid_zip");
-    if (crc322(data) !== entry.crc32)
-      throw new PluginPackageError(`ZIP checksum mismatch: ${name}`, "invalid_zip");
-    await mkdir5(dirname5(output), { recursive: true });
-    const handle = await open(output, "wx", 384);
-    try {
-      await handle.writeFile(data);
-    } finally {
-      await handle.close();
-    }
-    files++;
-    totalBytes += data.length;
-  }
-  return { fileCount: files, totalBytes };
-}
-async function listRegularFiles(root, limits) {
-  const files = [];
-  const seen = new Set;
-  let totalBytes = 0;
-  async function walk(directory) {
-    for (const entry of await readdir4(directory, { withFileTypes: true })) {
-      const absolute = join9(directory, entry.name);
-      const path = cleanPath(relative3(root, absolute).split(sep).join("/"), limits);
-      if (entry.isSymbolicLink())
-        throw new PluginPackageError(`Symlink is not allowed: ${path}`, "symlink_not_allowed");
-      if (entry.isDirectory()) {
-        await walk(absolute);
-        continue;
+// packages/plugin-sdk/src/capabilities/browser-forms.ts
+var SHA256 = { type: "string", pattern: "^[a-f0-9]{64}$" };
+var EXPECTED_URL = { type: "string", minLength: 1, maxLength: 2048 };
+var FILL_VALUE = { type: "string", maxLength: BROWSER_FORM_LIMITS.fillValueChars };
+var FILL_VALUES = { type: "array", minItems: 1, maxItems: BROWSER_FORM_LIMITS.fillValues, items: { type: "string", minLength: 1, maxLength: BROWSER_FORM_LIMITS.labelChars } };
+var FILL_CHECKED = { type: "boolean" };
+var BROWSER_FORM_FILL_INPUT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["fields"],
+  properties: {
+    fields: {
+      type: "array",
+      minItems: 1,
+      maxItems: BROWSER_FORM_LIMITS.fillFields,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "label"],
+        properties: {
+          id: { type: "string", pattern: "^field-[a-f0-9]{24}$" },
+          label: { type: "string", minLength: 1, maxLength: BROWSER_FORM_LIMITS.labelChars },
+          value: FILL_VALUE,
+          values: FILL_VALUES,
+          checked: FILL_CHECKED
+        },
+        oneOf: [
+          { properties: { value: FILL_VALUE }, required: ["value"] },
+          { properties: { values: FILL_VALUES }, required: ["values"] },
+          { properties: { checked: FILL_CHECKED }, required: ["checked"] }
+        ]
       }
-      if (!entry.isFile())
-        throw new PluginPackageError(`Special file is not allowed: ${path}`, "special_file_not_allowed");
-      const folded = path.toLocaleLowerCase("en-US");
-      if (seen.has(folded))
-        throw new PluginPackageError(`Duplicate package path: ${path}`, "duplicate_path");
-      seen.add(folded);
-      const info = await lstat3(absolute);
-      if (info.size > limits.maxFileBytes)
-        throw new PluginPackageError(`File exceeds size limit: ${path}`, "file_too_large", 413);
-      totalBytes += info.size;
-      if (totalBytes > limits.maxTotalBytes)
-        throw new PluginPackageError("Package exceeds total-size limit", "package_too_large", 413);
-      files.push({ path, absolute, size: info.size });
-      if (files.length > limits.maxFiles)
-        throw new PluginPackageError("Package contains too many files", "too_many_files", 413);
-    }
+    },
+    expectedSnapshotSha256: SHA256,
+    expectedUrl: EXPECTED_URL
   }
-  await walk(root);
-  files.sort((a, b) => Buffer.from(a.path).compare(Buffer.from(b.path)));
-  return { files, totalBytes };
-}
-async function copyTreeSafely(source, destination, limits) {
-  const { files, totalBytes } = await listRegularFiles(source, limits);
-  for (const file of files) {
-    const output = join9(destination, ...file.path.split("/"));
-    await mkdir5(dirname5(output), { recursive: true });
-    await writeFile5(output, await readRegularFileNoFollow(file.absolute, file.size), { flag: "wx", mode: 384 });
-  }
-  return { fileCount: files.length, totalBytes };
-}
-async function digestTree(root, limits) {
-  const { files, totalBytes } = await listRegularFiles(root, limits);
-  const hash = createHash5("sha256");
-  for (const file of files) {
-    const path = Buffer.from(file.path, "utf8");
-    const header = Buffer.alloc(12);
-    header.writeUInt32BE(path.length, 0);
-    header.writeBigUInt64BE(BigInt(file.size), 4);
-    hash.update(header);
-    hash.update(path);
-    hash.update(await readRegularFileNoFollow(file.absolute, file.size));
-  }
-  return { digestSha256: hash.digest("hex"), fileCount: files.length, totalBytes };
-}
-async function readRegularFileNoFollow(path, expectedSize) {
-  let handle;
-  try {
-    handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-  } catch (error) {
-    if (error?.code === "ELOOP")
-      throw new PluginPackageError(`Symlink is not allowed: ${path}`, "symlink_not_allowed");
-    throw error;
-  }
-  try {
-    const before = await handle.stat();
-    if (!before.isFile() || before.size !== expectedSize)
-      throw new PluginPackageError(`File changed while being read: ${path}`, "source_changed", 409);
-    const data = await handle.readFile();
-    const after = await handle.stat();
-    if (data.length !== expectedSize || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size) {
-      throw new PluginPackageError(`File changed while being read: ${path}`, "source_changed", 409);
-    }
-    return data;
-  } finally {
-    await handle.close();
-  }
-}
-async function readStreamLimited(stream, limit, label) {
-  const reader = stream.getReader();
-  const chunks = [];
-  let length = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done)
-      break;
-    length += value.byteLength;
-    if (length > limit) {
-      await reader.cancel();
-      throw new PluginPackageError(`${label} exceeded output limit`, "git_output_too_large", 422);
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
-async function runProcess(binary, args, options) {
-  const processHandle = Bun.spawn([binary, ...args], {
-    cwd: options.cwd,
-    env: { PATH: "/usr/bin:/bin", HOME: options.cwd, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1", ...options.env },
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe"
-  });
-  let timedOut = false;
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    processHandle.kill();
-  }, 30000);
-  let result;
-  try {
-    result = await Promise.all([
-      readStreamLimited(processHandle.stdout, 2 * 1024 * 1024, "Git stdout"),
-      readStreamLimited(processHandle.stderr, 256 * 1024, "Git stderr"),
-      processHandle.exited
-    ]);
-  } catch (error) {
-    processHandle.kill();
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-  const [stdout, stderr, exitCode] = result;
-  if (timedOut)
-    throw new PluginPackageError("Git operation timed out", "git_timeout", 422);
-  if (exitCode !== 0)
-    throw new PluginPackageError(`Git operation failed: ${stderr.trim() || "unknown error"}`, "git_failed", 422);
-  return stdout;
-}
-function sanitizeGitUrl(input, allowedHosts) {
-  let url;
-  try {
-    url = new URL(input);
-  } catch {
-    throw new PluginPackageError("Git URL is invalid", "invalid_git_url");
-  }
-  if (url.protocol !== "https:" || url.username || url.password || url.port) {
-    throw new PluginPackageError("Git URL must be credential-free HTTPS using the default port", "invalid_git_url");
-  }
-  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
-  if (!allowedHosts.includes(hostname))
-    throw new PluginPackageError(`Git host is not allowed: ${hostname}`, "git_host_not_allowed", 403);
-  url.hash = "";
-  url.search = "";
-  return url.toString();
-}
-function publicPluginPackageRecord(record) {
-  const { quarantinePath: _, signatureValue: __, retainedPath: ___, ...publicRecord } = record;
-  return structuredClone(publicRecord);
-}
-
-class PluginPackageManager {
-  packageKind;
-  dataDir;
-  pluginsDir;
-  packageDataDir;
-  recordsPath;
-  quarantineDir;
-  installTempDir;
-  versionsDir;
-  trashDir;
-  allowedLocalRoots;
-  allowedGitHosts;
-  trustedPublicKeys;
-  trustStore;
-  requireSignatures;
-  gitBinary;
-  limits;
-  lifecycle;
-  consent;
-  verifyLifecycleLoad;
-  mutation = Promise.resolve();
-  constructor(options = {}) {
-    this.packageKind = options.packageKind ?? "integration";
-    this.dataDir = options.dataDir ?? DATA_DIR;
-    this.pluginsDir = options.pluginsDir ?? join9(this.dataDir, this.packageKind === "utility" ? "utilities" : "plugins");
-    this.packageDataDir = join9(this.dataDir, this.packageKind === "utility" ? "utility-packages" : "plugin-packages");
-    this.recordsPath = join9(this.packageDataDir, "records.json");
-    this.quarantineDir = join9(this.packageDataDir, "quarantine");
-    this.installTempDir = join9(this.packageDataDir, "installing");
-    this.versionsDir = join9(this.packageDataDir, "versions");
-    this.trashDir = join9(this.packageDataDir, "uninstalled");
-    this.allowedLocalRoots = (options.allowedLocalRoots ?? commaList(process.env.PLUGIN_LOCAL_IMPORT_ROOTS)).map((root) => resolve3(root));
-    this.allowedGitHosts = (options.allowedGitHosts ?? commaList(process.env.PLUGIN_GIT_ALLOWED_HOSTS ?? "github.com,gitlab.com")).map((host) => host.toLowerCase());
-    this.trustedPublicKeys = options.trustedPublicKeys ?? {};
-    this.trustStore = options.trustStore ?? (options.trustedPublicKeys ? undefined : pluginTrustStore);
-    this.requireSignatures = options.requireSignatures ?? process.env.PLUGIN_REQUIRE_SIGNATURES === "1";
-    this.gitBinary = options.gitBinary ?? "/usr/bin/git";
-    this.limits = { ...DEFAULT_LIMITS, ...options.limits };
-    const productionDataDir = resolve3(this.dataDir) === resolve3(DATA_DIR);
-    this.verifyLifecycleLoad = productionDataDir || Boolean(options.lifecycle);
-    this.lifecycle = options.lifecycle ?? (productionDataDir ? {
-      get: getPlugin,
-      load: loadPlugin,
-      unload: unloadPlugin,
-      disable: disablePlugin,
-      removeBindings: (pluginId) => pluginResourceBindings.removeAllForPlugin(pluginId)
-    } : {
-      get: () => {
-        return;
-      },
-      load: async () => null,
-      unload: async () => false,
-      disable: async () => {
-        return;
-      },
-      removeBindings: async () => ({ databaseBindings: 0, datasetBindings: 0, secretBindings: 0 })
-    });
-    this.consent = options.consent ?? (productionDataDir ? pluginConsentStore : { record: async () => {
-      return;
-    } });
-  }
-  async recordConsent(manifest, approvedVia) {
-    await this.consent.record({
-      pluginId: manifest.id,
-      version: manifest.version,
-      permissionFingerprintSha256: computePermissionFingerprint(manifest),
-      approvedVia
-    });
-  }
-  async retainBackupTree(newRecordId, pluginId, backupPath) {
-    try {
-      const records = await this.readRecords();
-      const previous = records.filter((item) => item.status === "installed" && item.manifest?.id === pluginId && item.id !== newRecordId).sort((left, right) => (right.installedAt ?? "").localeCompare(left.installedAt ?? ""))[0];
-      const retainedAt = now();
-      let targetRecordId = previous?.id;
-      let version = previous?.manifest?.version;
-      if (!previous) {
-        const manifest = JSON.parse(await readFile5(join9(backupPath, "manifest.json"), "utf8"));
-        const digest = await digestTree(backupPath, this.limits);
-        version = manifest.version;
-        const synthesized = {
-          id: randomUUID3(),
-          status: "superseded",
-          source: { kind: "local", path: "(retained pre-existing install)" },
-          digestSha256: digest.digestSha256,
-          signature: { status: "unsigned" },
-          manifest: { id: manifest.id, name: manifest.name, version: manifest.version, type: manifest.type },
-          fileCount: digest.fileCount,
-          totalBytes: digest.totalBytes,
-          createdAt: retainedAt,
-          updatedAt: retainedAt,
-          supersededAt: retainedAt,
-          supersededByRecordId: newRecordId,
-          events: [{ at: retainedAt, action: "superseded", detail: "Pre-existing install replaced by a managed upgrade" }]
-        };
-        targetRecordId = synthesized.id;
-        await this.enqueueMutation(async () => {
-          const current = await this.readRecords();
-          current.push(synthesized);
-          await this.writeRecords(current);
-        });
-      }
-      const safeVersion = String(version ?? "unknown").replace(/[^A-Za-z0-9.+-]/g, "_");
-      const retainedPath = join9(this.versionsDir, pluginId, `${safeVersion}-${targetRecordId}`);
-      await mkdir5(join9(this.versionsDir, pluginId), { recursive: true, mode: 448 });
-      await rename3(backupPath, retainedPath);
-      await this.updateRecord(targetRecordId, (item) => {
-        item.retainedPath = retainedPath;
-        item.retention = { retainedAt };
-        item.events.push({ at: retainedAt, action: "retained", detail: `Version ${version ?? "unknown"} retained for rollback` });
-      });
-    } catch (error) {
-      logger.warn("plugins", `Failed to retain previous version of ${pluginId}; deleting it: ${error?.message}`);
-      await rm(backupPath, { recursive: true, force: true });
-    }
-  }
-  async readRecords() {
-    try {
-      const value = JSON.parse(await readFile5(this.recordsPath, "utf8"));
-      if (!Array.isArray(value))
-        throw new Error("record store is not an array");
-      return value;
-    } catch (error) {
-      if (error?.code === "ENOENT")
-        return [];
-      throw error;
-    }
-  }
-  async writeRecords(records) {
-    await mkdir5(this.packageDataDir, { recursive: true });
-    const temp = join9(this.packageDataDir, `.records-${randomUUID3()}.json`);
-    await writeFile5(temp, JSON.stringify(records, null, 2) + `
-`, { flag: "wx", mode: 384 });
-    await rename3(temp, this.recordsPath);
-  }
-  enqueueMutation(operation) {
-    const run = this.mutation.catch(() => {
-      return;
-    }).then(operation);
-    this.mutation = run.then(() => {
-      return;
-    }, () => {
-      return;
-    });
-    return run;
-  }
-  async updateRecord(id, change) {
-    return this.enqueueMutation(async () => {
-      const records = await this.readRecords();
-      const record = records.find((item) => item.id === id);
-      if (!record)
-        throw new PluginPackageError("Package record not found", "not_found", 404);
-      change(record);
-      record.updatedAt = now();
-      await this.writeRecords(records);
-      return structuredClone(record);
-    });
-  }
-  async normalizeInstalledRecords() {
-    return this.enqueueMutation(async () => {
-      const records = await this.readRecords();
-      let changed = false;
-      const installedByPlugin = new Map;
-      for (const record of records) {
-        if (record.status !== "installed" || !record.manifest?.id)
-          continue;
-        const group = installedByPlugin.get(record.manifest.id) ?? [];
-        group.push(record);
-        installedByPlugin.set(record.manifest.id, group);
-      }
-      for (const group of installedByPlugin.values()) {
-        if (group.length < 2)
-          continue;
-        group.sort((left, right) => (right.installedAt ?? right.createdAt).localeCompare(left.installedAt ?? left.createdAt) || right.id.localeCompare(left.id));
-        const current = group[0];
-        for (const record of group.slice(1)) {
-          const supersededAt = current.installedAt ?? current.createdAt;
-          record.status = "superseded";
-          record.supersededAt = supersededAt;
-          record.supersededByRecordId = current.id;
-          record.updatedAt = supersededAt;
-          record.events.push({
-            at: supersededAt,
-            action: "superseded",
-            detail: `Superseded by ${current.manifest?.version ?? "a newer installed version"} (${current.id})`
-          });
-          changed = true;
-        }
-      }
-      if (changed)
-        await this.writeRecords(records);
-      return records;
-    });
-  }
-  async listRecords() {
-    return (await this.normalizeInstalledRecords()).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(publicPluginPackageRecord);
-  }
-  async getRecord(id) {
-    const record = (await this.normalizeInstalledRecords()).find((item) => item.id === id);
-    return record ? publicPluginPackageRecord(record) : undefined;
-  }
-  async planUpgrade(recordId) {
-    const record = (await this.readRecords()).find((item) => item.id === recordId);
-    if (!record?.quarantinePath || record.status !== "staged" || !record.manifest) {
-      throw new PluginPackageError("Only a validated staged package can be reviewed for upgrade", "not_staged", 409);
-    }
-    let current;
-    let candidate;
-    try {
-      current = JSON.parse(await readFile5(join9(this.pluginsDir, record.manifest.id, "manifest.json"), "utf8"));
-      candidate = JSON.parse(await readFile5(join9(record.quarantinePath, "manifest.json"), "utf8"));
-    } catch {
-      throw new PluginPackageError("Installed or staged plugin manifest could not be read", "plugin_not_installed", 404);
-    }
-    const currentDigest = await digestTree(join9(this.pluginsDir, record.manifest.id), this.limits);
-    return bindPluginUpgradePlan(buildPluginUpgradePlan(current, candidate), currentDigest.digestSha256, record.digestSha256);
-  }
-  async planInstall(recordId) {
-    const record = (await this.readRecords()).find((item) => item.id === recordId);
-    if (!record?.quarantinePath || record.status !== "staged" || !record.manifest) {
-      throw new PluginPackageError("Only a validated staged package can be reviewed for install", "not_staged", 409);
-    }
-    let candidate;
-    try {
-      candidate = JSON.parse(await readFile5(join9(record.quarantinePath, "manifest.json"), "utf8"));
-    } catch {
-      throw new PluginPackageError("Staged plugin manifest could not be read", "invalid_manifest", 422);
-    }
-    const empty = { ...candidate, version: "0.0.0", integration: { apiVersion: "1", actions: [], permissions: [] } };
-    const plan = buildPluginUpgradePlan(empty, candidate);
-    return bindPluginUpgradePlan({ ...plan, fromVersion: "not installed" }, "", record.digestSha256);
-  }
-  async createRecord(source) {
-    const at = now();
-    const record = {
-      id: randomUUID3(),
-      status: "staging",
-      source,
-      signature: { status: "unsigned" },
-      createdAt: at,
-      updatedAt: at,
-      events: [{ at, action: "stage_started" }]
-    };
-    await this.enqueueMutation(async () => {
-      const records = await this.readRecords();
-      records.push(record);
-      await this.writeRecords(records);
-    });
-    return structuredClone(record);
-  }
-  async reject(record, error) {
-    let message = error instanceof Error ? error.message : String(error);
-    for (const privatePath of [this.dataDir, this.quarantineDir, this.installTempDir, ...this.allowedLocalRoots].map((path) => resolve3(path)).sort((a, b) => b.length - a.length)) {
-      message = message.split(privatePath).join("[private-path]");
-    }
-    message = message.slice(0, 2000);
-    await rm(join9(this.quarantineDir, record.id), { recursive: true, force: true });
-    await this.updateRecord(record.id, (item) => {
-      item.status = "rejected";
-      item.error = message;
-      item.quarantinePath = undefined;
-      item.events.push({ at: now(), action: "rejected", detail: item.error });
-    });
-    if (error instanceof PluginPackageError)
-      throw new PluginPackageError(message, error.code, error.status);
-    throw new Error(message);
-  }
-  verifyDigestSignature(digestSha256, signature) {
-    if (!signature) {
-      if (this.requireSignatures)
-        throw new PluginPackageError("A trusted package signature is required", "signature_required", 403);
-      return { status: "unsigned" };
-    }
-    if (!signature.keyId || !signature.value)
-      throw new PluginPackageError("Signature keyId and value are required", "invalid_signature");
-    if (this.trustStore?.isRevoked(signature.keyId)) {
-      throw new PluginPackageError("Signature key has been revoked", "revoked_signature_key", 403);
-    }
-    const configuredKey = this.trustStore?.resolve(signature.keyId) ?? this.trustedPublicKeys[signature.keyId] ?? parseTrustedKeysFromEnv()[signature.keyId];
-    if (!configuredKey)
-      throw new PluginPackageError("Signature key is not trusted", "untrusted_signature_key", 403);
-    let bytes;
-    try {
-      bytes = Buffer.from(signature.value, "base64");
-    } catch {
-      throw new PluginPackageError("Signature is not valid base64", "invalid_signature");
-    }
-    if (bytes.length !== 64)
-      throw new PluginPackageError("Ed25519 signature must be 64 bytes", "invalid_signature");
-    try {
-      const key = createPublicKey2(configuredKey);
-      if (key.asymmetricKeyType !== "ed25519" || !verifySignature(null, Buffer.from(digestSha256, "hex"), key, bytes)) {
-        throw new PluginPackageError("Package signature verification failed", "invalid_signature", 403);
-      }
-    } catch (error) {
-      if (error instanceof PluginPackageError)
-        throw error;
-      throw new PluginPackageError("Trusted public key is not a valid Ed25519 key", "invalid_trusted_key", 500);
-    }
-    return { status: "verified", keyId: signature.keyId };
-  }
-  validateManifest(value) {
-    return validatePluginPackageManifest(value, this.packageKind);
-  }
-  async finishStage(record, packageDir, signature, sourceUpdate) {
-    const manifestPath = join9(packageDir, "manifest.json");
-    let parsed;
-    try {
-      const info = await stat(manifestPath);
-      if (!info.isFile() || info.size > 1024 * 1024)
-        throw new PluginPackageError("manifest.json is too large", "invalid_manifest");
-      parsed = JSON.parse(await readFile5(manifestPath, "utf8"));
-    } catch (error) {
-      if (error instanceof PluginPackageError)
-        throw error;
-      throw new PluginPackageError(error?.code === "ENOENT" ? "Package root must contain manifest.json" : "manifest.json is invalid JSON", "invalid_manifest");
-    }
-    const validated = this.validateManifest(parsed);
-    if (!validated.valid)
-      throw new PluginPackageError(validated.error, "invalid_manifest");
-    const digest = await digestTree(packageDir, this.limits);
-    const verified = this.verifyDigestSignature(digest.digestSha256, signature);
-    const updated = await this.updateRecord(record.id, (item) => {
-      item.status = "staged";
-      item.source = { ...item.source, ...sourceUpdate };
-      item.digestSha256 = digest.digestSha256;
-      item.signature = verified;
-      item.signatureValue = signature?.value;
-      item.manifest = {
-        id: validated.manifest.id,
-        name: validated.manifest.name,
-        version: validated.manifest.version,
-        type: validated.manifest.type
-      };
-      item.utilities = validated.manifest.integration?.utilities ?? [];
-      item.fileCount = digest.fileCount;
-      item.totalBytes = digest.totalBytes;
-      item.quarantinePath = packageDir;
-      item.events.push({ at: now(), action: "stage_validated", detail: `${digest.fileCount} files, ${digest.totalBytes} bytes` });
-      if (verified.status === "verified")
-        item.events.push({ at: now(), action: "signature_verified", detail: verified.keyId });
-    });
-    return publicPluginPackageRecord(updated);
-  }
-  async stageZip(archive, signature, source = { kind: "zip" }) {
-    const record = await this.createRecord(source);
-    try {
-      if (isDevelopmentSource({ source }) && !devSourcesAllowed()) {
-        throw new PluginPackageError("Development plugin sources are turned off on this server", "dev_sources_disabled", 403);
-      }
-      const packageDir = join9(this.quarantineDir, record.id, "package");
-      await mkdir5(packageDir, { recursive: true, mode: 448 });
-      await extractZipSafely(Buffer.from(archive), packageDir, this.limits);
-      return await this.finishStage(record, packageDir, signature);
-    } catch (error) {
-      return this.reject(record, error);
-    }
-  }
-  async stageLocal(sourcePath, signature) {
-    const displayedPath = basename(resolve3(sourcePath));
-    const record = await this.createRecord({ kind: "local", path: displayedPath });
-    try {
-      if (this.allowedLocalRoots.length === 0)
-        throw new PluginPackageError("Local imports are disabled until PLUGIN_LOCAL_IMPORT_ROOTS is configured", "local_import_disabled", 403);
-      const source = await realpath2(sourcePath);
-      const allowedRoots = [];
-      for (const root of this.allowedLocalRoots) {
-        try {
-          allowedRoots.push(await realpath2(root));
-        } catch {}
-      }
-      if (!allowedRoots.some((root) => pathInside(root, source)))
-        throw new PluginPackageError("Local package path is outside configured import roots", "local_path_not_allowed", 403);
-      if (!(await stat(source)).isDirectory())
-        throw new PluginPackageError("Local package source must be a directory", "invalid_local_source");
-      const packageDir = join9(this.quarantineDir, record.id, "package");
-      await mkdir5(packageDir, { recursive: true, mode: 448 });
-      await copyTreeSafely(source, packageDir, this.limits);
-      return await this.finishStage(record, packageDir, signature);
-    } catch (error) {
-      return this.reject(record, error);
-    }
-  }
-  async stageGit(inputUrl, commit, signature) {
-    let sanitizedUrl = inputUrl;
-    try {
-      sanitizedUrl = sanitizeGitUrl(inputUrl, this.allowedGitHosts);
-    } catch {}
-    const record = await this.createRecord({ kind: "git", url: sanitizedUrl.includes("@") ? "invalid" : sanitizedUrl, requestedCommit: commit });
-    let repository = "";
-    try {
-      const url = sanitizeGitUrl(inputUrl, this.allowedGitHosts);
-      if (!FULL_GIT_COMMIT.test(commit))
-        throw new PluginPackageError("A full 40- or 64-character Git commit hash is required", "invalid_git_commit");
-      await mkdir5(this.quarantineDir, { recursive: true });
-      repository = await mkdtemp(join9(this.quarantineDir, `.git-${record.id}-`));
-      await runProcess(this.gitBinary, ["-c", "protocol.file.allow=never", "-c", "protocol.ext.allow=never", "init", "--bare"], { cwd: repository });
-      await runProcess(this.gitBinary, ["-c", "protocol.file.allow=never", "-c", "protocol.ext.allow=never", "remote", "add", "origin", url], { cwd: repository });
-      await runProcess(this.gitBinary, [
-        "-c",
-        "protocol.file.allow=never",
-        "-c",
-        "protocol.ext.allow=never",
-        "-c",
-        "http.followRedirects=false",
-        "-c",
-        "http.lowSpeedLimit=1024",
-        "-c",
-        "http.lowSpeedTime=15",
-        "fetch",
-        "--depth=1",
-        "--no-tags",
-        "origin",
-        commit
-      ], { cwd: repository });
-      const resolvedCommit = (await runProcess(this.gitBinary, ["rev-parse", "FETCH_HEAD^{commit}"], { cwd: repository })).trim();
-      if (resolvedCommit.toLowerCase() !== commit.toLowerCase())
-        throw new PluginPackageError("Git server did not resolve to the requested commit", "git_commit_mismatch", 422);
-      const listing = await runProcess(this.gitBinary, ["ls-tree", "-r", "-z", "--full-tree", "FETCH_HEAD"], { cwd: repository });
-      const rows = listing.split("\x00").filter(Boolean);
-      if (rows.length > this.limits.maxFiles)
-        throw new PluginPackageError("Repository contains too many files", "too_many_files", 413);
-      const packageDir = join9(this.quarantineDir, record.id, "package");
-      await mkdir5(packageDir, { recursive: true, mode: 448 });
-      let totalBytes = 0;
-      const seen = new Set;
-      for (const row of rows) {
-        const tab = row.indexOf("\t");
-        const metadata = row.slice(0, tab).split(" ");
-        const rawPath = row.slice(tab + 1);
-        if (tab < 0 || metadata.length !== 3)
-          throw new PluginPackageError("Invalid Git tree response", "git_failed", 422);
-        const [mode, type, objectId] = metadata;
-        const path = cleanPath(rawPath, this.limits);
-        if (mode === "120000")
-          throw new PluginPackageError(`Git symlink is not allowed: ${path}`, "symlink_not_allowed");
-        if (mode === "160000" || type === "commit")
-          throw new PluginPackageError(`Git submodule is not allowed: ${path}`, "submodule_not_allowed");
-        if (type !== "blob" || !(mode === "100644" || mode === "100755"))
-          throw new PluginPackageError(`Unsupported Git entry: ${path}`, "special_file_not_allowed");
-        const folded = path.toLocaleLowerCase("en-US");
-        if (seen.has(folded))
-          throw new PluginPackageError(`Duplicate Git path: ${path}`, "duplicate_path");
-        seen.add(folded);
-        const sizeText = await runProcess(this.gitBinary, ["cat-file", "-s", objectId], { cwd: repository });
-        const size = Number(sizeText.trim());
-        if (!Number.isSafeInteger(size) || size < 0)
-          throw new PluginPackageError(`Invalid Git blob size: ${path}`, "git_failed", 422);
-        if (size > this.limits.maxFileBytes)
-          throw new PluginPackageError(`File exceeds size limit: ${path}`, "file_too_large", 413);
-        totalBytes += size;
-        if (totalBytes > this.limits.maxTotalBytes)
-          throw new PluginPackageError("Repository exceeds total-size limit", "package_too_large", 413);
-        const processHandle = Bun.spawn([this.gitBinary, "cat-file", "blob", objectId], {
-          cwd: repository,
-          env: { PATH: "/usr/bin:/bin", HOME: repository, GIT_CONFIG_NOSYSTEM: "1" },
-          stdin: "ignore",
-          stdout: "pipe",
-          stderr: "pipe"
-        });
-        const bytes = Buffer.from(await new Response(processHandle.stdout).arrayBuffer());
-        const [stderr, exitCode] = await Promise.all([new Response(processHandle.stderr).text(), processHandle.exited]);
-        if (exitCode !== 0 || bytes.length !== size)
-          throw new PluginPackageError(`Could not read Git blob ${path}: ${stderr.trim()}`, "git_failed", 422);
-        const output = join9(packageDir, ...path.split("/"));
-        await mkdir5(dirname5(output), { recursive: true });
-        await writeFile5(output, bytes, { flag: "wx", mode: 384 });
-      }
-      await rm(repository, { recursive: true, force: true });
-      repository = "";
-      return await this.finishStage(record, packageDir, signature, { resolvedCommit });
-    } catch (error) {
-      if (repository)
-        await rm(repository, { recursive: true, force: true });
-      return this.reject(record, error);
-    }
-  }
-  async persistDisabled(pluginId) {
-    const statePath = join9(this.dataDir, "plugin-states.json");
-    let states = {};
-    try {
-      const parsed = JSON.parse(await readFile5(statePath, "utf8"));
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-        throw new Error("plugin state store is invalid");
-      states = parsed;
-    } catch (error) {
-      if (error?.code !== "ENOENT")
-        throw error;
-    }
-    states[pluginId] = { enabled: false };
-    await mkdir5(this.dataDir, { recursive: true });
-    const temp = join9(this.dataDir, `.plugin-states-${randomUUID3()}.json`);
-    await writeFile5(temp, JSON.stringify(states, null, 2) + `
-`, { flag: "wx", mode: 384 });
-    await rename3(temp, statePath);
-  }
-  async install(recordId) {
-    const records = await this.readRecords();
-    const record = records.find((item) => item.id === recordId);
-    if (!record)
-      throw new PluginPackageError("Package record not found", "not_found", 404);
-    if (record.status !== "staged" || !record.quarantinePath || !record.manifest || !record.digestSha256) {
-      throw new PluginPackageError("Only a validated staged package can be installed", "not_staged", 409);
-    }
-    const digest = await digestTree(record.quarantinePath, this.limits);
-    if (digest.digestSha256 !== record.digestSha256) {
-      await this.reject(record, new PluginPackageError("Staged package changed after validation", "digest_mismatch", 409));
-    }
-    try {
-      this.verifyDigestSignature(record.digestSha256, record.signature.status === "verified" ? { keyId: record.signature.keyId, value: record.signatureValue ?? "" } : undefined);
-    } catch (error) {
-      await this.reject(record, error);
-      throw new Error("unreachable");
-    }
-    const parsed = JSON.parse(await readFile5(join9(record.quarantinePath, "manifest.json"), "utf8"));
-    const validated = this.validateManifest(parsed);
-    if (!validated.valid) {
-      await this.reject(record, new PluginPackageError(validated.error, "invalid_manifest", 409));
-      throw new Error("unreachable");
-    }
-    if (validated.manifest.id !== record.manifest.id) {
-      await this.reject(record, new PluginPackageError("Staged plugin id changed", "invalid_manifest", 409));
-      throw new Error("unreachable");
-    }
-    if (this.lifecycle.get(validated.manifest.id))
-      throw new PluginPackageError("A package with this id is already loaded; choose a unique id or use its own upgrade operation", "plugin_exists", 409);
-    const destination = join9(this.pluginsDir, validated.manifest.id);
-    try {
-      await lstat3(destination);
-      throw new PluginPackageError("A plugin with this id is already installed; use the explicit upgrade operation", "plugin_exists", 409);
-    } catch (error) {
-      if (error instanceof PluginPackageError)
-        throw error;
-      if (error?.code !== "ENOENT")
-        throw error;
-    }
-    await mkdir5(this.installTempDir, { recursive: true, mode: 448 });
-    await mkdir5(this.pluginsDir, { recursive: true });
-    const temp = join9(this.installTempDir, randomUUID3());
-    await mkdir5(temp, { mode: 448 });
-    let movedIntoPlace = false;
-    try {
-      await copyTreeSafely(record.quarantinePath, temp, this.limits);
-      await preparePluginWorkerAccess(temp);
-      await this.persistDisabled(validated.manifest.id);
-      await rename3(temp, destination);
-      movedIntoPlace = true;
-      const loaded = await this.lifecycle.load(destination);
-      if (this.verifyLifecycleLoad && (!loaded || loaded.status !== "disabled")) {
-        throw new PluginPackageError("Installed plugin did not load in the disabled state", "install_load_failed", 500);
-      }
-    } catch (error) {
-      if (movedIntoPlace) {
-        await this.lifecycle.unload(validated.manifest.id).catch(() => false);
-        await rm(destination, { recursive: true, force: true });
-      }
-      await rm(temp, { recursive: true, force: true });
-      throw error;
-    }
-    const installedAt = now();
-    const updated = await this.updateRecord(record.id, (item) => {
-      item.status = "installed";
-      item.installedAt = installedAt;
-      item.quarantinePath = undefined;
-      item.events.push({ at: installedAt, action: "installed", detail: "Installed disabled" });
-    });
-    await this.recordConsent(validated.manifest, "install");
-    await this.normalizeInstalledRecords();
-    await rm(join9(this.quarantineDir, record.id), { recursive: true, force: true });
-    return await this.getRecord(updated.id);
-  }
-  async upgrade(recordId, reviewedPlanFingerprint) {
-    const records = await this.readRecords();
-    const record = records.find((item) => item.id === recordId);
-    if (!record)
-      throw new PluginPackageError("Package record not found", "not_found", 404);
-    if (record.status !== "staged" || !record.quarantinePath || !record.manifest || !record.digestSha256) {
-      throw new PluginPackageError("Only a validated staged package can be used for an upgrade", "not_staged", 409);
-    }
-    const digest = await digestTree(record.quarantinePath, this.limits);
-    if (digest.digestSha256 !== record.digestSha256) {
-      await this.reject(record, new PluginPackageError("Staged package changed after validation", "digest_mismatch", 409));
-    }
-    this.verifyDigestSignature(record.digestSha256, record.signature.status === "verified" ? { keyId: record.signature.keyId, value: record.signatureValue ?? "" } : undefined);
-    const destination = join9(this.pluginsDir, record.manifest.id);
-    let currentManifest;
-    try {
-      currentManifest = JSON.parse(await readFile5(join9(destination, "manifest.json"), "utf8"));
-    } catch {
-      throw new PluginPackageError("The installed plugin could not be read", "plugin_not_installed", 404);
-    }
-    if (!this.validateManifest(currentManifest).valid)
-      throw new PluginPackageError("Installed package has the wrong kind or an invalid manifest", "invalid_manifest", 409);
-    if (currentManifest.id !== record.manifest.id) {
-      throw new PluginPackageError("Upgrade package ID does not match the installed plugin", "plugin_id_mismatch", 409);
-    }
-    if (currentManifest.version === record.manifest.version) {
-      throw new PluginPackageError("Upgrade package must have a different version", "same_version", 409);
-    }
-    const candidateManifest = JSON.parse(await readFile5(join9(record.quarantinePath, "manifest.json"), "utf8"));
-    const upgradePlan = bindPluginUpgradePlan(buildPluginUpgradePlan(currentManifest, candidateManifest), (await digestTree(destination, this.limits)).digestSha256, record.digestSha256);
-    if (upgradePlan.blockers.length) {
-      throw new PluginPackageError(upgradePlan.blockers.join(" "), upgradePlan.direction === "downgrade" ? "version_downgrade" : "invalid_version", 409);
-    }
-    if (!reviewedPlanFingerprint || reviewedPlanFingerprint !== upgradePlan.fingerprintSha256) {
-      throw new PluginPackageError("Upgrade review is missing or stale; review the current permission plan again", "stale_upgrade_plan", 409);
-    }
-    const installed = this.lifecycle.get(record.manifest.id);
-    if (installed && installed.status !== "disabled")
-      await this.lifecycle.disable(record.manifest.id);
-    await this.persistDisabled(record.manifest.id);
-    await mkdir5(this.installTempDir, { recursive: true, mode: 448 });
-    const temp = join9(this.installTempDir, randomUUID3());
-    const backup = join9(this.installTempDir, `backup-${randomUUID3()}`);
-    await mkdir5(temp, { mode: 448 });
-    await copyTreeSafely(record.quarantinePath, temp, this.limits);
-    await preparePluginWorkerAccess(temp);
-    await this.lifecycle.unload(record.manifest.id);
-    let movedOld = false;
-    try {
-      await rename3(destination, backup);
-      movedOld = true;
-      await rename3(temp, destination);
-      const loaded = await this.lifecycle.load(destination);
-      if (this.verifyLifecycleLoad && (!loaded || loaded.status !== "disabled")) {
-        throw new PluginPackageError("Upgraded plugin did not load in the disabled state", "upgrade_load_failed", 500);
-      }
-      await this.retainBackupTree(record.id, record.manifest.id, backup);
-    } catch (error) {
-      await this.lifecycle.unload(record.manifest.id).catch(() => false);
-      await rm(destination, { recursive: true, force: true });
-      if (movedOld)
-        await rename3(backup, destination).catch(() => {
-          return;
-        });
-      await this.lifecycle.load(destination).catch(() => null);
-      await rm(temp, { recursive: true, force: true });
-      throw error;
-    }
-    const installedAt = now();
-    const updated = await this.updateRecord(record.id, (item) => {
-      item.status = "installed";
-      item.installedAt = installedAt;
-      item.replacedVersion = currentManifest.version;
-      item.quarantinePath = undefined;
-      item.events.push({
-        at: installedAt,
-        action: "upgraded",
-        detail: `${currentManifest.version} -> ${record.manifest.version}; installed disabled`
-      });
-    });
-    await this.recordConsent(candidateManifest, "upgrade");
-    await this.normalizeInstalledRecords();
-    await rm(join9(this.quarantineDir, record.id), { recursive: true, force: true });
-    return await this.getRecord(updated.id);
-  }
-  async resolveRetainedTarget(pluginId, targetRecordId) {
-    if (!PLUGIN_ID.test(pluginId))
-      throw new PluginPackageError("Invalid plugin ID", "invalid_plugin_id");
-    const records = await this.readRecords();
-    const retained = records.filter((item) => item.manifest?.id === pluginId && item.retainedPath && item.retention && !item.retention.prunedAt).sort((left, right) => right.retention.retainedAt.localeCompare(left.retention.retainedAt));
-    const target = targetRecordId ? retained.find((item) => item.id === targetRecordId) : retained[0];
-    if (!target || !target.digestSha256) {
-      throw new PluginPackageError("No retained version is available to roll back to", "no_retained_version", 404);
-    }
-    return target;
-  }
-  async planRollback(pluginId, targetRecordId) {
-    const target = await this.resolveRetainedTarget(pluginId, targetRecordId);
-    let current;
-    let candidate;
-    try {
-      current = JSON.parse(await readFile5(join9(this.pluginsDir, pluginId, "manifest.json"), "utf8"));
-      candidate = JSON.parse(await readFile5(join9(target.retainedPath, "manifest.json"), "utf8"));
-    } catch {
-      throw new PluginPackageError("Installed or retained plugin manifest could not be read", "plugin_not_installed", 404);
-    }
-    const currentDigest = await digestTree(join9(this.pluginsDir, pluginId), this.limits);
-    return bindPluginUpgradePlan(buildPluginUpgradePlan(current, candidate, { intent: "rollback" }), currentDigest.digestSha256, target.digestSha256);
-  }
-  async rollback(pluginId, reviewedPlanFingerprint, targetRecordId) {
-    const target = await this.resolveRetainedTarget(pluginId, targetRecordId);
-    const retainedPath = target.retainedPath;
-    const retainedDigest = await digestTree(retainedPath, this.limits);
-    if (retainedDigest.digestSha256 !== target.digestSha256) {
-      throw new PluginPackageError("Retained version tree was modified and cannot be restored", "retained_digest_mismatch", 409);
-    }
-    this.verifyDigestSignature(target.digestSha256, target.signature.status === "verified" ? { keyId: target.signature.keyId, value: target.signatureValue ?? "" } : undefined);
-    const rollbackPlan = await this.planRollback(pluginId, target.id);
-    if (rollbackPlan.blockers.length) {
-      throw new PluginPackageError(rollbackPlan.blockers.join(" "), "invalid_version", 409);
-    }
-    if (!reviewedPlanFingerprint || reviewedPlanFingerprint !== rollbackPlan.fingerprintSha256) {
-      throw new PluginPackageError("Rollback review is missing or stale; review the current rollback plan again", "stale_rollback_plan", 409);
-    }
-    const candidateManifest = JSON.parse(await readFile5(join9(retainedPath, "manifest.json"), "utf8"));
-    if (!this.validateManifest(candidateManifest).valid)
-      throw new PluginPackageError("Retained package has an invalid manifest", "invalid_manifest", 409);
-    const records = await this.readRecords();
-    const outgoing = records.filter((item) => item.status === "installed" && item.manifest?.id === pluginId).sort((left, right) => (right.installedAt ?? "").localeCompare(left.installedAt ?? ""))[0];
-    const installed = this.lifecycle.get(pluginId);
-    if (installed && installed.status !== "disabled")
-      await this.lifecycle.disable(pluginId);
-    await this.persistDisabled(pluginId);
-    const destination = join9(this.pluginsDir, pluginId);
-    await mkdir5(this.installTempDir, { recursive: true, mode: 448 });
-    const temp = join9(this.installTempDir, randomUUID3());
-    const backup = join9(this.installTempDir, `backup-${randomUUID3()}`);
-    await mkdir5(temp, { mode: 448 });
-    await copyTreeSafely(retainedPath, temp, this.limits);
-    await preparePluginWorkerAccess(temp);
-    await this.lifecycle.unload(pluginId);
-    let movedOld = false;
-    try {
-      await rename3(destination, backup);
-      movedOld = true;
-      await rename3(temp, destination);
-      const loaded = await this.lifecycle.load(destination);
-      if (this.verifyLifecycleLoad && (!loaded || loaded.status !== "disabled")) {
-        throw new PluginPackageError("Rolled-back plugin did not load in the disabled state", "rollback_load_failed", 500);
-      }
-    } catch (error) {
-      await this.lifecycle.unload(pluginId).catch(() => false);
-      await rm(destination, { recursive: true, force: true });
-      if (movedOld)
-        await rename3(backup, destination).catch(() => {
-          return;
-        });
-      await this.lifecycle.load(destination).catch(() => null);
-      await rm(temp, { recursive: true, force: true });
-      throw error;
-    }
-    const rolledBackAt = now();
-    await this.retainBackupTree(target.id, pluginId, backup);
-    if (outgoing) {
-      await this.updateRecord(outgoing.id, (item) => {
-        item.status = "superseded";
-        item.supersededAt = rolledBackAt;
-        item.supersededByRecordId = target.id;
-        item.events.push({ at: rolledBackAt, action: "superseded", detail: `Rolled back to ${candidateManifest.version} (${target.id})` });
-      });
-    }
-    await rm(retainedPath, { recursive: true, force: true });
-    const updated = await this.updateRecord(target.id, (item) => {
-      item.status = "installed";
-      item.installedAt = rolledBackAt;
-      item.retention = undefined;
-      item.retainedPath = undefined;
-      item.events.push({
-        at: rolledBackAt,
-        action: "rolled_back",
-        detail: `${outgoing?.manifest?.version ?? "unknown"} -> ${candidateManifest.version}; installed disabled`
-      });
-    });
-    await this.recordConsent(candidateManifest, "rollback");
-    await this.normalizeInstalledRecords();
-    return await this.getRecord(updated.id);
-  }
-  async uninstall(pluginId) {
-    if (!PLUGIN_ID.test(pluginId))
-      throw new PluginPackageError("Invalid plugin ID", "invalid_plugin_id");
-    const records = await this.readRecords();
-    const managed = records.filter((item) => item.status === "installed" && item.manifest?.id === pluginId).sort((left, right) => (right.installedAt ?? "").localeCompare(left.installedAt ?? ""))[0];
-    if (!managed) {
-      throw new PluginPackageError("Only package-managed plugins can be uninstalled here", "plugin_not_managed", 409);
-    }
-    const instance = this.lifecycle.get(pluginId);
-    if (instance && instance.status !== "disabled") {
-      throw new PluginPackageError("Disable the plugin before uninstalling it", "plugin_enabled", 409);
-    }
-    const destination = join9(this.pluginsDir, pluginId);
-    try {
-      await lstat3(destination);
-    } catch {
-      throw new PluginPackageError("Installed plugin directory was not found", "plugin_not_installed", 404);
-    }
-    await this.lifecycle.unload(pluginId);
-    const removedAt = now();
-    const entryId = `${pluginId}-${randomUUID3()}`;
-    await mkdir5(this.trashDir, { recursive: true, mode: 448 });
-    await rename3(destination, join9(this.trashDir, entryId));
-    const bindingsRemoved = await this.lifecycle.removeBindings(pluginId);
-    const updated = await this.updateRecord(managed.id, (item) => {
-      item.status = "uninstalled";
-      item.uninstalledAt = removedAt;
-      item.trash = { entryId, trashedAt: removedAt };
-      item.events.push({ at: removedAt, action: "uninstalled", detail: "Moved to recoverable plugin trash" });
-    });
-    return { record: publicPluginPackageRecord(updated), bindingsRemoved, recoverable: true };
-  }
-  validateTrashEntryId(entryId) {
-    if (entryId !== basename(entryId) || !/^[a-z][a-z0-9._-]{0,127}-[0-9a-fA-F-]{36}$/.test(entryId)) {
-      throw new PluginPackageError("Invalid trash entry ID", "invalid_trash_entry");
-    }
-    return join9(this.trashDir, entryId);
-  }
-  async listTrash() {
-    const records = await this.readRecords();
-    const linked = new Map;
-    for (const record of records) {
-      if (record.trash && !record.trash.restoredAt && !record.trash.purgedAt)
-        linked.set(record.trash.entryId, record);
-    }
-    const entries = [];
-    let names = [];
-    try {
-      names = await readdir4(this.trashDir);
-    } catch {}
-    for (const name of names.sort()) {
-      const record = linked.get(name);
-      if (record) {
-        entries.push({
-          entryId: name,
-          pluginId: record.manifest?.id ?? name.replace(/-[0-9a-fA-F-]{36}$/, ""),
-          version: record.manifest?.version,
-          name: record.manifest?.name,
-          recordId: record.id,
-          trashedAt: record.trash.trashedAt
-        });
-        continue;
-      }
-      try {
-        const manifest = JSON.parse(await readFile5(join9(this.trashDir, name, "manifest.json"), "utf8"));
-        entries.push({ entryId: name, pluginId: manifest.id, version: manifest.version, name: manifest.name });
-      } catch {
-        entries.push({ entryId: name, pluginId: name.replace(/-[0-9a-fA-F-]{36}$/, "") });
-      }
-    }
-    return entries;
-  }
-  async restoreFromTrash(entryId) {
-    const trashPath = this.validateTrashEntryId(entryId);
-    let raw;
-    try {
-      raw = await readFile5(join9(trashPath, "manifest.json"), "utf8");
-    } catch {
-      throw new PluginPackageError("Trash entry was not found or has no manifest", "trash_entry_not_found", 404);
-    }
-    const validated = this.validateManifest(JSON.parse(raw));
-    if (!validated.valid)
-      throw new PluginPackageError(validated.error, "invalid_manifest", 409);
-    const pluginId = validated.manifest.id;
-    if (this.lifecycle.get(pluginId))
-      throw new PluginPackageError("A package with this id is already loaded", "plugin_exists", 409);
-    const destination = join9(this.pluginsDir, pluginId);
-    try {
-      await lstat3(destination);
-      throw new PluginPackageError("A plugin with this id is already installed", "plugin_exists", 409);
-    } catch (error) {
-      if (error instanceof PluginPackageError)
-        throw error;
-      if (error?.code !== "ENOENT")
-        throw error;
-    }
-    const records = await this.readRecords();
-    const linked = records.find((item) => item.trash?.entryId === entryId);
-    if (linked?.digestSha256) {
-      const digest = await digestTree(trashPath, this.limits);
-      if (digest.digestSha256 !== linked.digestSha256) {
-        throw new PluginPackageError("Trash entry was modified and cannot be restored", "digest_mismatch", 409);
-      }
-    }
-    await mkdir5(this.pluginsDir, { recursive: true });
-    await this.persistDisabled(pluginId);
-    await rename3(trashPath, destination);
-    try {
-      const loaded = await this.lifecycle.load(destination);
-      if (this.verifyLifecycleLoad && (!loaded || loaded.status !== "disabled")) {
-        throw new PluginPackageError("Restored plugin did not load in the disabled state", "restore_load_failed", 500);
-      }
-    } catch (error) {
-      await this.lifecycle.unload(pluginId).catch(() => false);
-      await rename3(destination, trashPath).catch(() => {
-        return;
-      });
-      throw error;
-    }
-    const restoredAt = now();
-    let restored;
-    if (linked) {
-      restored = await this.updateRecord(linked.id, (item) => {
-        item.status = "installed";
-        item.installedAt = restoredAt;
-        item.trash = { ...item.trash, restoredAt };
-        item.events.push({ at: restoredAt, action: "trash_restored", detail: "Restored disabled from recoverable trash" });
-      });
-    } else {
-      const digest = await digestTree(destination, this.limits);
-      restored = {
-        id: randomUUID3(),
-        status: "installed",
-        source: { kind: "local", path: "(restored from trash)" },
-        digestSha256: digest.digestSha256,
-        signature: { status: "unsigned" },
-        manifest: { id: pluginId, name: validated.manifest.name, version: validated.manifest.version, type: validated.manifest.type },
-        fileCount: digest.fileCount,
-        totalBytes: digest.totalBytes,
-        createdAt: restoredAt,
-        updatedAt: restoredAt,
-        installedAt: restoredAt,
-        events: [{ at: restoredAt, action: "trash_restored", detail: "Restored disabled from recoverable trash (orphan entry)" }]
-      };
-      await this.enqueueMutation(async () => {
-        const current = await this.readRecords();
-        current.push(restored);
-        await this.writeRecords(current);
-      });
-    }
-    await this.recordConsent(JSON.parse(raw), "restore");
-    await this.normalizeInstalledRecords();
-    return {
-      record: await this.getRecord(restored.id),
-      plugin: { id: pluginId, status: "disabled", enabled: false }
-    };
-  }
-  async purgeTrashEntry(entryId) {
-    const trashPath = this.validateTrashEntryId(entryId);
-    try {
-      await lstat3(trashPath);
-    } catch {
-      throw new PluginPackageError("Trash entry was not found", "trash_entry_not_found", 404);
-    }
-    await rm(trashPath, { recursive: true, force: true });
-    const records = await this.readRecords();
-    const linked = records.find((item) => item.trash?.entryId === entryId);
-    if (linked) {
-      await this.updateRecord(linked.id, (item) => {
-        item.trash = { ...item.trash, purgedAt: now() };
-        item.events.push({ at: now(), action: "trash_purged", detail: "Permanently removed from trash" });
-      });
-    }
-    return { entryId, purged: true };
-  }
-  async rejectStaged(recordId, reason) {
-    const record = (await this.readRecords()).find((item) => item.id === recordId);
-    if (!record)
-      throw new PluginPackageError("Package record not found", "not_found", 404);
-    if (record.status !== "staged")
-      throw new PluginPackageError("Only staged packages can be rejected", "not_staged", 409);
-    await rm(join9(this.quarantineDir, record.id), { recursive: true, force: true });
-    const updated = await this.updateRecord(record.id, (item) => {
-      item.status = "rejected";
-      item.error = reason.slice(0, 2000);
-      item.quarantinePath = undefined;
-      item.events.push({ at: now(), action: "rejected", detail: item.error });
-    });
-    return publicPluginPackageRecord(updated);
-  }
-  async listRetainedInternal() {
-    const records = await this.readRecords();
-    return records.filter((item) => item.retainedPath && item.retention && !item.retention.prunedAt).map((item) => structuredClone(item));
-  }
-  async pruneRetained(recordId) {
-    const record = (await this.readRecords()).find((item) => item.id === recordId);
-    if (!record?.retainedPath || !record.retention || record.retention.prunedAt) {
-      throw new PluginPackageError("Record has no prunable retained version", "no_retained_version", 404);
-    }
-    await rm(record.retainedPath, { recursive: true, force: true });
-    await this.updateRecord(recordId, (item) => {
-      item.retention = { ...item.retention, prunedAt: now() };
-      item.retainedPath = undefined;
-      item.events.push({ at: now(), action: "retention_pruned", detail: "Retained version removed by retention policy" });
-    });
-  }
-}
-var pluginPackageManager = new PluginPackageManager;
+};
 
 // packages/plugin-sdk/src/index.ts
 var PLUGIN_API_VERSION = "1";
+var CAPABILITIES = ["browser-session", "model-runtime", "database-registry", "dataset-registry", "secret-grant", "artifact-store", "notebook-runtime", "network-egress", "runtime-resources", "computer-exec", "agent-runtime", "file-transfer"];
 var ID = /^[a-z][a-z0-9._-]{0,127}$/;
 var CONNECTOR_ID = /^[a-z][a-z0-9-]{0,63}$/;
 var ACTION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -10345,12 +9163,20 @@ function validateManifest(value) {
     if (capabilities.size !== (action.requiredCapabilities ?? []).length)
       errors2.push(`${prefix} has duplicate capabilities`);
     for (const capability of capabilities)
-      if (!["browser-session", "model-runtime", "database-registry", "dataset-registry", "secret-grant", "artifact-store", "notebook-runtime", "network-egress", "jobs-native", "runtime-resources"].includes(capability))
+      if (!CAPABILITIES.includes(capability))
         errors2.push(`${prefix} has unsupported capability ${capability}`);
     if (capabilities.has("network-egress") && !integration.networkAllowlist?.length)
       errors2.push(`${prefix} requires a networkAllowlist`);
-    if (capabilities.has("jobs-native") && action.effect === "read" && action.execution.handler === "jobs.stage-leads.v1")
-      errors2.push(`${prefix} stages leads and cannot declare a read effect`);
+    if (action.networkSession !== undefined) {
+      const session = action.networkSession;
+      const shapeOk = !!session && typeof session === "object" && !Array.isArray(session) && Object.keys(session).every((key) => key === "cookies" || key === "formPost") && (session.cookies === undefined || session.cookies === "run") && (session.formPost === undefined || typeof session.formPost === "boolean") && (session.cookies === "run" || session.formPost === true);
+      if (!shapeOk)
+        errors2.push(`${prefix} networkSession accepts only cookies: "run" and formPost: boolean, with at least one enabled`);
+      if (!capabilities.has("network-egress"))
+        errors2.push(`${prefix} networkSession requires network-egress`);
+      if (action.effect !== "read" && action.effect !== "local_write")
+        errors2.push(`${prefix} networkSession is allowed only for read or local_write effects`);
+    }
     for (const database of action.requiredDatabases ?? []) {
       if (!ALIAS.test(database.alias))
         errors2.push(`${prefix} has invalid database alias ${database.alias}`);
@@ -10419,9 +9245,47 @@ function validateManifest(value) {
     if (action.effect !== "read" && action.idempotent === undefined)
       warnings.push(`${prefix} should declare idempotent behavior or document reconciliation`);
   }
+  const usesComputerExec = (integration.actions ?? []).some((action) => action?.requiredCapabilities?.includes("computer-exec"));
+  if (integration.computerCommands !== undefined) {
+    const commands = integration.computerCommands;
+    if (!Array.isArray(commands) || commands.length < 1 || commands.length > 32)
+      errors2.push("integration.computerCommands must contain 1 to 32 entries");
+    else {
+      const commandIds = new Set;
+      for (const command of commands) {
+        const prefix = `computer command ${String(command?.id ?? "<unknown>")}`;
+        if (!command || typeof command !== "object") {
+          errors2.push("every computer command must be an object");
+          continue;
+        }
+        if (Object.keys(command).some((key) => !COMPUTER_COMMAND_FIELDS.includes(key)))
+          errors2.push(`${prefix} has unsupported fields`);
+        if (typeof command.id !== "string" || !/^[a-z][a-z0-9._-]{0,63}$/.test(command.id) || commandIds.has(command.id))
+          errors2.push(`${prefix} needs a unique valid id`);
+        commandIds.add(command.id);
+        if (typeof command.bundle !== "string" || !command.bundle || command.bundle.length > 240 || command.bundle.startsWith("/") || command.bundle.includes("\\") || !command.bundle.split("/").every((segment) => /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/.test(segment) && segment !== ".."))
+          errors2.push(`${prefix} bundle must be a package-relative directory without "..", absolute or hidden segments`);
+        if (!Array.isArray(command.argv) || !command.argv.length || command.argv.length > 64 || command.argv.some((arg) => typeof arg !== "string" || !arg || arg.length > 1024 || /[\0\r\n]/.test(arg)))
+          errors2.push(`${prefix} argv must contain 1 to 64 non-empty single-line strings`);
+        if (!Number.isInteger(command.timeoutMs) || command.timeoutMs < 1000 || command.timeoutMs > 1800000)
+          errors2.push(`${prefix} timeoutMs must be 1000 to 1800000`);
+      }
+    }
+    const executor = Array.isArray(commands) ? computerCommandsExecutor(commands, integration.actions ?? []) : { kind: "computer", satisfied: usesComputerExec };
+    if (!executor.satisfied) {
+      errors2.push(executor.kind === "runtime" ? "integration.computerCommands targeting only runtime require an action with runtime-resources whose requiredRuntimes operations include runtime.exec.v1 (or a computer-exec action)" : "integration.computerCommands require an action with the computer-exec capability");
+    }
+  } else if (usesComputerExec)
+    errors2.push("computer-exec actions require integration.computerCommands");
   for (const host of integration.networkAllowlist ?? []) {
     if (!/^(?:\*\.)?[A-Za-z0-9.-]+$/.test(host) || host.includes(":"))
       errors2.push(`network allowlist entry ${host} must be a hostname without scheme or port`);
+  }
+  const connectionError = validateOAuthConnectionRequirements(integration.requiredConnections, integration.networkAllowlist);
+  if (connectionError)
+    errors2.push(connectionError);
+  if (integration.requiredConnections?.length && !(integration.actions ?? []).some((action) => action.requiredCapabilities?.includes("network-egress"))) {
+    errors2.push("requiredConnections require an action with network-egress");
   }
   for (const surface of integration.ui ?? []) {
     if (surface.actionId && !actionIds.has(surface.actionId))
@@ -10447,6 +9311,16 @@ function validateManifest(value) {
   const utilityError = validateUtilityContributions(integration.utilities, { actionIds, sandboxWorkspace: Boolean(integration.workspace?.entrypoint && integration.permissions?.includes("workspace:sandbox")) });
   if (utilityError)
     errors2.push(utilityError);
+  if (Array.isArray(integration.actions) && integration.actions.every((action) => action && typeof action === "object" && action.execution && typeof action.execution === "object")) {
+    try {
+      const extensionError = validateManifestExtensions(integration);
+      if (extensionError)
+        errors2.push(extensionError);
+    } catch {
+      if (!errors2.length)
+        errors2.push("integration shared-service fields are malformed");
+    }
+  }
   return { valid: errors2.length === 0, errors: errors2, warnings };
 }
 
@@ -10458,12 +9332,12 @@ function validateForZoer(value) {
 }
 
 // packages/plugin-cli/src/dev.ts
-import { watch as watch2 } from "fs";
-function developmentVersion(version, now2) {
+import { watch } from "fs";
+function developmentVersion(version, now) {
   const core = version.match(/^(\d+)\.(\d+)\.(\d+)/);
   if (!core)
     throw new Error(`manifest version ${version} is not semantic`);
-  return `${core[1]}.${core[2]}.${Number(core[3]) + 1}-dev.${Math.floor(now2.getTime() / 1000)}`;
+  return `${core[1]}.${core[2]}.${Number(core[3]) + 1}-dev.${Math.floor(now.getTime() / 1000)}`;
 }
 function withVersion(files, version) {
   return files.map((file) => {
@@ -10478,13 +9352,14 @@ async function devPush(options) {
   const request = options.fetch ?? fetch;
   const log = options.log ?? (() => {});
   const base = options.zoerUrl.replace(/\/+$/, "");
-  const call = async (path, init) => {
+  const sleep = options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms)));
+  const call = async (path, init, allowMissing = false) => {
     const response = await request(`${base}/api${path}`, {
       ...init,
       headers: { "Content-Type": "application/json", ...options.token ? { Authorization: `Bearer ${options.token}` } : {}, ...init?.headers }
     });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok && response.status !== 404)
+    if (!response.ok && !(allowMissing && response.status === 404))
       throw new Error(`${path}: ${body.error ?? response.statusText} (${response.status})`);
     return { status: response.status, body };
   };
@@ -10500,7 +9375,20 @@ async function devPush(options) {
     throw new Error(validation.errors.join("; "));
   const version = developmentVersion(manifest.version, (options.now ?? (() => new Date))());
   const pluginId = manifest.id;
-  const existing = await call(`/extensions/${encodeURIComponent(pluginId)}`);
+  const extensionPath = `/extensions/${encodeURIComponent(pluginId)}`;
+  const readState = async () => {
+    const { status, body } = await call(extensionPath, undefined, true);
+    if (status === 404)
+      return { status: "missing", enabled: false };
+    const state2 = body.status ?? "unknown";
+    return {
+      status: state2,
+      enabled: state2 === "active" || state2 === "loaded",
+      ...body.version ? { loadedVersion: body.version } : {},
+      ...body.error ? { error: body.error } : {}
+    };
+  };
+  const existing = await call(extensionPath, undefined, true);
   const installed = existing.status !== 404;
   const wasEnabled = installed && existing.body.status !== "disabled";
   const archiveBase64 = deterministicZip(withVersion(files, version)).toString("base64");
@@ -10521,6 +9409,7 @@ async function devPush(options) {
       const reasons = [
         ...plan.addedPermissions.map((item) => `permission ${item}`),
         ...plan.addedNetworkHosts.map((item) => `network host ${item}`),
+        ...(plan.networkSessionChanges ?? []).filter((item) => item.after).map((item) => `website session for ${item.actionId}`),
         ...plan.addedCapabilities.map((item) => `capability ${item}`),
         ...plan.actionChanges.length ? [`${plan.actionChanges.length} action change(s)`] : []
       ];
@@ -10528,10 +9417,50 @@ async function devPush(options) {
     }
     await call(`/plugin-packages/${recordId}/upgrade`, { method: "POST", body: JSON.stringify({ fingerprintSha256: plan.fingerprintSha256 }) });
   }
-  const enable = installed ? wasEnabled : options.enable === true;
-  if (enable)
-    await call(`/plugins/${encodeURIComponent(pluginId)}/enable`, { method: "POST" });
-  return { outcome: installed ? "upgraded" : "installed", pluginId, version, enabled: enable };
+  const requestedEnable = options.enable === true || wasEnabled;
+  const state = requestedEnable ? await enableAndSettle({ pluginId, version, call, readState, sleep, settleMs: options.settleMs ?? 1e4, stableMs: options.stableMs ?? 1500 }) : await readState();
+  return { outcome: installed ? "upgraded" : "installed", pluginId, version, enabled: isCurrent(state, version), requestedEnable, state };
+}
+async function enableAndSettle(input) {
+  const pollMs = 250;
+  let waited = 0;
+  const pause = async () => {
+    await input.sleep(pollMs);
+    waited += pollMs;
+  };
+  const enablePath = `/plugins/${encodeURIComponent(input.pluginId)}/enable`;
+  const current = (state2) => isCurrent(state2, input.version);
+  let state;
+  while (true) {
+    const response = await input.call(enablePath, { method: "POST" }, true);
+    if (response.status !== 404) {
+      state = await input.readState();
+      let stableFor = 0;
+      while (current(state) && stableFor < input.stableMs && waited < input.settleMs) {
+        await pause();
+        stableFor += pollMs;
+        state = await input.readState();
+      }
+      if (current(state))
+        return state;
+      if (state.status === "error")
+        return state;
+    }
+    if (waited >= input.settleMs)
+      return state ?? await input.readState();
+    await pause();
+  }
+}
+function isCurrent(state, version) {
+  return state.enabled && (state.loadedVersion === undefined || state.loadedVersion === version);
+}
+function describeState(state) {
+  const parts = [`status ${state.status}`];
+  if (state.loadedVersion)
+    parts.push(`loaded version ${state.loadedVersion}`);
+  if (state.error)
+    parts.push(state.error);
+  return parts.join(", ");
 }
 async function runCommand(command) {
   const child = Bun.spawn(["sh", "-c", command], { stdout: "inherit", stderr: "inherit" });
@@ -10546,10 +9475,15 @@ async function runDev(options) {
       const result = await devPush(options);
       if (result.outcome === "needs-review") {
         console.log(`${result.pluginId} ${result.version} is staged but needs review in Zoer (${result.reasons.join(", ")}): ${result.reviewUrl}`);
-      } else {
-        console.log(`${result.outcome === "installed" ? "Installed" : "Updated"} ${result.pluginId} ${result.version}${result.enabled ? " (enabled)" : " (disabled)"}`);
+        return true;
       }
-      return true;
+      const verb = result.outcome === "installed" ? "Installed" : "Updated";
+      if (result.enabled || !result.requestedEnable) {
+        console.log(`${verb} ${result.pluginId} ${result.version} (${result.enabled ? "enabled" : "disabled"})`);
+        return true;
+      }
+      console.error(`${verb} ${result.pluginId} ${result.version}, but Zoer did not keep it enabled: ${describeState(result.state)}. Enable it in Zoer: ${options.zoerUrl.replace(/\/+$/, "")}/#/extensions`);
+      return false;
     } catch (error) {
       console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
       return false;
@@ -10561,7 +9495,7 @@ async function runDev(options) {
   console.log(`Watching ${options.watchDir} for changes\u2026`);
   let timer;
   let running = Promise.resolve(true);
-  watch2(options.watchDir, { recursive: true }, (_event, name) => {
+  watch(options.watchDir, { recursive: true }, (_event, name) => {
     if (name && /(^|\/)(node_modules|\.git|dist)(\/|$)/.test(String(name)))
       return;
     clearTimeout(timer);
@@ -10710,32 +9644,32 @@ function usage() {
   process.exit(2);
 }
 async function manifestAt(root) {
-  return JSON.parse(await readFile6(join10(root, "manifest.json"), "utf8"));
+  return JSON.parse(await readFile2(join2(root, "manifest.json"), "utf8"));
 }
 var [command, pathArg = ".", ...args] = process.argv.slice(2);
 if (!command)
   usage();
-var root = resolve4(pathArg);
+var root = resolve2(pathArg);
 if (command === "init") {
   const idIndex = args.indexOf("--id");
-  const id = idIndex >= 0 ? args[idIndex + 1] : basename2(root).toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
+  const id = idIndex >= 0 ? args[idIndex + 1] : basename(root).toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
   if (!id)
     usage();
   if (args.includes("--utility") || process.env.ZOER_PACKAGE_KIND === "utility") {
     const standalone = process.env.ZOER_PACKAGE_KIND === "utility";
     const files = standalone ? standaloneUtilityTemplate(id) : utilityTemplate(id);
     for (const [path, content] of Object.entries(files)) {
-      await mkdir6(dirname6(join10(root, path)), { recursive: true });
-      await writeFile6(join10(root, path), content, { flag: "wx" });
+      await mkdir(dirname(join2(root, path)), { recursive: true });
+      await writeFile(join2(root, path), content, { flag: "wx" });
     }
     console.log(`Created ${standalone ? "standalone utility" : "utility plugin"} ${root}`);
     process.exit(0);
   }
-  await mkdir6(join10(root, "worker"), { recursive: true });
+  await mkdir(join2(root, "worker"), { recursive: true });
   const manifest = { id, name: id, version: "0.1.0", description: "A Zoer integration plugin.", type: "integration", integration: { apiVersion: "1", actions: [{ id: "hello.read", title: "Read hello", description: "Return a local greeting.", effect: "read", approval: "never", execution: { kind: "isolated-process", handler: "worker/hello.js" }, inputSchema: { type: "object", additionalProperties: false }, outputSchema: { type: "object", additionalProperties: false, properties: { message: { type: "string" } }, required: ["message"] }, resourceLimits: { timeoutMs: 1e4, maxMemoryMb: 128, maxOutputBytes: 65536 }, idempotent: true }] } };
-  await writeFile6(join10(root, "manifest.json"), `${JSON.stringify(manifest, null, 2)}
+  await writeFile(join2(root, "manifest.json"), `${JSON.stringify(manifest, null, 2)}
 `, { flag: "wx" });
-  await writeFile6(join10(root, "worker", "hello.js"), `let input="";process.stdin.on("data",c=>input+=c);process.stdin.on("end",()=>{const request=JSON.parse(input);process.stdout.write(JSON.stringify({protocolVersion:"1",runId:request.run.id,ok:true,output:{message:"Hello from Zoer"}}));});
+  await writeFile(join2(root, "worker", "hello.js"), `let input="";process.stdin.on("data",c=>input+=c);process.stdin.on("end",()=>{const request=JSON.parse(input);process.stdout.write(JSON.stringify({protocolVersion:"1",runId:request.run.id,ok:true,output:{message:"Hello from Zoer"}}));});
 `, { flag: "wx" });
   console.log(`Created ${root}`);
 } else if (command === "validate" || command === "test") {
@@ -10761,8 +9695,8 @@ if (command === "init") {
     console.log(digest);
   else {
     const outputIndex = args.indexOf("--output");
-    const output = resolve4(outputIndex >= 0 ? args[outputIndex + 1] : `${root}.zip`);
-    await writeFile6(output, deterministicZip(files));
+    const output = resolve2(outputIndex >= 0 ? args[outputIndex + 1] : `${root}.zip`);
+    await writeFile(output, deterministicZip(files));
     console.log(JSON.stringify({ output, digestSha256: digest, files: files.length }));
   }
 } else if (command === "sign") {
@@ -10771,13 +9705,13 @@ if (command === "init") {
   if (keyIndex < 0 || keyIdIndex < 0)
     usage();
   const digest = treeDigest(await readPackageTree(root));
-  console.log(JSON.stringify({ keyId: args[keyIdIndex + 1], value: signDigest(digest, await readFile6(resolve4(args[keyIndex + 1]), "utf8")), digestSha256: digest }));
+  console.log(JSON.stringify({ keyId: args[keyIdIndex + 1], value: signDigest(digest, await readFile2(resolve2(args[keyIndex + 1]), "utf8")), digestSha256: digest }));
 } else if (command === "release") {
   const outputIndex = args.indexOf("--output");
   const keyIndex = args.indexOf("--key");
   const keyIdIndex = args.indexOf("--key-id");
-  const output = resolve4(outputIndex >= 0 ? args[outputIndex + 1] : "release");
-  const privateKeyPem = keyIndex >= 0 ? await readFile6(resolve4(args[keyIndex + 1]), "utf8") : process.env.ZOER_PLUGIN_SIGNING_KEY;
+  const output = resolve2(outputIndex >= 0 ? args[outputIndex + 1] : "release");
+  const privateKeyPem = keyIndex >= 0 ? await readFile2(resolve2(args[keyIndex + 1]), "utf8") : process.env.ZOER_PLUGIN_SIGNING_KEY;
   const keyId = keyIdIndex >= 0 ? args[keyIdIndex + 1] : process.env.ZOER_PLUGIN_KEY_ID;
   if (Boolean(privateKeyPem) !== Boolean(keyId)) {
     console.error("error: signing needs both a key (--key or ZOER_PLUGIN_SIGNING_KEY) and a key ID (--key-id or ZOER_PLUGIN_KEY_ID)");
@@ -10792,9 +9726,9 @@ if (command === "init") {
   if (!result.valid)
     process.exit(1);
   const { archive, descriptor } = buildRelease(await readPackageTree(root), manifest, privateKeyPem && keyId ? { keyId, privateKeyPem } : undefined);
-  await mkdir6(output, { recursive: true });
-  await writeFile6(join10(output, descriptor.package), archive);
-  await writeFile6(join10(output, "zoer-plugin.json"), `${JSON.stringify(descriptor, null, 2)}
+  await mkdir(output, { recursive: true });
+  await writeFile(join2(output, descriptor.package), archive);
+  await writeFile(join2(output, "zoer-plugin.json"), `${JSON.stringify(descriptor, null, 2)}
 `);
   console.log(JSON.stringify({ output, package: descriptor.package, digestSha256: descriptor.digestSha256, signed: Boolean(descriptor.signature) }));
 } else if (command === "dev") {
@@ -10815,7 +9749,7 @@ if (command === "init") {
     label: (option("--label") ?? `${hostname()}:${root}`).slice(-200),
     enable: args.includes("--enable"),
     build: option("--build"),
-    watchDir: watchDir ? resolve4(watchDir) : undefined
+    watchDir: watchDir ? resolve2(watchDir) : undefined
   });
   process.exit(ok ? 0 : 1);
 } else if (command === "pair") {
@@ -10827,14 +9761,14 @@ if (command === "init") {
   console.log(`export ZOER_URL=${JSON.stringify(zoerUrl)}
 export ZOER_TOKEN=${JSON.stringify(sessionToken)}`);
 } else if (command === "export-cli") {
-  const result = await Bun.build({ entrypoints: [join10(import.meta.dir, "cli.ts")], target: "bun", minify: false });
+  const result = await Bun.build({ entrypoints: [join2(import.meta.dir, "cli.ts")], target: "bun", minify: false });
   if (!result.success)
     throw new AggregateError(result.logs, "zoer-plugin CLI export failed");
-  await mkdir6(dirname6(root), { recursive: true });
+  await mkdir(dirname(root), { recursive: true });
   const code = await result.outputs[0].text();
   const shebang = code.startsWith("#!") ? code.slice(0, code.indexOf(`
 `) + 1) : "";
-  await writeFile6(root, `${shebang}// Generated by \`bun run plugin export-cli\` in the Zoer repository. Do not edit.
+  await writeFile(root, `${shebang}// Generated by \`bun run plugin export-cli\` in the Zoer repository. Do not edit.
 ${code.slice(shebang.length)}`);
   console.log(`Wrote ${root}`);
 } else

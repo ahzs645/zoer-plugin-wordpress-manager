@@ -77,3 +77,12 @@ test("hostinger.check uses the selected bound account through host bearer auth",
  expect(result.calls[0].input.auth).toEqual({type:"bearer",connectionAlias:"hostinger",account:"oc_"+"a".repeat(32)});
  expect(result.output.output).toEqual({ok:true,websites:2,summary:"Hostinger account reachable · 2 websites."});
 });
+
+test("transfer worker entry speaks the line protocol and refuses legacy-engine sites before any network call",async()=>{
+ const request={action:{id:"transfer.pull"},input:{siteId:"hostinger-1",pullId:"a".repeat(32)},grants:{network:{ticket:"n0",endpoints:[]},filesets:{ticket:"f0"},catalog:{ticket:"c0"}},resumable:{step:1,checkpoint:null,attempt:0,deadlineAt:new Date(Date.now()+60_000).toISOString()}};
+ const result=await runWorker("transfers.js",request,call=>({ok:true,result:{revision:3,records:[]},nextTicket:`${call.input.ticket}x`}));
+ expect(result.code).toBe(0);
+ expect(result.calls.map(c=>c.method)).toEqual(["catalog.read"]);
+ expect(result.calls[0].input).toEqual({ids:["site-engine:hostinger-1"],ticket:"c0"});
+ expect(result.output).toMatchObject({ok:false,error:{code:"engine_legacy"}});
+});
