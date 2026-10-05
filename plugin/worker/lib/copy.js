@@ -226,9 +226,9 @@ async function placeFiles(state, ctx) {
   return state.fileOffset >= state.fileCount;
 }
 
-/** Wraps the embedded pull's envelopes so the copy can continue its own state machine. */
+/** Wraps the embedded pull's envelopes (and in-slice progress) so the copy can continue its own state machine. */
 function nested(ctx) {
-  return { ...ctx, continue: (_s, progress, waitMs) => ({ kind: "continue", progress, waitMs }), done: (output) => ({ kind: "done", output }), needsUser: (_s, reason) => { throw new TransferError(reason, { needsUser: true }); } };
+  return { ...ctx, progress: (progress) => ctx.progress({ ...progress, phase: `pulling: ${progress?.phase ?? "working"}` }), continue: (_s, progress, waitMs) => ({ kind: "continue", progress, waitMs }), done: (output) => ({ kind: "done", output }), needsUser: (_s, reason) => { throw new TransferError(reason, { needsUser: true }); } };
 }
 
 export async function stepCopy(state, input, ctx) {

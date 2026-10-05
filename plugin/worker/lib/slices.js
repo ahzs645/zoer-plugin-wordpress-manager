@@ -14,6 +14,8 @@ export const TRANSIENT_CODES = new Set([
 export const PAUSED = "ZOER_PAUSED";
 /** Kept free before the slice deadline to write the checkpoint. */
 export const SLICE_RESERVE_MS = 8_000;
+/** `run.progress` calls closer together are dropped here (the host keeps at most one per second). */
+const PROGRESS_INTERVAL_MS = 1_000;
 
 /** A user-facing failure. `transient` retries the slice; `needsUser` parks the run with `message` as the reason. */
 export class TransferError extends Error {
@@ -30,6 +32,15 @@ export class TransferError extends Error {
 }
 
 export const fail = (message, options) => { throw new TransferError(message, options); };
+
+/**
+ * Between remote calls of a long slice: once Zoer asked the run to pause (or cancel), stop with
+ * `{ paused: true, checkpoint }` instead of starting more external work. Call it only where the
+ * checkpoint is consistent (every committed remote answer already applied).
+ */
+export function stopIfPaused(ctx) {
+  if (ctx.pauseRequested?.()) throw new TransferError("Paused by Zoer.", { code: PAUSED });
+}
 
 export function isTransient(error) {
   return !!error && (error.transient === true || TRANSIENT_CODES.has(error.code));
@@ -48,6 +59,7 @@ export async function runResumable(request, host, spec, clock = Date.now) {
   if (!context) throw new TransferError("This action needs a Zoer release with resumable actions.", { code: "resumable_unsupported" });
   const input = request.input ?? {};
   const deadlineAt = Date.parse(context.deadlineAt);
+  let progressAt = -Infinity;
   const ctx = {
     request, host, input, resumable: context,
     now: clock,
@@ -57,8 +69,18 @@ export async function runResumable(request, host, spec, clock = Date.now) {
     continue: (state, progress, waitMs) => ({ resumable: "continue", checkpoint: state, ...(progress ? { progress: cleanProgress(progress) } : {}), ...(waitMs !== undefined ? { waitMs: Math.max(0, Math.min(3_600_000, Math.round(waitMs))) } : {}) }),
     done: (output, progress) => ({ resumable: "done", output, ...(progress ? { progress: cleanProgress(progress) } : {}) }),
     needsUser: (state, reason, progress) => ({ resumable: "needs-user", checkpoint: state, reason: bounded(reason), ...(progress ? { progress: cleanProgress(progress) } : {}) }),
-    /** Best-effort progress inside a long slice (`run.progress`, at most one per second is kept). */
-    async progress(progress) { try { await host.call("run.progress", { progress: cleanProgress(progress) }); } catch { /* progress is advisory */ } },
+    /** Best-effort progress inside a long slice (`run.progress`, at most one per second is sent). */
+    async progress(progress) {
+      const at = clock();
+      if (at - progressAt < PROGRESS_INTERVAL_MS) return;
+      progressAt = at;
+      try { await host.call("run.progress", { progress: cleanProgress(progress) }); } catch { /* progress is advisory */ }
+    },
+    /**
+     * Zoer's cooperative pause notice (user pause, cancel or deploy drain), carried on host
+     * responses; null while none arrived. Long slices check it between remote calls.
+     */
+    pauseRequested: () => host.pauseRequested ?? null,
   };
   if (context.cancelling) {
     if (spec.cancel) await spec.cancel(context.checkpoint ?? null, input, ctx);

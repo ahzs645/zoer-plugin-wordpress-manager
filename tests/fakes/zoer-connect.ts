@@ -81,6 +81,8 @@ export class FakeZoerConnect {
   /** Files written by activated imports (path → bytes). */
   readonly site: Map<string, Buffer>;
   database: Buffer | null = null;
+  /** Called on every export step (tests advance a fake clock here to give steps a duration). */
+  onExportStep?: (job: { id: string; steps: number; status: string }) => void;
   constructor(readonly options: FakeSiteOptions) {
     this.site = new Map(Object.entries(options.existing ?? {}).map(([path, data]) => [path, Buffer.from(data)]));
   }
@@ -173,6 +175,7 @@ export class FakeZoerConnect {
   private stepExport(id: string) {
     const job = this.exports.get(id); if (!job) return json(404, {});
     if (job.status === "preparing" && ++job.steps >= (this.options.exportSteps ?? 1)) job.status = "ready";
+    this.onExportStep?.(job);
     return json(200, { job: this.exportView(job) });
   }
   private chunk(id: string, index: number, offset: number) {

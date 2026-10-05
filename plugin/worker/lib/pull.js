@@ -7,7 +7,7 @@ import { assertPluginEngine, commitRecords, historyRecord, listKind, readRecord 
 import { checkSelection, normalizeConnectUrl, parsePullSource, parseSkipped, validatePullFiles } from "./files.js";
 import { declareEntries, deleteSet, describeSet, setIdFor } from "./filesets.js";
 import { assertExportCapabilities, pullOptionsFrom } from "./options.js";
-import { fail, TransferError } from "./slices.js";
+import { fail, stopIfPaused, TransferError } from "./slices.js";
 import { connectClient, parseStatus, siteEndpoint } from "./zoer-connect.js";
 
 export const HEX32 = /^[a-f0-9]{32}$/;
@@ -127,9 +127,17 @@ function pullRecord(state, status, extra = {}) {
   };
 }
 
-/** Accepts one remote job answer while preparing; returns true once the export is ready and declared. */
-async function prepare(state, ctx, source) {
-  const { host } = ctx;
+/**
+ * Preparation budget. A further remote export step starts only while the slice has more than
+ * the paged-manifest loop's 10 s left (after `SLICE_RESERVE_MS`) plus the slowest step seen in
+ * this slice, so a slow source step still returns before the deadline. Steps follow each other
+ * with no pause, like the host engine's runner (`WordPressPullRunner` steps a preparing pull
+ * back to back; it only holds between steps for transient-failure backoff, which S1 retries do).
+ */
+const PREPARE_TIME_LEFT_MS = 10_000;
+
+/** One remote job answer while preparing: create once, then poll; identity and status are checked. */
+async function pollExport(state, source) {
   const id = state.pullId;
   let current;
   if (!state.remoteCreated) {
@@ -148,7 +156,28 @@ async function prepare(state, ctx, source) {
     state.preparation = { phase: String(current.phase), files: Number(current.fileCount) || 0, ...(current.sourcePaused === true ? { sourcePaused: true } : {}),
       ...(current.checkpoint && typeof current.checkpoint === "object" ? { checkpoint: Object.fromEntries(Object.entries(current.checkpoint).filter(([key, value]) => PREPARATION_KEYS.includes(key) && Number.isSafeInteger(value) && value >= 0 && value <= 64 * 1024 ** 3)) } : {}) };
   }
-  if (current.status !== "ready") return false;
+  return current;
+}
+
+/**
+ * Steps the remote export until it is ready, its manifest is declared, or the slice budget runs
+ * out; returns true once the export is ready and declared. At least one step runs per slice.
+ */
+async function prepare(state, ctx, source) {
+  const { host } = ctx;
+  const id = state.pullId;
+  let current, slowest = 0;
+  for (let first = true; ; first = false) {
+    if (!first) {
+      if (ctx.timeLeft() <= PREPARE_TIME_LEFT_MS + slowest) return false;
+      stopIfPaused(ctx);
+    }
+    const started = ctx.now();
+    current = await pollExport(state, source);
+    slowest = Math.max(slowest, ctx.now() - started);
+    if (current.status === "ready") break;
+    await ctx.progress(progressOf(state));
+  }
   if (!(await validateSource(state, current, source))) fail("Export source information does not match this connection.");
   const set = { setId: state.setId, name: `${state.kind === "local-export" ? "Local export" : "Pull"} ${state.siteId}`.slice(0, 120), rules: "site-export", labels: { kind: state.kind, siteId: state.siteId, pullId: id } };
   if (state.paged) {
@@ -158,8 +187,9 @@ async function prepare(state, ctx, source) {
     const seen = new Set();
     // Pages of ≤ 500 files until the manifest is declared or the slice runs out of time. Like the
     // host engine, the export is polled again before every further page (it must stay ready).
-    for (let first = true; state.declared < state.total && ctx.timeLeft() > 10_000; first = false) {
+    for (let first = true; state.declared < state.total && ctx.timeLeft() > PREPARE_TIME_LEFT_MS; first = false) {
       if (!first) {
+        stopIfPaused(ctx);
         const again = await source.step(id);
         const job = again?.job ?? again;
         if (job?.id !== id || job.status !== "ready") fail("Remote export is incomplete or unavailable.");
@@ -221,8 +251,8 @@ export async function stepPull(state, input, ctx) {
   const { host } = ctx;
   const source = sourceOf(host, ctx.request, state);
   if (state.phase === "preparing") {
-    const ready = await prepare(state, ctx, source);
-    if (!ready) return ctx.continue(state, progressOf(state), state.paged && state.declared < (state.total ?? Infinity) ? 0 : 2_000);
+    // The slice ran out of time: continue at once (the host engine polls without a pause too).
+    if (!(await prepare(state, ctx, source))) return ctx.continue(state, progressOf(state), 0);
   }
   if (state.phase === "downloading") {
     if (!(await download(state, ctx, source))) return ctx.continue(state, progressOf(state));

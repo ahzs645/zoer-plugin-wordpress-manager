@@ -206,6 +206,11 @@ export class FakeWorld {
   networkRequests = 0;
   /** Called with every slice envelope (the harness checks them with Zoer's own parser). */
   envelopeCheck?: (envelope: unknown, actionId: string) => void;
+  /**
+   * Zoer's pause notice (user pause, cancel or drain). While set, every host response carries it
+   * and calls that start external work are refused with `ZOER_PAUSED`, like the real runner.
+   */
+  pause: { reason: "maintenance"; graceSeconds: number; drainId?: string } | null = null;
   addSite(id: string, site: FakeZoerConnect, generation = "g1") { this.endpoints.set(id, { id, origin: site.options.origin, label: id, generation, site }); return site; }
   rotateKey(id: string) { const e = this.endpoints.get(id)!; e.generation = e.generation + "x"; }
 
@@ -218,9 +223,12 @@ export class FakeWorld {
   }
 
   host(actionId: string, runId: string, effect: string, execution: number) {
+    const world = this;
     return {
+      get pauseRequested() { return world.pause; },
       call: async (method: string, input: any = {}) => {
         this.calls.push({ method, input });
+        if (this.pause && ["network.fetch", "runtime.invoke"].includes(method)) refuse("Paused for Zoer update", "ZOER_PAUSED");
         const service = this.services[method];
         if (service) return service(input, { actionId, runId, effect, execution });
         return this.serve(method, input, effect);
@@ -371,15 +379,20 @@ export class FakeWorld {
   }
 
   /** Runs one action through its slices like the S1 dispatcher (continue/retry loop; stops at needs-user, done or failure). */
-  async run(actionId: string, input: any, options: { runId?: string; effect?: string; maxSlices?: number; checkpoint?: any; step?: number; cancelling?: boolean; onSlice?: (envelope: any, slice: number) => void | Promise<void> } = {}) {
+  /**
+   * `clock` replaces Date.now for the worker (and the slice deadline); `deadlineMs` is the time
+   * each slice gets (default 300 s, the pull's `stepTimeoutMs`).
+   */
+  async run(actionId: string, input: any, options: { runId?: string; effect?: string; maxSlices?: number; checkpoint?: any; step?: number; cancelling?: boolean; clock?: () => number; deadlineMs?: number; onSlice?: (envelope: any, slice: number) => void | Promise<void> } = {}) {
+    const clock = options.clock ?? Date.now;
     const effect = options.effect ?? ({ "transfer.push": "external_write", "transfer.replace": "external_write", "transfer.push.control": "external_write" } as Record<string, string>)[actionId] ?? "local_write";
     let checkpoint = options.checkpoint ?? null;
     const envelopes: any[] = [];
     const resumable = actionId !== "transfer.push.control";
     for (let slice = options.step ?? 1; slice <= (options.maxSlices ?? 200); slice++) {
-      const request = this.request(actionId, input, options.runId ?? "run-1", resumable ? { step: slice, checkpoint, attempt: 0, deadlineAt: new Date(Date.now() + 300_000).toISOString(), ...(options.cancelling ? { cancelling: true } : {}) } : undefined);
+      const request = this.request(actionId, input, options.runId ?? "run-1", resumable ? { step: slice, checkpoint, attempt: 0, deadlineAt: new Date(clock() + (options.deadlineMs ?? 300_000)).toISOString(), ...(options.cancelling ? { cancelling: true } : {}) } : undefined);
       let envelope: any;
-      try { envelope = await runTransferAction(request, this.host(actionId, request.run.id, effect, slice)); }
+      try { envelope = await runTransferAction(request, this.host(actionId, request.run.id, effect, slice), clock); }
       catch (error) { return { status: "failed" as const, error: error as Error & { code?: string }, envelopes, checkpoint }; }
       envelopes.push(envelope);
       if (resumable) this.envelopeCheck?.(envelope, actionId);

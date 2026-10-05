@@ -83,7 +83,8 @@ describe("transfer.pull", () => {
     const w = new FakeWorld();
     w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 3 }));
     w.catalog.engine("hostinger-1");
-    const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { onSlice: (_e, slice) => { if (slice === 1) w.rotateKey("hostinger-1"); } , maxSlices: 3 });
+    // 18 s slices leave room for one export step each, so the key rotates mid-preparation.
+    const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { onSlice: (_e, slice) => { if (slice === 1) w.rotateKey("hostinger-1"); } , maxSlices: 3, deadlineMs: 18_000 });
     expect(result.status).toBe("needs-user");
     expect((result as any).reason).toBe("This connection changed. Cancel the old pull and start a new one.");
   });
@@ -113,13 +114,125 @@ describe("transfer.pull", () => {
     const w = new FakeWorld();
     const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 3 }));
     w.catalog.engine("hostinger-1");
-    const first = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { maxSlices: 1 });
+    const first = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { maxSlices: 1, deadlineMs: 18_000 });
     const checkpoint = first.checkpoint ?? first.envelopes.at(-1)?.checkpoint;
     expect(checkpoint.remoteCreated).toBe(true);
     const cancelled = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { checkpoint, cancelling: true, maxSlices: 1 });
     expect(cancelled.status).toBe("succeeded");
     expect(source.exports.get(PULL)!.status).toBe("cancelled");
     expect(w.sets.sets.has(`fs_${PULL}`)).toBe(false);
+  });
+});
+
+describe("export preparation pacing", () => {
+  const steps = (site: FakeZoerConnect) => site.log.filter(l => l.method === "POST" && /\/step$/.test(l.route)).length;
+  /** A fake clock where every remote export step takes `stepMs` (5.5 s: the live per-step baseline). */
+  function timed(site: FakeZoerConnect, stepMs = 5_500) {
+    let now = Date.parse("2026-10-04T12:00:00Z");
+    site.onExportStep = () => { now += stepMs; };
+    return () => now;
+  }
+
+  test("several remote export steps run within one slice, back to back", async () => {
+    const w = new FakeWorld();
+    const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 6 }));
+    w.catalog.engine("hostinger-1");
+    const clock = timed(source);
+    const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { clock });
+    expect(result.status).toBe("succeeded");
+    // Create, six polls until ready, the download and the seal: all in the first slice.
+    expect(result.envelopes).toHaveLength(1);
+    expect(steps(source)).toBe(6);
+    expect(source.log.filter(l => l.method === "POST" && l.route === "/exports")).toHaveLength(1);
+    // The polls report preparation progress inside the slice.
+    expect(w.calls.filter(c => c.method === "run.progress").map(c => c.input.progress.phase)).toEqual(Array(5).fill("preparing"));
+  });
+
+  test("the slice yields when its budget runs out and the next slice keeps polling at once", async () => {
+    const w = new FakeWorld();
+    const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 80 }));
+    w.catalog.engine("hostinger-1");
+    const clock = timed(source);
+    const start = clock();
+    const first = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { clock, maxSlices: 1 });
+    const envelope = first.envelopes[0];
+    expect(envelope).toMatchObject({ resumable: "continue", waitMs: 0, checkpoint: { phase: "preparing", remoteCreated: true }, progress: { phase: "preparing" } });
+    // 300 s slice, 8 s reserve, 10 s budget plus the slowest step (5.5 s): 51 steps of 5.5 s.
+    expect(steps(source)).toBe(51);
+    expect(clock() - start).toBe(51 * 5_500);
+    expect(clock()).toBeLessThan(start + 300_000 - 8_000);
+    const rest = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { clock, checkpoint: envelope.checkpoint, step: 2 });
+    expect(rest.status).toBe("succeeded");
+    expect(rest.envelopes).toHaveLength(1);
+    expect(steps(source)).toBe(80);
+    // Created once; the later slice only polled.
+    expect(source.log.filter(l => l.method === "POST" && l.route === "/exports")).toHaveLength(1);
+  });
+
+  test("a slow step shortens the slice so the next step cannot overrun the deadline", async () => {
+    const w = new FakeWorld();
+    const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 80 }));
+    w.catalog.engine("hostinger-1");
+    const clock = timed(source, 50_000);
+    const start = clock();
+    const first = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { clock, maxSlices: 1 });
+    expect(first.envelopes[0]).toMatchObject({ resumable: "continue", waitMs: 0 });
+    // After 5 steps 42 s are left, less than 10 s + 50 s: a sixth step could miss the deadline.
+    expect(steps(source)).toBe(5);
+    expect(clock()).toBeLessThan(start + 300_000 - 8_000);
+  });
+
+  test("a pause notice stops preparation between steps with the checkpoint", async () => {
+    const w = new FakeWorld();
+    const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 10 }));
+    w.catalog.engine("hostinger-1");
+    source.onExportStep = (job) => { if (job.steps === 3) w.pause = { reason: "maintenance", graceSeconds: 60, drainId: "user-pause:run-1" }; };
+    const first = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { maxSlices: 1 });
+    expect(first.envelopes[0]).toMatchObject({ paused: true, checkpoint: { phase: "preparing", remoteCreated: true } });
+    expect(steps(source)).toBe(3);
+    // The worker checked the notice itself: no further step was even attempted (and refused).
+    expect(w.calls.filter(c => c.method === "network.fetch" && String(c.input.url).endsWith("/step"))).toHaveLength(3);
+    w.pause = null;
+    const resumed = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { checkpoint: first.envelopes[0].checkpoint, step: 2 });
+    expect(resumed.status).toBe("succeeded");
+    expect(steps(source)).toBe(10);
+    expect(source.log.filter(l => l.method === "POST" && l.route === "/exports")).toHaveLength(1);
+  });
+
+  test("paged manifests: polls until ready, then pages, within one slice", async () => {
+    const w = new FakeWorld();
+    const source = w.addSite("hostinger-1", sampleSite("https://source.example", { pagedExport: true, pageSize: 2, exportSteps: 4 }));
+    w.catalog.engine("hostinger-1");
+    const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { clock: timed(source) });
+    expect(result.status).toBe("succeeded");
+    expect(result.envelopes).toHaveLength(1);
+    // Four polls to ready, then a poll before each further page (the host engine's order).
+    const routes = source.log.map(l => l.route.replace(/\?.*$/, "")).filter(r => r !== "/status" && !r.endsWith("/batch"));
+    expect(routes).toEqual(["/exports/paged", ...Array(4).fill(`/exports/paged/${PULL}/step`), `/exports/paged/${PULL}/manifest`,
+      ...Array(3).fill([`/exports/paged/${PULL}/step`, `/exports/paged/${PULL}/manifest`]).flat()]);
+  });
+
+  test("local exports poll the DDEV bridge within one slice", async () => {
+    const w = new FakeWorld();
+    const content = sampleSite("https://shop.ddev.site", { exportSteps: 5 });
+    w.ddev.add("ddev-shop", "shop", content);
+    w.catalog.engine("ddev-shop");
+    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { clock: timed(content) });
+    expect(result.status).toBe("succeeded");
+    expect(result.envelopes).toHaveLength(1);
+    expect(w.calls.filter(c => c.method === "runtime.invoke").map(c => c.input.operation)).toEqual(["runtime.inspect.v1", "export.create.v1", ...Array(4).fill("export.step.v1")]);
+  });
+
+  test("copy.local prepares its embedded pull in one slice and labels the progress", async () => {
+    const w = new FakeWorld();
+    const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 6 }));
+    w.catalog.engine("hostinger-1");
+    const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" }, { clock: timed(source) });
+    expect(result.status).toBe("succeeded");
+    expect(steps(source)).toBe(6);
+    // Only the DDEV site start waits between slices; the pull never does.
+    expect(result.envelopes.filter((e: any) => String(e.progress?.phase).startsWith("pulling"))).toHaveLength(0);
+    expect(w.calls.filter(c => c.method === "run.progress").map(c => c.input.progress.phase)).toEqual(Array(5).fill("pulling: preparing"));
   });
 });
 
@@ -349,6 +462,19 @@ describe("line protocol and response mapping", () => {
     await host.call("network.fetch", {});
     expect(seen).toEqual(["n0", "f0", "f1", "w0", "n1"]);
     await expect(host.call("catalog.read", {})).rejects.toMatchObject({ code: "capability_denied" });
+  });
+
+  test("the pause notice riding on host responses is kept, also from a refusal", async () => {
+    const pause = { reason: "maintenance", graceSeconds: 60, drainId: "user-pause:run-1" };
+    let paused = false;
+    const host = createTicketHost({ grants: { network: { ticket: "n0" } } }, async (message: any) => paused
+      ? { kind: "host-response", requestId: message.requestId, ok: false, error: { code: "ZOER_PAUSED", message: "Paused for Zoer update" }, pause }
+      : { kind: "host-response", requestId: message.requestId, ok: true, result: {} });
+    await host.call("network.fetch", {});
+    expect(host.pauseRequested).toBeNull();
+    paused = true;
+    await expect(host.call("network.fetch", {})).rejects.toMatchObject({ code: "ZOER_PAUSED" });
+    expect(host.pauseRequested).toEqual(pause);
   });
 
   test("Zoer Connect answers map to the host engine's messages and retry rules", () => {

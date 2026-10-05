@@ -44,8 +44,11 @@ export function ticketsFrom(grants = {}) {
 export function createTicketHost(request, exchange) {
   const tickets = ticketsFrom(request.grants);
   let sequence = 0;
+  let pause = null;
   return {
     request,
+    /** The last pause notice Zoer sent with a host response (user pause, cancel or drain), else null. */
+    get pauseRequested() { return pause; },
     async call(method, input = {}) {
       const grant = grantOf(method, input);
       if (grant && !tickets.has(grant)) throw new HostCallError(`This action has no ${grant.replace(/^runtime:/, "runtime ")} grant.`, "capability_denied");
@@ -53,6 +56,7 @@ export function createTicketHost(request, exchange) {
       const response = await exchange({ protocolVersion: "1", kind: "host-call", requestId, method, input: grant ? { ...input, ticket: tickets.get(grant) } : input });
       if (grant && response?.nextTicket) tickets.set(grant, response.nextTicket);
       if (!response || response.kind !== "host-response" || response.requestId !== requestId) throw new HostCallError("Invalid Zoer host response.", "protocol_error");
+      if (response.pause && typeof response.pause === "object") pause = response.pause;
       if (!response.ok) throw new HostCallError(response.error?.message || `${method} was refused.`, response.error?.code, response.error?.details);
       return response.result;
     },
