@@ -206,6 +206,6 @@ export default function PluginTransferWorkspace({ siteId, siteName, connection, 
       {runs.data && !siteRuns.length && <p className="text-sm text-text-secondary">No plugin-engine transfers of this site yet.</p>}
     </section>
     <PluginPulls siteId={siteId} siteName={siteName} onLocalCopy={onLocalCopy} />
-    <details data-zoer-disclosure className="min-w-0"><summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">History</summary><div className="mt-2"><PluginTransferHistory siteId={siteId} /></div></details>
+    <PluginTransferHistory siteId={siteId} disclosure />
   </div>;
 }

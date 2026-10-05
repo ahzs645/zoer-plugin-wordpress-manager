@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import {
-  defaultSelection, filterEngineHistory, mergeEngineHistory, parseHistoryRecord, parseLocalCopyRecord, parsePreviewSummary, parsePullRecord,
+  defaultSelection, filterEngineHistory, historyEmptyText, historySummaryHint, mergeEngineHistory, parseHistoryRecord, parseLocalCopyRecord, parsePreviewSummary, parsePullRecord,
   previewExpired, previewFiles, pullHasDatabase, pushSources, refreshCandidates, type LocalCopyRecord, type PullRecord,
 } from "./records";
 import type { RecentRun } from "./runState";
@@ -83,4 +83,19 @@ test("history merges catalog records with runs; pushes come from runs only", () 
   expect(filterEngineHistory(merged, { siteId: "ep_1", kind: "" }).map(item => item.id[0])).toEqual(["d", "b", "a", "c"]);
   expect(filterEngineHistory(merged, { siteId: "ep_2", kind: "push" }).length).toBe(1);
   expect(filterEngineHistory(merged, { siteId: "alias", kind: "", canonicalId: id => id === "alias" ? "ep_2" : id }).map(item => item.kind)).toEqual(["push"]);
+});
+
+test("a site's History says when it is empty, and how many entries it has", () => {
+  expect(historySummaryHint({ loading: true, count: 0 })).toBe("");
+  expect(historySummaryHint({ loading: false, count: 0 })).toBe("None yet");
+  expect(historySummaryHint({ loading: false, count: 1 })).toBe("1 transfer");
+  expect(historySummaryHint({ loading: false, count: 1200 })).toBe("1,200 transfers");
+  expect(historyEmptyText({ siteScoped: true, anyHistory: true })).toBe("No plugin-engine transfers of this site yet. Finished, failed and cancelled transfers are listed here.");
+  expect(historyEmptyText({ siteScoped: false, anyHistory: true })).toBe("No transfers match these filters.");
+  expect(historyEmptyText({ siteScoped: false, anyHistory: false })).toBe("No plugin-engine transfers yet.");
+});
+
+test("a failed run's history record shows its error", () => {
+  const item = parseHistoryRecord({ id: "history:local-export:x", kind: "transfer-history", data: { v: 1, kind: "local-export", id: "x", siteId: "ddev-shop", status: "failed", startedAt: "2026-10-04T00:00:00Z", summary: "Local export: Database", lastError: "Invalid source URL.", errorCode: "database_query_failed", engine: "plugin" } });
+  expect(item).toMatchObject({ status: "failed", error: "Invalid source URL.", engine: "plugin" });
 });

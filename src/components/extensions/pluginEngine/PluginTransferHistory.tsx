@@ -8,7 +8,7 @@ import { wordpressQueries } from "../../../lib/queries/wordpress";
 import { formatTransferBytes } from "../wordpressPullProgress";
 import { formatDuration } from "../wordpressTransfer/transferLabels";
 import { ENGINE_ACTIONS, engineErrorMessage } from "./runState";
-import { ENGINE_HISTORY_LABELS, filterEngineHistory, mergeEngineHistory, parseHistoryRecord, type EngineHistoryItem } from "./records";
+import { ENGINE_HISTORY_LABELS, filterEngineHistory, historyEmptyText, historySummaryHint, mergeEngineHistory, parseHistoryRecord, type EngineHistoryItem } from "./records";
 
 const HISTORY_ACTIONS = [ENGINE_ACTIONS.pull, ENGINE_ACTIONS.localExport, ENGINE_ACTIONS.push, ENGINE_ACTIONS.replace, ENGINE_ACTIONS.copy, ENGINE_ACTIONS.restore] as const;
 
@@ -25,7 +25,7 @@ const statusText = (status: string) => status === "dry-run" ? "Dry run" : status
  * the operator migration) merged with `runs.recent` of the plugin-engine actions. With `siteId` the
  * list is fixed to that site; otherwise it renders only once the plugin engine has been used.
  */
-export default function PluginTransferHistory({ siteId: fixedSiteId, sites: givenSites, canonicalId = id => id }: { siteId?: string; sites?: WordPressManagedSite[]; canonicalId?: (id: string) => string }) {
+export default function PluginTransferHistory({ siteId: fixedSiteId, sites: givenSites, canonicalId = id => id, disclosure = false }: { siteId?: string; sites?: WordPressManagedSite[]; canonicalId?: (id: string) => string; /** With `siteId`: a collapsed "History" disclosure whose heading says how many entries there are. */ disclosure?: boolean }) {
   const [siteId, setSiteId] = useState("");
   const [kind, setKind] = useState("");
   const listed = useQuery({ ...wordpressQueries.sites(), enabled: !givenSites });
@@ -43,7 +43,7 @@ export default function PluginTransferHistory({ siteId: fixedSiteId, sites: give
   const siteChoices = [...new Map(merged.flatMap(item => [[canonicalId(item.siteId), name(item.siteId, item.siteName)], ...(item.sourceSiteId ? [[canonicalId(item.sourceSiteId), name(item.sourceSiteId)]] : [])] as Array<[string, string]>).filter(([id]) => id)).entries()]
     .map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
 
-  return <section className="min-w-0 space-y-4" aria-label="Plugin-engine transfer history">
+  const list = <section className="min-w-0 space-y-4" aria-label="Plugin-engine transfer history">
     {!fixedSiteId && <>
       <div className="flex items-center gap-2"><FlaskConical className="h-4 w-4 shrink-0" aria-hidden="true" /><h4 className="text-base font-semibold text-text-heading">Plugin-engine transfers</h4></div>
       <p className="text-sm text-text-secondary">Transfers of sites on the plugin engine (test), plus migrated legacy records. Open a site's Transfers dialog to control a running transfer.</p>
@@ -64,7 +64,7 @@ export default function PluginTransferHistory({ siteId: fixedSiteId, sites: give
     </>}
     {loading && <p className="text-sm text-text-secondary">Loading transfers…</p>}
     {error && <p role="alert" className="text-sm text-status-error">Could not load plugin-engine history: {engineErrorMessage(error)} <Btn size="sm" onClick={() => { void records.refetch(); void runs.refetch(); }}>Retry</Btn></p>}
-    {!loading && !error && !items.length && <p className="text-sm text-text-secondary">{merged.length ? "No transfers match these filters." : "No plugin-engine transfers yet."}</p>}
+    {!loading && !error && !items.length && <p className="text-sm text-text-secondary">{historyEmptyText({ siteScoped: !!fixedSiteId, anyHistory: merged.length > 0 })}</p>}
     <ul className="min-w-0 space-y-2">
       {items.map(item => {
         const start = Date.parse(item.startedAt), end = item.finishedAt ? Date.parse(item.finishedAt) : NaN;
@@ -91,4 +91,10 @@ export default function PluginTransferHistory({ siteId: fixedSiteId, sites: give
       })}
     </ul>
   </section>;
+  if (!(disclosure && fixedSiteId)) return list;
+  const hint = historySummaryHint({ loading, count: items.length });
+  return <details data-zoer-disclosure className="min-w-0">
+    <summary className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">History{hint && <span className="text-xs font-normal text-text-secondary">{hint}</span>}</summary>
+    <div className="mt-2">{list}</div>
+  </details>;
 }

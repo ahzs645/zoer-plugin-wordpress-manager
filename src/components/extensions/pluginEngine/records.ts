@@ -214,3 +214,15 @@ export function filterEngineHistory(items: EngineHistoryItem[], { siteId, kind, 
   const site = siteId ? canonicalId(siteId) : "";
   return items.filter(item => (!kind || item.kind === kind) && (!site || canonicalId(item.siteId) === site || (item.sourceSiteId && canonicalId(item.sourceSiteId) === site)));
 }
+
+/** Empty-state text of the transfer history (a site's History disclosure, or the all-sites list). */
+export function historyEmptyText({ siteScoped, anyHistory }: { siteScoped: boolean; anyHistory: boolean }) {
+  if (siteScoped) return "No plugin-engine transfers of this site yet. Finished, failed and cancelled transfers are listed here.";
+  return anyHistory ? "No transfers match these filters." : "No plugin-engine transfers yet.";
+}
+
+/** The hint beside a site's collapsed History heading: how many entries, or that there are none. */
+export function historySummaryHint({ loading, count }: { loading: boolean; count: number }) {
+  if (loading) return "";
+  return count ? `${count.toLocaleString("en-US")} ${count === 1 ? "transfer" : "transfers"}` : "None yet";
+}
