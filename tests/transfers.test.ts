@@ -20,24 +20,22 @@ function world() {
   return { w, source, destination };
 }
 async function pulled(w: FakeWorld, siteId = "hostinger-1", pullId = PULL) {
-  w.catalog.engine(siteId);
   const result = await w.run("transfer.pull", { siteId, pullId });
   expect(result.status).toBe("succeeded");
   return result.output as any;
 }
 
-describe("engine gate", () => {
-  test("every site stays on the legacy engine until it is switched as a test target", async () => {
+describe("every managed site (0.8.0: no engine switch)", () => {
+  test("transfers run on a site without any engine record, and stale 0.7.x engine records are ignored", async () => {
     const { w } = world();
-    const refused = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL });
-    expect(refused.status).toBe("failed");
-    expect((refused as any).error.message).toContain("legacy transfer engine");
-    expect(w.calls.some(c => c.method === "network.fetch")).toBe(false);
-    expect([...w.catalog.records.keys()].some(id => id.startsWith("history:"))).toBe(false);
-    w.catalog.engine("hostinger-1", "plugin", false);
-    expect((await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL })).status).toBe("failed");
-    w.catalog.engine("hostinger-1", "legacy", true);
-    expect((await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL })).status).toBe("failed");
+    expect((await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL })).status).toBe("succeeded");
+    expect(w.calls.some(c => c.method === "catalog.read" && JSON.stringify(c.input).includes("site-engine:"))).toBe(false);
+    // A record left by the 0.7.x switch ("legacy", or "plugin" without the test-target confirmation) changes nothing.
+    for (const [engine, testTarget] of [["legacy", true], ["plugin", false]] as const) {
+      w.catalog.records.set("site-engine:external:dest", { id: "site-engine:external:dest", kind: "site-engine", title: "dest", data: { v: 1, siteId: "external:dest", engine, testTarget, updatedAt: "2026-10-04T00:00:00Z" } });
+      const preview = await w.run("transfer.preview", { siteId: "external:dest", setId: `fs_${PULL}`, previewId: engine === "legacy" ? PREVIEW : PULL2 });
+      expect(preview.status).toBe("succeeded");
+    }
   });
 });
 
@@ -74,7 +72,6 @@ describe("transfer.pull", () => {
 
   test("a transient 503 retries the slice from its checkpoint and Retry-After is honoured", async () => {
     const { w, source } = world();
-    w.catalog.engine("hostinger-1");
     source.failNext(/\/step$/, 503, 1, "7");
     const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL });
     expect(result.status).toBe("succeeded");
@@ -88,7 +85,6 @@ describe("transfer.pull", () => {
   test("a rotated key parks the pull with the host engine's message", async () => {
     const w = new FakeWorld();
     w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 3 }));
-    w.catalog.engine("hostinger-1");
     // 18 s slices leave room for one export step each, so the key rotates mid-preparation.
     const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { onSlice: (_e, slice) => { if (slice === 1) w.rotateKey("hostinger-1"); } , maxSlices: 3, deadlineMs: 18_000 });
     expect(result.status).toBe("needs-user");
@@ -107,7 +103,6 @@ describe("transfer.pull", () => {
 
   test("dry run verifies the download into a scratch set and keeps nothing", async () => {
     const { w, source } = world();
-    w.catalog.engine("hostinger-1");
     const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL, dryRun: true });
     expect(result.status).toBe("succeeded");
     expect((result as any).output).toMatchObject({ status: "dry-run", setId: null, fileCount: 7 });
@@ -119,7 +114,6 @@ describe("transfer.pull", () => {
   test("cancel removes the remote export and the partial set", async () => {
     const w = new FakeWorld();
     const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 3 }));
-    w.catalog.engine("hostinger-1");
     const first = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { maxSlices: 1, deadlineMs: 18_000 });
     const checkpoint = first.checkpoint ?? first.envelopes.at(-1)?.checkpoint;
     expect(checkpoint.remoteCreated).toBe(true);
@@ -142,7 +136,6 @@ describe("export preparation pacing", () => {
   test("several remote export steps run within one slice, back to back", async () => {
     const w = new FakeWorld();
     const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 6 }));
-    w.catalog.engine("hostinger-1");
     const clock = timed(source);
     const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { clock });
     expect(result.status).toBe("succeeded");
@@ -157,7 +150,6 @@ describe("export preparation pacing", () => {
   test("the slice yields when its budget runs out and the next slice keeps polling at once", async () => {
     const w = new FakeWorld();
     const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 80 }));
-    w.catalog.engine("hostinger-1");
     const clock = timed(source);
     const start = clock();
     const first = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { clock, maxSlices: 1 });
@@ -179,7 +171,6 @@ describe("export preparation pacing", () => {
     const w = new FakeWorld();
     const content = sampleSite("https://shop.ddev.site", { exportSteps: 450 });
     w.ddev.add("ddev-shop", "shop", content);
-    w.catalog.engine("ddev-shop");
     const clock = timed(content, 20);
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { clock });
     expect(result.status).toBe("succeeded");
@@ -193,7 +184,6 @@ describe("export preparation pacing", () => {
     const files: Record<string, string> = { "database.sql": "-- db\n" };
     for (let i = 0; i < 450; i++) files[`wp-content/uploads/2024/01/f${i}.txt`] = `file ${i}`;
     w.ddev.add("ddev-shop", "shop", new FakeZoerConnect({ origin: "https://shop.ddev.site", files, exportSteps: 120 }));
-    w.catalog.engine("ddev-shop");
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
     expect(result.status).toBe("succeeded");
     expect((result as any).output.fileCount).toBe(451);
@@ -205,7 +195,6 @@ describe("export preparation pacing", () => {
   test("a slow step shortens the slice so the next step cannot overrun the deadline", async () => {
     const w = new FakeWorld();
     const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 80 }));
-    w.catalog.engine("hostinger-1");
     const clock = timed(source, 50_000);
     const start = clock();
     const first = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { clock, maxSlices: 1 });
@@ -218,7 +207,6 @@ describe("export preparation pacing", () => {
   test("while preparing, progress shows the files the source has listed", async () => {
     const w = new FakeWorld();
     w.addSite("hostinger-1", sampleSite("https://source.example", { pagedExport: true, exportSteps: 3 }));
-    w.catalog.engine("hostinger-1");
     const first = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { maxSlices: 1, deadlineMs: 18_000 });
     expect(first.envelopes[0]).toMatchObject({ resumable: "continue", progress: { phase: "preparing", message: "Remote export: 7 files (database)" } });
     expect(preparationMessage({ phase: "complete", files: 120 })).toBe("Remote export: 120 files (complete)");
@@ -230,7 +218,6 @@ describe("export preparation pacing", () => {
   test("a pause notice stops preparation between steps with the checkpoint", async () => {
     const w = new FakeWorld();
     const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 10 }));
-    w.catalog.engine("hostinger-1");
     source.onExportStep = (job) => { if (job.steps === 3) w.pause = { reason: "maintenance", graceSeconds: 60, drainId: "user-pause:run-1" }; };
     const first = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { maxSlices: 1 });
     expect(first.envelopes[0]).toMatchObject({ paused: true, checkpoint: { phase: "preparing", remoteCreated: true } });
@@ -247,7 +234,6 @@ describe("export preparation pacing", () => {
   test("paged manifests: polls until ready, then pages, within one slice", async () => {
     const w = new FakeWorld();
     const source = w.addSite("hostinger-1", sampleSite("https://source.example", { pagedExport: true, pageSize: 2, exportSteps: 4 }));
-    w.catalog.engine("hostinger-1");
     const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { clock: timed(source) });
     expect(result.status).toBe("succeeded");
     expect(result.envelopes).toHaveLength(1);
@@ -261,7 +247,6 @@ describe("export preparation pacing", () => {
     const w = new FakeWorld();
     const content = sampleSite("https://shop.ddev.site", { exportSteps: 5 });
     w.ddev.add("ddev-shop", "shop", content);
-    w.catalog.engine("ddev-shop");
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { clock: timed(content) });
     expect(result.status).toBe("succeeded");
     expect(result.envelopes).toHaveLength(1);
@@ -271,7 +256,6 @@ describe("export preparation pacing", () => {
   test("copy.local prepares its embedded pull in one slice and labels the progress", async () => {
     const w = new FakeWorld();
     const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 6 }));
-    w.catalog.engine("hostinger-1");
     const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" }, { clock: timed(source) });
     expect(result.status).toBe("succeeded");
     expect(steps(source)).toBe(6);
@@ -285,7 +269,6 @@ describe("deleting a pull", () => {
   test("removes the file set, the record and the export on the site, so the site accepts the next export", async () => {
     const w = new FakeWorld();
     const source = w.addSite("hostinger-1", sampleSite("https://source.example", { singleExport: true, pagedExport: true }));
-    w.catalog.engine("hostinger-1");
     await pulled(w);
     expect(w.catalog.records.get(`pull:${PULL}`)!.data.paged).toBe(true);
     const blocked = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL2 });
@@ -304,7 +287,6 @@ describe("deleting a pull", () => {
   test("an older record without the export API tries both; a removed connection is reported", async () => {
     const w = new FakeWorld();
     const source = w.addSite("hostinger-1", sampleSite("https://source.example"));
-    w.catalog.engine("hostinger-1");
     await pulled(w);
     delete w.catalog.records.get(`pull:${PULL}`)!.data.paged;
     source.failNext(/^\/exports\/paged\//, 404);
@@ -323,7 +305,6 @@ describe("deleting a pull", () => {
     const w = new FakeWorld();
     const content = sampleSite("https://shop.ddev.site", { singleExport: true });
     w.ddev.add("ddev-shop", "shop", content);
-    w.catalog.engine("ddev-shop");
     expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL })).status).toBe("succeeded");
     expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 }) as any).error.message).toBe("Cancel an existing source export before starting another.");
     const removed = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, remove: true });
@@ -335,7 +316,6 @@ describe("deleting a pull", () => {
   test("a running transfer is not deleted", async () => {
     const w = new FakeWorld();
     w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 3 }));
-    w.catalog.engine("hostinger-1");
     w.catalog.records.set(`pull:${PULL}`, { id: `pull:${PULL}`, kind: "pull", title: "p", data: { siteId: "hostinger-1", status: "downloading", setId: `fs_${PULL}` } } as any);
     expect((await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL, remove: true }) as any).error.message).toBe("This transfer is still running. Cancel it instead.");
   });
@@ -346,7 +326,6 @@ describe("transfer.preview and transfer.push", () => {
   test("preview classifies files against the destination and stores pages", async () => {
     const { w, destination } = world();
     await pulled(w);
-    w.catalog.engine("external:dest");
     const result = await w.run("transfer.preview", { siteId: "external:dest", setId: `fs_${PULL}`, previewId: PREVIEW });
     expect(result.status).toBe("succeeded");
     // The theme's .gitignore and the uploads index.php are files Zoer Connect refuses: blocked, never compared.
@@ -365,7 +344,6 @@ describe("transfer.preview and transfer.push", () => {
   test("push uploads with ZBT1 batches, steps the import and finishes byte-identical", async () => {
     const { w, source, destination } = world();
     await pulled(w);
-    w.catalog.engine("external:dest");
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
     expect(result.status).toBe("succeeded");
     expect((result as any).output).toMatchObject({ status: "complete", importId: IMPORT, fileCount: 5,
@@ -394,7 +372,6 @@ describe("transfer.preview and transfer.push", () => {
     w.addSite("hostinger-1", new FakeZoerConnect({ origin: "https://source.example", files }));
     const destination = w.addSite("external:dest", new FakeZoerConnect({ origin: "https://dest.example", files: {} }));
     await pulled(w);
-    w.catalog.engine("external:dest");
     let now = Date.parse("2026-10-04T12:00:00Z");
     let batches = 0;
     destination.onRequest = (route) => { if (route.endsWith("/batch")) { now += 10_000; if (++batches === 2) w.userPause = true; } };
@@ -413,7 +390,6 @@ describe("transfer.preview and transfer.push", () => {
   test("review pauses the push for the user; approve through push.control, then resume completes", async () => {
     const { w, destination } = world();
     await pulled(w);
-    w.catalog.engine("external:dest");
     const options = { replacements: { automatic: true, variants: false, paths: false, custom: [] }, fence: "activation", review: true };
     const first = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, importOptions: options, ...confirm });
     expect(first.status).toBe("needs-user");
@@ -429,7 +405,6 @@ describe("transfer.preview and transfer.push", () => {
   test("selective push sends only the reviewed paths, database first", async () => {
     const { w, destination } = world();
     await pulled(w);
-    w.catalog.engine("external:dest");
     await w.run("transfer.preview", { siteId: "external:dest", setId: `fs_${PULL}`, previewId: PREVIEW });
     const selectedPaths = ["wp-content/uploads/2024/01/photo.jpg", "database.sql"];
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, previewId: PREVIEW, selectedPaths, ...confirm });
@@ -444,7 +419,6 @@ describe("transfer.preview and transfer.push", () => {
   test("the import ID is checkpointed before the import is created; a lost answer picks up the same import", async () => {
     const { w, destination } = world();
     await pulled(w);
-    w.catalog.engine("external:dest");
     w.loseResponses.push({ method: "POST", pattern: /^\/imports$/, count: 1 });
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
     expect(result.status).toBe("succeeded");
@@ -460,7 +434,6 @@ describe("transfer.preview and transfer.push", () => {
   test("a manifest that changed between planning and creation is refused", async () => {
     const { w, destination } = world();
     await pulled(w);
-    w.catalog.engine("external:dest");
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm }, { onSlice: (_e, slice) => { if (slice === 1) w.catalog.records.get(`pull:${PULL}`)!.data.source.prefix = "wp2_"; } });
     // A definite refusal ends the external-write run with a failure result, not "outcome unknown".
     expect(result.status).toBe("succeeded");
@@ -471,7 +444,6 @@ describe("transfer.preview and transfer.push", () => {
   test("a refused import fails cleanly with the site's message and cancels the staged import", async () => {
     const { w, destination } = world();
     await pulled(w);
-    w.catalog.engine("external:dest");
     const message = "Every imported core or plugin table requires an existing matching destination schema.";
     (destination.options as any).refuseImport = { phase: "scanning_database", message };
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
@@ -487,7 +459,6 @@ describe("transfer.preview and transfer.push", () => {
   test("a lost answer is not a refusal: the step is retried", async () => {
     const { w } = world();
     await pulled(w);
-    w.catalog.engine("external:dest");
     w.loseResponses.push({ method: "POST", pattern: /\/step$/, count: 1 });
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
     expect(result.status).toBe("succeeded");
@@ -498,7 +469,6 @@ describe("transfer.preview and transfer.push", () => {
   test("the dry run names tables the destination lacks and suggests Create missing tables", async () => {
     const { w, destination } = world();
     await pulled(w);
-    w.catalog.engine("external:dest");
     (destination.options as any).tables = ["options"];
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, dryRun: true, ...confirm });
     expect((result as any).output.plan.missingTables).toEqual(["posts"]);
@@ -510,7 +480,6 @@ describe("transfer.preview and transfer.push", () => {
   test("dry run plans the push and sends nothing that writes", async () => {
     const { w, destination } = world();
     await pulled(w);
-    w.catalog.engine("external:dest");
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, dryRun: true, ...confirm });
     // Files Zoer Connect would refuse are reported in the plan, before anything is sent.
     expect((result as any).output).toMatchObject({ status: "dry-run", plan: { files: 4, database: true, batchUpload: true, skipped: { count: 2, reason: "not accepted by Zoer Connect" },
@@ -523,7 +492,6 @@ describe("transfer.preview and transfer.push", () => {
   test("changed key parks the import with the host engine's recovery message", async () => {
     const { w } = world();
     await pulled(w);
-    w.catalog.engine("external:dest");
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm }, { onSlice: (_e, slice) => { if (slice === 1) w.rotateKey("external:dest"); } });
     // The first slice may already have finished the small import; otherwise the next slice parks.
     if (result.status !== "succeeded") expect((result as any).reason).toBe("Connection changed. Restore the original connection to recover this import.");
@@ -532,12 +500,10 @@ describe("transfer.preview and transfer.push", () => {
   test("destination confirmation, policy and source checks match the host engine", async () => {
     const { w } = world();
     await pulled(w);
-    w.catalog.engine("external:dest");
     const wrong = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, confirmTarget: "https://other.example", replacementAccepted: true });
     expect((wrong as any).output.error.message).toBe("Confirm the exact destination address.");
     const noPolicy = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, confirmTarget: "https://dest.example" });
     expect((noPolicy as any).output.error.message).toContain("confirm the destination replacement policy");
-    w.catalog.engine("hostinger-1");
     const same = await w.run("transfer.push", { siteId: "hostinger-1", setId: `fs_${PULL}`, importId: IMPORT, confirmTarget: "https://source.example", replacementAccepted: true });
     expect((same as any).output.error.message).toContain("Choose a different source");
   });
@@ -546,7 +512,6 @@ describe("transfer.preview and transfer.push", () => {
 describe("copy.local", () => {
   test("pulls, creates a DDEV site, stages verified files, imports and verifies", async () => {
     const { w, source } = world();
-    w.catalog.engine("hostinger-1");
     const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
     expect(result.status).toBe("succeeded");
     const output = (result as any).output;
@@ -562,7 +527,6 @@ describe("copy.local", () => {
 
   test("refresh takes a recovery backup first and reuses the copy", async () => {
     const { w } = world();
-    w.catalog.engine("hostinger-1");
     const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
     const targetId = (first as any).output.targetId;
     const refresh = await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, replaceSiteId: targetId });
@@ -573,7 +537,6 @@ describe("copy.local", () => {
 
   test("a failed command parks the copy with its message; resume continues the same destination", async () => {
     const { w } = world();
-    w.catalog.engine("hostinger-1");
     w.ddev.failCommand = { command: "wordpress.copy.finish", message: "Local website verification failed.", count: 1 };
     const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
     expect(first.status).toBe("needs-user");
@@ -585,7 +548,6 @@ describe("copy.local", () => {
 
   test("dry run restores into a scratch site that goes to the trash, and keeps no pull", async () => {
     const { w } = world();
-    w.catalog.engine("hostinger-1");
     const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop", dryRun: true });
     expect((result as any).output).toMatchObject({ status: "dry-run", siteName: `zoer-dryrun-${COPY.slice(0, 8)}`, targetUrl: null });
     expect([...w.ddev.sites.values()][0]!.state).toBe("archived");
@@ -596,7 +558,6 @@ describe("copy.local", () => {
   test("an executable upload that is not a placeholder is refused before anything is created", async () => {
     const w = new FakeWorld();
     w.addSite("hostinger-1", new FakeZoerConnect({ origin: "https://source.example", files: { "database.sql": "x", "wp-content/uploads/index.php": "<?php echo 1;" } }));
-    w.catalog.engine("hostinger-1");
     const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
     expect((result as any).error.message).toContain("executable upload");
     expect(w.ddev.sites.size).toBe(0);
@@ -609,7 +570,6 @@ describe("transfer.local-export", () => {
   test("exports a DDEV site through bridge operations and a runtime peer", async () => {
     const w = new FakeWorld();
     w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
-    w.catalog.engine("ddev-shop");
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
     expect(result.status).toBe("succeeded");
     expect((result as any).output).toMatchObject({ kind: "local-export", status: "ready", fileCount: 7 });
@@ -620,7 +580,6 @@ describe("transfer.local-export", () => {
   test("default options send the host engine's body, valid against Zoer's export.create.v1 schema", async () => {
     const w = new FakeWorld();
     w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
-    w.catalog.engine("ddev-shop");
     // The UI sends the default export options (PluginPushFlow); omitting them means the same.
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, exportOptions: defaultExportOptions() });
     expect(result.status).toBe("succeeded");
@@ -637,7 +596,6 @@ describe("transfer.local-export", () => {
   test("database filters reach the bridge as filters", async () => {
     const w = new FakeWorld();
     w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
-    w.catalog.engine("ddev-shop");
     const options = defaultExportOptions();
     options.database.excludeRevisions = true;
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, exportOptions: options });
@@ -650,7 +608,6 @@ describe("transfer.local-export", () => {
   test("a bridge refusal fails at once with the bridge's message and Zoer's code", async () => {
     const w = new FakeWorld();
     w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
-    w.catalog.engine("ddev-shop");
     w.ddev.failOperation = { operation: "export.create.v1", message: "Invalid export selections.", code: "database_query_failed", count: 99 };
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
     expect(result.status).toBe("failed");
@@ -665,7 +622,6 @@ describe("transfer.local-export", () => {
   test("a run that gives up after repeated transient failures leaves a failed history record", async () => {
     const w = new FakeWorld();
     w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
-    w.catalog.engine("ddev-shop");
     w.ddev.failOperation = { operation: "export.create.v1", message: "DDEV bridge request failed (503).", code: "database_query_failed", count: 99 };
     let recordedAt = 0;
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { onSlice: (_e, slice) => { if (!recordedAt && w.catalog.records.has(`history:local-export:${PULL}`)) recordedAt = slice; } });
@@ -679,7 +635,6 @@ describe("transfer.local-export", () => {
   test("a bridge transport failure retries with the bridge's message and code", async () => {
     const w = new FakeWorld();
     w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
-    w.catalog.engine("ddev-shop");
     w.ddev.failOperation = { operation: "export.create.v1", message: "DDEV bridge request failed (502).", code: "database_query_failed", count: 1 };
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
     expect(result.status).toBe("succeeded");
@@ -690,7 +645,6 @@ describe("transfer.local-export", () => {
     const w = new FakeWorld();
     const content = sampleSite("https://shop.ddev.site", { singleExport: true });
     w.ddev.add("ddev-shop", "shop", content);
-    w.catalog.engine("ddev-shop");
     w.services["transfer.download"] = () => { throw Object.assign(new Error("The peer refused the request."), { name: "HostCallError", code: "transfer_rejected" }); };
     const failed = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
     expect((failed as any).error.message).toBe("The peer refused the request.");
@@ -706,7 +660,6 @@ describe("transfer.local-export", () => {
   test("an export without the database is refused before anything starts", async () => {
     const w = new FakeWorld();
     w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
-    w.catalog.engine("ddev-shop");
     const options = defaultExportOptions();
     options.resources.database = false;
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, exportOptions: options });
@@ -764,7 +717,6 @@ describe("transfer.push.control", () => {
     w.addSite("hostinger-1", new FakeZoerConnect({ origin: "https://source.example", files }));
     const destination = w.addSite("external:dest", new FakeZoerConnect({ origin: "https://dest.example", files: {}, existing: { "wp-content/uploads/2024/01/f0.jpg": "old 0" }, importTables: 12 }));
     await pulled(w);
-    w.catalog.engine("external:dest");
     const pushed = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
     expect((pushed as any).output.status).toBe("complete");
     expect(destination.site.get("wp-content/uploads/2024/01/f0.jpg")!.toString()).toBe("new 0");
@@ -857,7 +809,6 @@ describe("files Zoer Connect refuses", () => {
     const destination = w.addSite("external:dest", new FakeZoerConnect({ origin: "https://dest.example", files: {} }));
     await pulled(w);
     expect(w.sets.get(`fs_${PULL}`).entries.some(e => e.path === "wp-content/plugins/akismet/.htaccess")).toBe(true);
-    w.catalog.engine("external:dest");
     const options = { replacements: { automatic: true, variants: false, paths: false, custom: [] }, fence: "activation", review: true };
     const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, importOptions: options, confirmTarget: "https://dest.example", replacementAccepted: true });
     expect(result.status).toBe("needs-user");

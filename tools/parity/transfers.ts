@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
 /**
  * Parity harness: the plugin transfer engine (0.7.1 workers) against the legacy Zoer host engine,
- * entirely in this process (docs/plugin-shared-services.md 16.5 P3.3). No servers, no network:
+ * entirely in this process (docs/plugin-shared-services.md 16.5 P3.3). No servers, no network.
+ * Historical since 0.8.0: `--zoer` must point at a Zoer checkout from before P4 deleted the legacy
+ * engine (e.g. the P3 host branch); the plugin itself no longer depends on that engine.
  *
  *   bun tools/parity/transfers.ts --zoer ~/github/zoer-wt/p3-host [--json report.json] [--only pull]
  *
@@ -118,7 +120,7 @@ async function pluginWorld(sites: Record<string, FakeZoerConnect>, root: string)
     const parsed = protocol.parseResumableStepOutput(envelope);
     if (!parsed.ok) envelopeProblems.push(`${actionId}: ${parsed.message}`);
   };
-  for (const [id, site] of Object.entries(sites)) { world.addSite(id, site); world.catalog.engine(id); }
+  for (const [id, site] of Object.entries(sites)) { world.addSite(id, site); }
   const files = new store.DiskFileSetStore({ root: join(root, "filesets"), resolveRules: async () => integration.fileRules, env: {} });
   filesetCalls.setFilesetHostStoreForTests(files);
   const siteFor = (url: URL) => [...world.endpoints.values()].find(e => url.href.startsWith(`${e.origin}/wp-json/zoer-connect/v1/`));

@@ -3,7 +3,7 @@
 // every check follow the legacy host engine (`WordPressPullStore.step` in Zoer
 // `backend/src/wordpress-pull.ts`); bytes move host-side (`transfer.download`), never through the
 // worker.
-import { assertPluginEngine, commitRecords, historyRecord, listKind, readRecord, recordFailedTransfer, selectionWords } from "./catalog.js";
+import { commitRecords, historyRecord, listKind, readRecord, recordFailedTransfer, selectionWords } from "./catalog.js";
 import { checkSelection, normalizeConnectUrl, parsePullSource, parseSkipped, validatePullFiles } from "./files.js";
 import { declareEntries, deleteSet, describeSet, setIdFor } from "./filesets.js";
 import { assertExportCapabilities, pullOptionsFrom } from "./options.js";
@@ -120,7 +120,6 @@ export async function startPull(kind, input, ctx) {
   if (input.remove === true) return startRemoval(kind, input, ctx);
   const pullId = input.pullId ?? runHex(request);
   if (!HEX32.test(pullId)) fail("A valid transfer request ID is required.");
-  await assertPluginEngine(host, input.siteId);
   if (input.snapshotMode !== undefined && input.snapshotMode !== "maintenance") fail("Choose a valid snapshot mode.");
   const media = input.exportOptions?.media?.mode === "since-last" ? await lastMediaDate(host, input.siteId) : null;
   const options = pullOptionsFrom(input.exportOptions, media);
@@ -326,7 +325,6 @@ async function download(state, ctx, source) {
 async function startRemoval(kind, input, ctx) {
   const { host } = ctx;
   if (!HEX32.test(input.pullId ?? "")) fail("A valid transfer request ID is required.");
-  await assertPluginEngine(host, input.siteId);
   const data = (await readRecord(host, `pull:${input.pullId}`))?.data ?? null;
   if (data && data.siteId !== input.siteId) fail("This download belongs to another site.");
   if (data?.status === "downloading") fail("This transfer is still running. Cancel it instead.");

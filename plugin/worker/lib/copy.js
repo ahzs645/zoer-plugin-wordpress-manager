@@ -3,7 +3,7 @@
 // runtime peer (`files.stage.v1`), S8 command bundles (`runtime.exec.v1`), S9 site creation and
 // S5 site addresses. The steps, checks and messages follow the legacy host engine
 // (`wordpress-local-copy.ts`, `wordpress-copy-workflow.ts`, `wordpress-backup-restore.ts`).
-import { assertPluginEngine, commitRecords, historyRecord, listKind, readRecord, recordFailedTransfer } from "./catalog.js";
+import { commitRecords, historyRecord, listKind, readRecord, recordFailedTransfer } from "./catalog.js";
 import { EMPTY_SHA256, hasOnlyMacMetadataExclusions, isUploadPlaceholder } from "./files.js";
 import { deleteSet, describeSet, listEntries, readText } from "./filesets.js";
 import { defaultExportOptions } from "./options.js";
@@ -56,7 +56,6 @@ export async function startCopy(input, ctx) {
   const { host, request, now } = ctx;
   const copyId = input.copyId ?? runHex(request);
   if (!HEX32.test(copyId)) fail("A valid copy request ID is required.");
-  await assertPluginEngine(host, input.siteId);
   const state = { v: 1, kind: "copy", copyId, siteId: input.siteId, phase: "pulling", dryRun: input.dryRun === true, fileOffset: 0, startedAt: new Date(now()).toISOString() };
   if (input.replaceSiteId !== undefined && input.replaceSiteId !== null) {
     if (typeof input.replaceSiteId !== "string" || !input.replaceSiteId.startsWith("ddev-")) fail("Choose a local DDEV copy to refresh.");

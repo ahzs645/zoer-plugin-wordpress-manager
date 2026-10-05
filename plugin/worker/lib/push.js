@@ -3,7 +3,7 @@
 // `backend/src/wordpress-push.ts`) over S1 slices, S3 uploads (`zbt1-v1`, remote cursor
 // authority) and S7b endpoint auth (docs/plugin-shared-services.md Appendix A).
 import { createHash } from "node:crypto";
-import { assertPluginEngine, commitRecords, readRecord, readRecords } from "./catalog.js";
+import { commitRecords, readRecord, readRecords } from "./catalog.js";
 import { listEntries } from "./filesets.js";
 import { capabilityFlags, importOptionsToPlugin, legacyImportOptions, replaceOptionsToPlugin, validateImportOptions, validateTableSuffixes } from "./options.js";
 import { HEX32, pullOfSet, runHex } from "./pull.js";
@@ -44,7 +44,6 @@ function policy(status, input) {
 export const previewSpec = {
   async start(input, { host, request, now }) {
     if (!HEX32.test(input.previewId ?? "")) fail("A valid preview ID is required.");
-    await assertPluginEngine(host, input.siteId);
     const endpoint = endpointOf(request, input.siteId);
     const status = await connectClient(host, endpoint).request("/status");
     if (!status.permissions?.push || !status.capabilities?.selectivePush) fail("Update the destination Zoer Connect plugin for selective Push and enable Push permission.");
@@ -141,7 +140,6 @@ export async function startPush(kind, input, ctx) {
   const { host, request, now } = ctx;
   const importId = input.importId ?? runHex(request);
   if (!HEX32.test(importId)) fail("A valid transfer request ID is required.");
-  await assertPluginEngine(host, input.siteId);
   const endpoint = endpointOf(request, input.siteId);
   if (input.wordpressOnlyWriters !== true && input.replacementAccepted !== true) fail(kind === "replace" ? "Confirm the destination replacement policy." : "Choose a different source and confirm the destination replacement policy.");
   checkTarget(input, endpoint);
@@ -487,7 +485,6 @@ export const controlSpec = {
   async start(input, { host, request, now }) {
     if (!HEX32.test(input.importId ?? "")) fail("A valid import ID is required.");
     if (!["approve", "finish", "rollback", "cleanup"].includes(input.control)) fail("Choose approve, finish, rollback or cleanup.");
-    await assertPluginEngine(host, input.siteId);
     endpointOf(request, input.siteId);
     return { v: 1, kind: "control", control: input.control, siteId: input.siteId, importId: input.importId, requests: 0, startedAt: new Date(now()).toISOString() };
   },

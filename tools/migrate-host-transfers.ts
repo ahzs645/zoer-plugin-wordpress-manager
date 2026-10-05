@@ -11,9 +11,9 @@
  * retained file sets plus `pull` catalog records; transfer profiles become presets of the 0.7.0
  * transfer actions; history becomes `transfer-history` records; completed local copies become
  * `local-copy` and `site-link` records; deployments and recovery points become catalog records.
- * It is idempotent, keeps every legacy file in place and never changes a site's transfer engine
- * (every site stays on the legacy engine until the user switches it). It refuses until
- * WordPress Manager 0.7.0 (file sets and catalog permissions) is installed.
+ * It is idempotent and keeps every legacy file in place. It refuses until WordPress Manager 0.7.0
+ * (file sets and catalog permissions) is installed. From 0.8.0 the plugin engine is the only
+ * engine, so the migrated records are what the UI shows for earlier transfers.
  */
 export const MIGRATION_ID = "wordpress-manager.transfers-to-plugin";
 

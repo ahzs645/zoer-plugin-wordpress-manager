@@ -16,8 +16,6 @@ function largeWorld() {
   const w = new FakeWorld();
   w.addSite("hostinger-1", new FakeZoerConnect({ origin: "https://source.example", files, pagedExport: true, pageSize: 500 }));
   const destination = w.addSite("external:dest", new FakeZoerConnect({ origin: "https://dest.example", files: {}, existing }));
-  w.catalog.engine("hostinger-1");
-  w.catalog.engine("external:dest");
   return { w, destination };
 }
 

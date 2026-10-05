@@ -95,9 +95,6 @@ export class FakeCatalog {
     for (const id of input.deletes ?? []) this.records.delete(id);
     return { revision: ++this.revision, saved: (input.records ?? []).length };
   }
-  engine(siteId: string, engine = "plugin", testTarget = true) {
-    this.records.set(`site-engine:${siteId}`, { id: `site-engine:${siteId}`, kind: "site-engine", title: siteId, data: { v: 1, siteId, engine, testTarget, updatedAt: "2026-10-04T00:00:00Z" } });
-  }
 }
 
 // ---------------------------------------------------------------------------------------------

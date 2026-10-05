@@ -2,7 +2,7 @@
   "id": "wordpress-manager",
   "name": "WordPress Manager",
   "version": "0.7.1",
-  "description": "Independent WordPress workspace with Hostinger temporary-domain setup, safe imports, backups, transfers (host or plugin engine per site), update review and cache tools.",
+  "description": "Independent WordPress workspace with Hostinger temporary-domain setup, safe imports, backups, transfers, update review and cache tools.",
   "author": "Zoer contributors",
   "type": "integration",
   "integration": {
@@ -1826,8 +1826,8 @@
       },
       {
         "id": "transfer.pull",
-        "title": "Pull site (plugin engine)",
-        "description": "Export a Zoer Connect site and download it, verified, into a file set on this Zoer server. Runs only for sites switched to the plugin engine as non-production test targets. A dry run downloads into a scratch set and keeps nothing.",
+        "title": "Pull site",
+        "description": "Export a Zoer Connect site and download it, verified, into a file set on this Zoer server. A dry run downloads into a scratch set and keeps nothing.",
         "effect": "local_write",
         "approval": "when_configured",
         "execution": {
@@ -1912,8 +1912,8 @@
       },
       {
         "id": "transfer.local-export",
-        "title": "Export local site (plugin engine)",
-        "description": "Export a local DDEV WordPress site through the DDEV bridge into a verified file set, for pushing it to a test site. Runs only for local sites switched to the plugin engine.",
+        "title": "Export local site",
+        "description": "Export a local DDEV WordPress site through the DDEV bridge into a verified file set, for pushing it to another site.",
         "effect": "local_write",
         "approval": "when_configured",
         "execution": {
@@ -1991,7 +1991,7 @@
       },
       {
         "id": "transfer.preview",
-        "title": "Compare with destination (plugin engine)",
+        "title": "Compare with destination",
         "description": "Compare a verified pull or local export with a destination Zoer Connect site, 20 paths per request, and save the classification for a selective push. Changes nothing on the destination.",
         "effect": "local_write",
         "approval": "when_configured",
@@ -2044,8 +2044,8 @@
       },
       {
         "id": "transfer.push",
-        "title": "Push to site (plugin engine)",
-        "description": "Push a verified pull or local export into a Zoer Connect test site: create the remote import, upload verified blocks, then step the import through review and activation. A dry run builds and checks the import plan and sends nothing.",
+        "title": "Push to site",
+        "description": "Push a verified pull or local export into a Zoer Connect site: create the remote import, upload verified blocks, then step the import through review and activation. A dry run builds and checks the import plan and sends nothing.",
         "effect": "external_write",
         "approval": "always",
         "execution": {
@@ -2138,8 +2138,8 @@
       },
       {
         "id": "transfer.replace",
-        "title": "Find & replace on site (plugin engine)",
-        "description": "Run a reviewed find & replace on a Zoer Connect test site: the site snapshots its own tables, stages the changes and waits for review before activating them. A dry run only checks the plan.",
+        "title": "Find & replace on site",
+        "description": "Run a reviewed find & replace on a Zoer Connect site: the site snapshots its own tables, stages the changes and waits for review before activating them. A dry run only checks the plan.",
         "effect": "external_write",
         "approval": "always",
         "execution": {
@@ -2217,8 +2217,8 @@
       },
       {
         "id": "transfer.push.control",
-        "title": "Approve, finish, roll back or clean up an import (plugin engine)",
-        "description": "Act on a plugin-engine import on a Zoer Connect test site: approve it after review, finish it after verification, roll it back, or remove its staged files after it ended.",
+        "title": "Approve, finish, roll back or clean up an import",
+        "description": "Act on an import on a Zoer Connect site: approve it after review, finish it after verification, roll it back, or remove its staged files after it ended.",
         "effect": "external_write",
         "approval": "always",
         "execution": {
@@ -2278,8 +2278,8 @@
       },
       {
         "id": "copy.local",
-        "title": "Make a local copy (plugin engine)",
-        "description": "Pull a Zoer Connect test site (or use a verified pull) and restore it into a new or refreshed local DDEV site: staged verified files, the reviewed import scripts, its own address, plugins inactive. A dry run restores into a scratch site that is moved to the trash afterwards.",
+        "title": "Make a local copy",
+        "description": "Pull a Zoer Connect site (or use a verified pull) and restore it into a new or refreshed local DDEV site: staged verified files, the reviewed import scripts, its own address, plugins inactive. A dry run restores into a scratch site that is moved to the trash afterwards.",
         "effect": "local_write",
         "approval": "when_configured",
         "execution": {
@@ -2367,7 +2367,7 @@
       },
       {
         "id": "backup.restore-local",
-        "title": "Restore UpdraftPlus backup locally (plugin engine)",
+        "title": "Restore UpdraftPlus backup locally",
         "description": "Restore an uploaded five-part UpdraftPlus set into a new local DDEV site: the database is converted to data-only SQL (never executed), archives are checked and extracted, plugins start inactive. A dry run only inspects the set and plans the restore.",
         "effect": "local_write",
         "approval": "when_configured",
