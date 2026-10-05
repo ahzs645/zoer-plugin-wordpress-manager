@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Btn, CheckboxField, Select, fieldLabelClass, selectClass } from "@zoer/plugin-ui/controls";
 import type { WordPressDiagnostics, ZoerConnectConnection } from "../../../lib/api/types/wordpress-transfer";
-import { engineKeys, listCatalog, startEngineAction, useCatalogKind, useEngineRun, useRecentRuns, useSiteEngine } from "../../../lib/queries/plugin-engine";
+import { engineKeys, listCatalog, startEngineAction, useCatalogKind, useEngineRun, useRecentRuns } from "../../../lib/queries/plugin-engine";
 import { wordpressQueries } from "../../../lib/queries/wordpress";
 import { useWordPressDiagnostics } from "../../../lib/queries/wordpress-transfer";
 import { applyExportCapabilities, applyImportCapabilities, exportOptionsErrors, exportOptionsForAction, hasCapability, importOptionsErrors, pullContents, pullHasTableSubset, REQUIRES_040 } from "../../../lib/wordpress-transfer/options";
@@ -16,7 +16,6 @@ import { connectionWarnings } from "../wordpressTransfer/transferLabels";
 import type { DraftUpdate, TransferDraft } from "../wordpressTransfer/draft";
 import PluginRunCard from "./PluginRunCard";
 import PreviewSelection from "./PreviewSelection";
-import SiteEngineControl from "./SiteEngineControl";
 import { defaultSelection, MAX_SELECTED_PATHS, parsePullRecord, previewExpired, previewFiles, pushSources, type PullRecord } from "./records";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
 
@@ -33,15 +32,14 @@ function useNow(intervalMs: number) {
   return now;
 }
 
-/** `transfer.local-export` of a running DDEV site that is itself on the plugin engine. */
+/** `transfer.local-export` of a running local DDEV site. */
 function LocalExportSource({ destinationSiteId, draft, update }: { destinationSiteId: string; draft: TransferDraft; update: DraftUpdate }) {
   const client = useQueryClient();
   const sites = useQuery(wordpressQueries.sites()).data ?? [];
   const choices = sites.filter(site => site.provider === "ddev" && site.id !== destinationSiteId);
   const [siteId, setSiteId] = useState("");
   const site = choices.find(item => item.id === siteId) ?? null;
-  const engine = useSiteEngine(siteId || null);
-  const diagnostics = useWordPressDiagnostics(siteId, { local: true, enabled: !!siteId && engine.engine === "plugin" });
+  const diagnostics = useWordPressDiagnostics(siteId, { local: true, enabled: site?.status === "running" });
   const runs = useRecentRuns(EXPORT_ACTIONS);
   const siteRuns = (runs.data ?? []).filter(run => runInput(run).siteId === siteId).slice(0, 3);
   const active = siteRuns.some(run => !isTerminalStatus(run.status));
@@ -66,7 +64,7 @@ function LocalExportSource({ destinationSiteId, draft, update }: { destinationSi
     finally { setStarting(false); }
   }
   return <details data-zoer-disclosure className="min-w-0 rounded-lg border border-border-default">
-    <summary className="flex min-h-11 cursor-pointer flex-col justify-center px-3 py-2"><span className="text-sm font-medium">Export a local DDEV site</span><span className="text-xs text-text-secondary">Prepare a verified export of a local site on the plugin engine, then choose it above.</span></summary>
+    <summary className="flex min-h-11 cursor-pointer flex-col justify-center px-3 py-2"><span className="text-sm font-medium">Export a local DDEV site</span><span className="text-xs text-text-secondary">Prepare a verified export of a local site, then choose it above.</span></summary>
     <div className="min-w-0 space-y-3 border-t border-border-muted p-3">
       <label className="block min-w-0 text-sm"><span className={fieldLabelClass}>Local site</span>
         <Select searchable aria-label="Local site to export" className={selectClass("default", "w-full")} value={siteId} onChange={event => { setSiteId(event.target.value); setError(""); }}>
@@ -75,8 +73,7 @@ function LocalExportSource({ destinationSiteId, draft, update }: { destinationSi
         </Select>
       </label>
       {!choices.length && <p className="text-xs text-text-secondary">No local DDEV sites. Create or start one in WordPress Manager first.</p>}
-      {site && <SiteEngineControl compact siteId={site.id} siteName={site.name} origin={site.managedUrl || site.url} />}
-      {site && engine.engine === "plugin" && <>
+      {site && <>
         <DatabasePanel exportOptions={options} onExport={next => update(d => ({ ...d, exportOptions: next }))} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} localSource />
         <FilesPanel action="push" options={options} onChange={next => update(d => ({ ...d, exportOptions: next }))} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} localSource />
         {errors.map(message => <p key={message} className="text-xs text-status-error">{message}</p>)}
@@ -92,7 +89,7 @@ function LocalExportSource({ destinationSiteId, draft, update }: { destinationSi
 /**
  * Plugin-engine Push: a verified pull or local export of another site → `transfer.preview`
  * (optional) → `transfer.push` through Zoer's approval, with the same destination confirmation and
- * replacement policy as the legacy Push. Dry run is on by default.
+ * replacement policy as Zoer's earlier host-side Push. Dry run is on by default.
  */
 export default function PluginPushFlow({ siteId, connection, destination, draft, update, dryRun, onDryRun, busy }: {
   siteId: string; connection: ZoerConnectConnection; destination: WordPressDiagnostics | null | undefined; draft: TransferDraft; update: DraftUpdate;
@@ -182,7 +179,7 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
         </Select>
       </label>
       {records.isLoading && <p className="text-xs text-text-secondary">Loading downloads…</p>}
-      {records.data && !sources.length && <p className="text-xs text-text-secondary">No verified plugin-engine downloads of other sites yet. Pull another connected site on the plugin engine, or export a local site below.</p>}
+      {records.data && !sources.length && <p className="text-xs text-text-secondary">No verified downloads of other sites yet. Pull another connected site, or export a local site below.</p>}
       <LocalExportSource destinationSiteId={siteId} draft={draft} update={update} />
       {partialUnsupported && <p className="text-xs text-status-warning">This download contains only some tables. {REQUIRES_040} to import a partial database.</p>}
     </Step>

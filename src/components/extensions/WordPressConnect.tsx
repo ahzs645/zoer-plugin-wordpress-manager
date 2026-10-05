@@ -3,31 +3,23 @@ import { ArrowLeftRight, Eye, EyeOff } from "lucide-react";
 import { useWordPressDiagnostics, useZoerConnection } from "../../lib/queries/wordpress-transfer";
 import { hasCapability } from "../../lib/wordpress-transfer/options";
 import { Btn as Btn } from "@zoer/plugin-ui/controls";
-import WordPressLocalCopy from "./WordPressLocalCopy";
 import { Modal as Modal } from "@zoer/plugin-ui/controls";
 import { controlClass } from "@zoer/plugin-ui/controls";
 import ConnectionCard from "./wordpressTransfer/ConnectionCard";
-import TransferWorkspace from "./wordpressTransfer/TransferWorkspace";
-import { useSiteEngine } from "../../lib/queries/plugin-engine";
 import PluginLocalCopy from "./pluginEngine/PluginLocalCopy";
 import PluginSiteRuns from "./pluginEngine/PluginSiteRuns";
 import PluginTransferWorkspace from "./pluginEngine/PluginTransferWorkspace";
 import { isTransferFence, TRANSFER_FENCE_NOTICE } from "./pluginEngine/runState";
-import SiteEngineControl from "./pluginEngine/SiteEngineControl";
 import type { PullRecord } from "./pluginEngine/records";
 
 export default function WordPressConnect({ siteId, siteName, label = "Connect Zoer", primary = false, localCopy = false, onSetup, onRestore }: { siteId: string; siteName: string; /** Already-connected sites read "Transfers": the dialog is where pulls, pushes and backups run. */ label?: string; /** The site's main action (an external site has no WordPress admin button). */ primary?: boolean; localCopy?: boolean; onSetup?: () => void; onRestore?: () => void }) {
   const [advanced, setAdvanced] = useState(false);
-  const [copyPull, setCopyPull] = useState<string | null>(null);
   const [copyOpen, setCopyOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [info, setInfo] = useState("");
   const [show, setShow] = useState(false);
   const [replacing, setReplacing] = useState(false);
-  const [pluginCopyPull, setPluginCopyPull] = useState<PullRecord | null>(null);
-  // Per-site transfer engine (catalog `site-engine:<siteId>`); legacy unless the user switched this site.
-  const site = useSiteEngine(siteId, open);
-  const plugin = site.engine === "plugin";
+  const [copyPull, setCopyPull] = useState<PullRecord | null>(null);
   const conn = useZoerConnection(siteId, open);
   const connection = conn.connection;
   const diagnosticsSupported = !!connection && (hasCapability(connection.status.capabilities, "diagnostics") || (connection.status.apiVersion ?? 0) >= 2);
@@ -53,7 +45,6 @@ export default function WordPressConnect({ siteId, siteName, label = "Connect Zo
         {!conn.isLoading && !loadError && (!connection || replacing) && <p className="text-text-secondary">Install and activate Zoer Connect in this site's WordPress admin, then open <strong>Tools → Zoer Connect</strong>, enable <strong>Pull</strong> and copy its connection info. <a className="underline" href="https://github.com/ahzs645/zoer-connect/releases/latest" target="_blank" rel="noreferrer">Download Zoer Connect</a>.</p>}
         {connection && <ConnectionCard connection={connection} diagnostics={diagnostics.data} diagnosticsError={diagnostics.error instanceof Error ? diagnostics.error.message : null} busy={busy}
           onTest={() => void run("test")} onReplace={() => setReplacing(true)} onDisconnect={() => void run("disconnect")} />}
-        {connection && !replacing && <SiteEngineControl siteId={siteId} siteName={siteName} origin={connection.url} />}
         {!conn.isLoading && !loadError && (!connection || replacing) && <form className="space-y-3" onSubmit={event => { event.preventDefault(); void run("save"); }}>
           <div><label className="block" htmlFor="zoer-connect-info">{connection ? "Replace connection info" : "Connection info"}</label>
             <div className={`${controlClass()} relative mt-2 w-full !p-0 focus-within:ring-2 focus-within:ring-indigo-500`} style={{ height: 96 }}>
@@ -66,21 +57,18 @@ export default function WordPressConnect({ siteId, siteName, label = "Connect Zo
           <div className="flex flex-wrap gap-2"><Btn type="submit" variant="primary" disabled={busy || !info.trim()} loading={busy}>Test and save connection</Btn>{connection && <Btn type="button" variant="ghost" disabled={busy} onClick={() => { setReplacing(false); setInfo(""); setShow(false); }}>Cancel</Btn>}</div>
         </form>}
         {connection && !connection.status.stagingReady && <p role="alert" className="text-status-warning">{connection.status.storage?.message || "Private storage is unavailable. Open WordPress → Tools → Zoer Connect and configure a writable folder outside the public website before pulling."}</p>}
-        {connection && !replacing && localCopy && <><p className="text-xs text-text-secondary">Source WordPress: {diagnostics.data?.wordpress?.version || "not reported"}. Review the local version and updates when copying finishes.</p><WordPressLocalCopy siteId={siteId} pullId={null} automated siteName={siteName} canExport={!loadError && connection.status.pull && connection.status.stagingReady} />{plugin && <PluginLocalCopy siteId={siteId} siteName={siteName} />}<Btn variant="ghost" onClick={()=>setAdvanced(value=>!value)}>{advanced ? "Hide advanced transfers" : "Advanced transfers"}</Btn></>}
-        {connection && !replacing && (!localCopy || advanced) && (plugin
-          ? <PluginTransferWorkspace siteId={siteId} siteName={siteName} connection={connection} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} onLocalCopy={pull => { setPluginCopyPull(pull); setCopyPull(null); setCopyOpen(true); }} />
-          : <TransferWorkspace siteId={siteId} connection={connection} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} busy={busy} onLocalCopy={id => { setCopyPull(id); setCopyOpen(true); }} />)}
-        {connection && !replacing && <Btn onClick={() => { setCopyPull(null); setPluginCopyPull(null); setCopyOpen(true); }}>View local copies</Btn>}
+        {connection && !replacing && localCopy && <><p className="text-xs text-text-secondary">Source WordPress: {diagnostics.data?.wordpress?.version || "not reported"}. Review the local version and updates when copying finishes.</p>{!(connection.status.pull && connection.status.stagingReady) && <p role="status" className="text-sm text-status-warning">Enable Pull and private storage in WordPress → Tools → Zoer Connect before copying.</p>}<PluginLocalCopy siteId={siteId} siteName={siteName} /><Btn variant="ghost" onClick={()=>setAdvanced(value=>!value)}>{advanced ? "Hide advanced transfers" : "Advanced transfers"}</Btn></>}
+        {connection && !replacing && (!localCopy || advanced) && <PluginTransferWorkspace siteId={siteId} siteName={siteName} connection={connection} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} onLocalCopy={pull => { setCopyPull(pull); setCopyOpen(true); }} />}
+        {connection && !replacing && !localCopy && <Btn onClick={() => { setCopyPull(null); setCopyOpen(true); }}>Local copies</Btn>}
         {loadError && <div className="space-y-2"><p>{isTransferFence(loadError) ? TRANSFER_FENCE_NOTICE : "Could not check saved source access. Retry when Zoer is reachable; this does not mean the site needs pairing again."}</p><Btn disabled={busy} onClick={()=>void conn.refetch()}>Retry connection check</Btn></div>}
         {/* The site may be fenced by a running push or rollback: its runs still need to be followed and controlled. */}
-        {!connection && loadError && plugin && <PluginSiteRuns siteId={siteId} />}
+        {!connection && loadError && <PluginSiteRuns siteId={siteId} />}
         {error && !(loadError && isTransferFence(error)) && <p role="alert" className="text-status-error">{error}</p>}
         <p className="text-xs text-text-secondary">The key is stored encrypted on the Zoer server and is not returned to this form. Transfers run on the Zoer server, so you can close this dialog while they continue.</p>
       </div>
     </Modal>}
-    {open && copyOpen && <Modal mobileSheet={plugin || undefined} title={copyPull || pluginCopyPull ? "Make a local copy" : "Local copies"} onClose={() => { setCopyOpen(false); setPluginCopyPull(null); }}>
-      {!pluginCopyPull && <WordPressLocalCopy siteId={siteId} pullId={copyPull} />}
-      {plugin && !copyPull && <div className={pluginCopyPull ? "" : "mt-4"}><PluginLocalCopy siteId={siteId} siteName={siteName} pull={pluginCopyPull} onClearPull={() => setPluginCopyPull(null)} /></div>}
+    {open && copyOpen && <Modal mobileSheet title={copyPull ? "Make a local copy" : "Local copies"} onClose={() => { setCopyOpen(false); setCopyPull(null); }}>
+      <PluginLocalCopy siteId={siteId} siteName={siteName} pull={copyPull} onClearPull={() => setCopyPull(null)} />
     </Modal>}
   </>;
 }

@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { FlaskConical } from "lucide-react";
+import { History } from "lucide-react";
 import { Btn, Select, fieldLabelClass, selectClass } from "@zoer/plugin-ui/controls";
 import type { WordPressManagedSite } from "../../../lib/api/types/wordpress-manager";
-import { useCatalogKind, useRecentRuns, useSiteEngines } from "../../../lib/queries/plugin-engine";
+import { useCatalogKind, useRecentRuns } from "../../../lib/queries/plugin-engine";
 import { wordpressQueries } from "../../../lib/queries/wordpress";
 import { formatTransferBytes } from "../wordpressPullProgress";
 import { formatDuration } from "../wordpressTransfer/transferLabels";
@@ -21,9 +21,9 @@ function statusTone(status: string) {
 const statusText = (status: string) => status === "dry-run" ? "Dry run" : status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ").replaceAll("-", " ");
 
 /**
- * Plugin-engine transfer history: `transfer-history` catalog records (including legacy items after
- * the operator migration) merged with `runs.recent` of the plugin-engine actions. With `siteId` the
- * list is fixed to that site; otherwise it renders only once the plugin engine has been used.
+ * Transfer history: `transfer-history` catalog records (including the legacy host engine's history,
+ * migrated by Zoer's `wordpress-manager.transfers-to-plugin`) merged with `runs.recent` of the
+ * transfer actions. With `siteId` the list is fixed to that site.
  */
 export default function PluginTransferHistory({ siteId: fixedSiteId, sites: givenSites, canonicalId = id => id, disclosure = false }: { siteId?: string; sites?: WordPressManagedSite[]; canonicalId?: (id: string) => string; /** With `siteId`: a collapsed "History" disclosure whose heading says how many entries there are. */ disclosure?: boolean }) {
   const [siteId, setSiteId] = useState("");
@@ -32,30 +32,27 @@ export default function PluginTransferHistory({ siteId: fixedSiteId, sites: give
   const sites = givenSites ?? listed.data ?? [];
   const records = useCatalogKind("transfer-history");
   const runs = useRecentRuns(HISTORY_ACTIONS);
-  const engines = useSiteEngines(!fixedSiteId);
   const merged = mergeEngineHistory((records.data ?? []).map(parseHistoryRecord).filter((item): item is EngineHistoryItem => !!item), runs.data ?? []);
   const items = filterEngineHistory(merged, { siteId: fixedSiteId ?? siteId, kind, canonicalId });
   const name = (id: string | undefined, fallback?: string) => !id ? fallback ?? "" : sites.find(site => site.id === id)?.name ?? fallback ?? id;
-  const used = merged.length > 0 || (engines.data ?? []).some(record => (record.data as { engine?: unknown })?.engine === "plugin");
-  if (!fixedSiteId && !used) return null;
   const loading = records.isLoading || runs.isLoading;
   const error = records.error ?? runs.error;
   const siteChoices = [...new Map(merged.flatMap(item => [[canonicalId(item.siteId), name(item.siteId, item.siteName)], ...(item.sourceSiteId ? [[canonicalId(item.sourceSiteId), name(item.sourceSiteId)]] : [])] as Array<[string, string]>).filter(([id]) => id)).entries()]
     .map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
 
-  const list = <section className="min-w-0 space-y-4" aria-label="Plugin-engine transfer history">
+  const list = <section className="min-w-0 space-y-4" aria-label="Transfer history">
     {!fixedSiteId && <>
-      <div className="flex items-center gap-2"><FlaskConical className="h-4 w-4 shrink-0" aria-hidden="true" /><h4 className="text-base font-semibold text-text-heading">Plugin-engine transfers</h4></div>
-      <p className="text-sm text-text-secondary">Transfers of sites on the plugin engine (test), plus migrated legacy records. Open a site's Transfers dialog to control a running transfer.</p>
+      <div className="flex items-center gap-2"><History className="h-4 w-4 shrink-0" aria-hidden="true" /><h4 className="text-base font-semibold text-text-heading">Transfers</h4></div>
+      <p className="text-sm text-text-secondary">Pulls, pushes, Find &amp; Replace, local copies and restores of every site, including transfers made before WordPress Manager 0.8.0. Open a site's Transfers dialog to control a running transfer.</p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block min-w-0 text-sm"><span className={fieldLabelClass}>Site</span>
-          <Select searchable aria-label="Filter plugin-engine transfers by site" className={selectClass("default", "w-full")} value={siteId ? canonicalId(siteId) : ""} onChange={event => setSiteId(event.target.value)}>
+          <Select searchable aria-label="Filter transfers by site" className={selectClass("default", "w-full")} value={siteId ? canonicalId(siteId) : ""} onChange={event => setSiteId(event.target.value)}>
             <option value="">All sites</option>
             {siteChoices.map(site => <option key={site.id} value={site.id}>{site.label}</option>)}
           </Select>
         </label>
         <label className="block min-w-0 text-sm"><span className={fieldLabelClass}>Type</span>
-          <Select aria-label="Filter plugin-engine transfers by type" className={selectClass("default", "w-full")} value={kind} onChange={event => setKind(event.target.value)}>
+          <Select aria-label="Filter transfers by type" className={selectClass("default", "w-full")} value={kind} onChange={event => setKind(event.target.value)}>
             <option value="">All types</option>
             {Object.entries(ENGINE_HISTORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </Select>
@@ -63,7 +60,7 @@ export default function PluginTransferHistory({ siteId: fixedSiteId, sites: give
       </div>
     </>}
     {loading && <p className="text-sm text-text-secondary">Loading transfers…</p>}
-    {error && <p role="alert" className="text-sm text-status-error">Could not load plugin-engine history: {engineErrorMessage(error)} <Btn size="sm" onClick={() => { void records.refetch(); void runs.refetch(); }}>Retry</Btn></p>}
+    {error && <p role="alert" className="text-sm text-status-error">Could not load the transfer history: {engineErrorMessage(error)} <Btn size="sm" onClick={() => { void records.refetch(); void runs.refetch(); }}>Retry</Btn></p>}
     {!loading && !error && !items.length && <p className="text-sm text-text-secondary">{historyEmptyText({ siteScoped: !!fixedSiteId, anyHistory: merged.length > 0 })}</p>}
     <ul className="min-w-0 space-y-2">
       {items.map(item => {
@@ -74,7 +71,7 @@ export default function PluginTransferHistory({ siteId: fixedSiteId, sites: give
             <div className="min-w-0">
               <p className="text-[13px] font-medium text-text-primary">
                 <span className="mr-2 rounded border border-border-muted px-1.5 py-0.5 text-[12px] font-normal text-text-secondary">{ENGINE_HISTORY_LABELS[item.kind]}</span>
-                <span className="mr-2 rounded border border-border-muted px-1.5 py-0.5 text-[12px] font-normal text-text-secondary">{item.engine === "legacy" ? "Legacy (migrated)" : "Plugin engine"}</span>
+                {item.engine === "legacy" && <span className="mr-2 rounded border border-border-muted px-1.5 py-0.5 text-[12px] font-normal text-text-secondary" title="Recorded by Zoer's earlier transfer engine and migrated">Earlier engine</span>}
                 <span className="break-words">{item.sourceSiteId ? `${name(item.sourceSiteId)} → ${site}` : site}</span>
               </p>
               {item.summary && <p className="mt-1 break-words text-[13px] text-text-secondary">{item.summary}</p>}

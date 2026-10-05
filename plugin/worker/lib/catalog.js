@@ -6,7 +6,7 @@
 //   site-link        site-link:<targetSiteId>    local copy → source site (sidebar grouping)
 //   transfer-history history:<kind>:<id>         one finished or failed transfer
 // Writes need a local-write action (catalog commits); external-write actions only read.
-// Since 0.8.0 every managed site uses this engine: `site-engine:<siteId>` records written by the
+// Since 0.8.0 every managed site uses this engine: the per-site engine records written by the
 // 0.7.x engine switch are ignored (the UI deletes any that are left).
 import { TransferError } from "./slices.js";
 

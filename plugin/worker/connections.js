@@ -2,7 +2,7 @@
 // Shared-service connection checks: `site.test` reads the Zoer Connect status of one endpoint
 // added through `endpoints.add` (S7b: the host injects its key), or with `diagnostics: true` its
 // `/diagnostics` inventory (tables, post types, themes, plugins) for the transfer panels, which
-// Zoer's legacy `/connect/:siteId/diagnostics` route served before 0.8.0; `hostinger.check` lists
+// Zoer's legacy transfer routes proxied before 0.8.0; `hostinger.check` lists
 // one page of websites with one Hostinger account bound through `connections.connect` (S7a bearer auth).
 import { createInterface } from "node:readline";
 

@@ -14,6 +14,5 @@ export type {
   WordPressPublishPlan,
   WordPressCoreCheck,
   WordPressCoreUpdateState,
-  WordPressBackupRestore,
   HostingerSetupInventory
 } from "@zoer/api-types";

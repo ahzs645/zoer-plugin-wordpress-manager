@@ -6,14 +6,15 @@ import { resourceQueries } from "../../../lib/queries/resources";
 import { wordpressQueries } from "../../../lib/queries/wordpress";
 import PluginRunCard from "./PluginRunCard";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
-import { parseLocalCopyRecord, refreshCandidates, type LocalCopyRecord, type PullRecord } from "./records";
+import { existingCopies, parseLocalCopyRecord, refreshCandidates, type LocalCopyRecord, type PullRecord } from "./records";
 
 const COPY_ACTIONS = [ENGINE_ACTIONS.copy] as const;
 
 /**
- * `copy.local` for a site on the plugin engine: a new DDEV copy or a refresh of an earlier copy
- * (`replaceSiteId`), optionally from an existing verified pull (`pullSetId`). Dry runs create a
- * scratch site and archive it afterwards; they cannot refresh an existing copy.
+ * `copy.local`: a new DDEV copy or a refresh of an earlier copy (`replaceSiteId`), optionally from
+ * an existing verified pull (`pullSetId`). Dry runs create a scratch site and archive it afterwards;
+ * they cannot refresh an existing copy. Earlier copies (`local-copy:` records, including copies the
+ * legacy host engine made, migrated by Zoer) are listed and can be refreshed.
  */
 export default function PluginLocalCopy({ siteId, siteName, pull = null, onClearPull }: { siteId: string; siteName: string; pull?: PullRecord | null; onClearPull?: () => void }) {
   const client = useQueryClient();
@@ -21,7 +22,10 @@ export default function PluginLocalCopy({ siteId, siteName, pull = null, onClear
   const ddev = connectors.data?.find(c => c.id === "ddev");
   const available = ddev?.active === true;
   const copies = useCatalogKind("local-copy");
-  const candidates = refreshCandidates((copies.data ?? []).map(parseLocalCopyRecord).filter((c): c is LocalCopyRecord => !!c), siteId);
+  const copyRecords = (copies.data ?? []).map(parseLocalCopyRecord).filter((c): c is LocalCopyRecord => !!c);
+  const candidates = refreshCandidates(copyRecords, siteId);
+  const sites = useQuery(wordpressQueries.sites()).data ?? [];
+  const existing = existingCopies(copyRecords, siteId);
   const runs = useRecentRuns(COPY_ACTIONS);
   const siteRuns = (runs.data ?? []).filter(run => runInput(run).siteId === siteId).slice(0, 5);
   const running = siteRuns.some(run => !isTerminalStatus(run.status));
@@ -60,8 +64,8 @@ export default function PluginLocalCopy({ siteId, siteName, pull = null, onClear
     finally { setStarting(false); }
   }
 
-  return <section className="min-w-0 space-y-3 rounded-lg border border-status-warning/40 p-3" aria-label="Local copies with the plugin engine">
-    <h3 className="font-medium">Local copy · plugin engine (test)</h3>
+  return <section className="min-w-0 space-y-3 rounded-lg border border-border-default p-3" aria-label="Local copies">
+    <h3 className="font-medium">Local copy</h3>
     <p className="text-xs text-text-secondary">Creates or refreshes a separate DDEV site from {pull ? `the download of ${new Date(pull.createdAt).toLocaleString()}` : "a new complete pull of this site"}. Plugins start inactive; scheduled tasks and outgoing mail/HTTP requests stay disabled. You can close this dialog while it runs.</p>
     {pull && onClearPull && <Btn size="sm" variant="ghost" onClick={onClearPull}>Pull again instead</Btn>}
     {!available && <p role="status" className="text-sm text-status-warning">{connectors.isLoading ? "Checking local WordPress availability…" : ddev?.unavailableReason || "DDEV is unavailable. Complete server setup before creating a local copy."}</p>}
@@ -74,7 +78,7 @@ export default function PluginLocalCopy({ siteId, siteName, pull = null, onClear
         </label>
         <label className={`flex min-h-11 items-start gap-2.5 rounded-md border border-border-default px-3 py-2.5 text-[13px] ${candidates.length ? "" : "opacity-60"}`}>
           <input type="radio" name={`plugin-copy-mode-${siteId}`} className={`${radioClass} mt-0.5`} checked={refresh} disabled={!candidates.length} onChange={() => setMode("refresh")} />
-          <span><span className="block text-text-primary">Refresh an earlier plugin-engine copy</span><span className="block text-[12px] text-text-muted">{candidates.length ? "Replaces its files and database. Its local administrator account is kept." : "No plugin-engine copy of this site yet."}</span></span>
+          <span><span className="block text-text-primary">Refresh an earlier local copy</span><span className="block text-[12px] text-text-muted">{candidates.length ? "Replaces its files and database. Its local administrator account is kept." : "No local copy of this site yet."}</span></span>
         </label>
       </fieldset>
       {refresh
@@ -92,5 +96,15 @@ export default function PluginLocalCopy({ siteId, siteName, pull = null, onClear
     {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
     {runs.error && <p role="alert" className="text-sm text-status-error">Could not load local copies: {engineErrorMessage(runs.error)}</p>}
     {siteRuns.length > 0 && <div className="min-w-0 space-y-2">{siteRuns.map(run => <PluginRunCard key={run.runId} recent={run} title={runInput(run).replaceSiteId ? "Refresh local copy" : "Local copy"} />)}</div>}
+    {existing.length > 0 && <div className="min-w-0 space-y-2">
+      <h4 className="text-sm font-semibold text-text-heading">Local copies of this site</h4>
+      <ul className="min-w-0 space-y-1.5">{existing.map(copy => {
+        const listed = sites.find(site => site.id === copy.targetId);
+        return <li key={copy.copyId} className="min-w-0 rounded-md border border-border-muted bg-surface-primary/50 px-3 py-2 text-[13px]">
+          <p className="break-words font-medium text-text-primary">{listed?.name ?? copy.name ?? copy.siteName ?? copy.targetId}</p>
+          <p className="break-words text-[12px] text-text-secondary">{copy.targetUrl ? copy.targetUrl.replace(/^https?:\/\//, "") : copy.targetId}{copy.finishedAt ? ` · ${new Date(copy.finishedAt).toLocaleString()}` : ""}{listed ? "" : " · no longer listed"}</p>
+        </li>;
+      })}</ul>
+    </div>}
   </section>;
 }

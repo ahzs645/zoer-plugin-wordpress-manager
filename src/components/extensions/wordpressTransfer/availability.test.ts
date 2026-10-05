@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ZoerConnectConnection } from "../../../lib/api/types/wordpress-transfer";
-import { actionAvailability } from "./TransferWorkspace";
+import { actionAvailability } from "./availability";
 import { initialAction } from "./draft";
 import { tableItems, unselectableTablesHint } from "./DatabasePanel";
 

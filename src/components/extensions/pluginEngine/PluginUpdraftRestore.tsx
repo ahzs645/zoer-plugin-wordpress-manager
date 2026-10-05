@@ -27,7 +27,7 @@ async function findUpload(entries: Entry[]) {
 }
 
 /**
- * UpdraftPlus restore on the plugin engine: the five files become one sealed file set
+ * UpdraftPlus restore: the five files become one sealed file set
  * (`filesets.create` with rules `updraft-set`, 8 MiB `filesets.put` chunks, `filesets.seal`), then
  * `backup.restore-local` restores it into a new DDEV site. A dry run validates and plans the restore
  * in a scratch site that is archived afterwards.
@@ -113,7 +113,7 @@ export default function PluginUpdraftRestore({ files, complete, name, onBusyChan
 
   const lastDry = related.find(run => runInput(run).dryRun === true && run.status === "succeeded" && runInput(run).uploadSetId === setId);
   return <div className="mt-3 min-w-0 space-y-3 rounded-lg border border-status-warning/40 p-3">
-    <p className="text-sm text-text-secondary">The plugin engine uploads the five files to the Zoer server as one verified set, then restores them into a new local DDEV site. Uploads resume after a reload when you choose the same files again.</p>
+    <p className="text-sm text-text-secondary">WordPress Manager uploads the five files to the Zoer server as one verified set, then restores them into a new local DDEV site. Uploads resume after a reload when you choose the same files again.</p>
     <CheckboxField label="Dry run" description="Checks the archives and plans the restore in a scratch site (zoer-dryrun-…) that is archived afterwards. No new site is kept." checked={dryRun} onChange={setDryRun} disabled={busy} />
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
       <Btn variant="primary" className="w-full sm:w-auto" loading={busy} disabled={!complete || busy || active || restored} onClick={() => void start(!dryRun)}>{setId ? (dryRun ? "Run another dry run" : "Restore into a new DDEV site") : dryRun ? "Upload and check (dry run)" : "Upload and restore"}</Btn>

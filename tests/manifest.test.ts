@@ -86,11 +86,3 @@ test("resumable transfers keep Zoer's default retry limit, which the workers ass
  // Failure history is a catalog write: only local-write actions can record it.
  for(const action of writes)expect(action.effect).toBe("local_write");
 });
-test("the engine-switch dialog's actions span the phone sheet",async()=>{
- const css=await Bun.file(new URL("../src/styles.css",import.meta.url)).text();
- const dialog=await Bun.file(new URL("../src/components/extensions/pluginEngine/SiteEngineControl.tsx",import.meta.url)).text();
- // Zoer wraps native footers in a content-width row carrying the scope class; that row must grow on phones.
- expect(css).toMatch(/@media \(max-width: 767px\) \{\s*:scope:has\(> \.wpm-sheet-actions\) \{ flex: 1 1 100%;/);
- expect(dialog).toContain('footer={<div className="wpm-sheet-actions flex w-full flex-col-reverse');
- expect(dialog).toContain('className="w-full md:w-auto" variant="danger"');
-});

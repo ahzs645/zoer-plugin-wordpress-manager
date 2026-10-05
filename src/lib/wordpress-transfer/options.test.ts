@@ -2,8 +2,7 @@ import { expect, test } from "bun:test";
 import {
   applyExportCapabilities, applyImportCapabilities, compareVersions, defaultExportOptions, defaultImportOptions, defaultReplaceTables,
   enforceReviewFence, exportOptionsErrors, exportOptionsForAction, importOptionsErrors, legacyImportOptions, normalizeExportOptions,
-  normalizeImportOptions, normalizeProfile, normalizeRecentRun, parseExcludes, pullContents, pullHasTableSubset, pullIncludesDownloadOnly, pullOptionsPayload,
-  pushButtonLabel, replaceJobOptions, unwrapList,
+  normalizeImportOptions, parseExcludes, pullContents, pullHasTableSubset, pullIncludesDownloadOnly, replaceJobOptions,
 } from "./options";
 import { ZOER_CONNECT_CAPABILITIES } from "../api/types/wordpress-transfer";
 
@@ -52,14 +51,6 @@ test("push never sends download-only resources and backups are database only", (
   expect(exportOptionsForAction("backup", all).resources).toEqual(defaultExportOptions("backup").resources);
 });
 
-test("pull payload carries 0.4 options plus the legacy fields", () => {
-  const options = { ...defaultExportOptions(), excludes: ["*.log"] };
-  expect(JSON.parse(pullOptionsPayload(options))).toEqual({
-    options, database: true,
-    profile: { name: "Zoer remote pull", themes: true, plugins: true, media: true, muplugins: false, core: false, excludes: ["*.log"] },
-  });
-});
-
 test("export validation names the missing choice", () => {
   const none = { ...defaultExportOptions(), resources: { database: false, themes: false, plugins: false, media: false, muplugins: false, core: false } };
   expect(exportOptionsErrors(none)).toEqual(["Select at least one resource."]);
@@ -69,27 +60,17 @@ test("export validation names the missing choice", () => {
   expect(exportOptionsErrors(defaultExportOptions())).toEqual([]);
 });
 
-test("normalisation fills defaults and drops invalid values from stored profiles", () => {
-  const profile = normalizeProfile({ id: "p1", name: "Staging", action: "push", exportOptions: { resources: { core: true }, themes: { mode: "bogus" } }, importOptions: { authorMapping: "nobody", keepActivePlugins: false, replacements: { custom: [{ find: "x" }, { nope: 1 }] } } });
-  expect(profile?.exportOptions.resources.core).toBe(false);
-  expect(profile?.exportOptions.themes).toEqual({ mode: "all", items: [] });
-  expect(profile?.importOptions.authorMapping).toBe("match");
-  expect(profile?.importOptions.keepActivePlugins).toBe(false);
-  expect(profile?.importOptions.replacements.custom).toEqual([{ find: "x", replace: "", regex: false, caseSensitive: true }]);
-  expect(normalizeProfile({ name: "missing id" })).toBeNull();
+test("normalisation fills defaults and drops invalid values from stored options", () => {
+  const exported = normalizeExportOptions({ resources: { core: true }, themes: { mode: "bogus" } }, "push");
+  expect(exported.resources.core).toBe(false);
+  expect(exported.themes).toEqual({ mode: "all", items: [] });
+  const imported = normalizeImportOptions({ authorMapping: "nobody", keepActivePlugins: false, replacements: { custom: [{ find: "x" }, { nope: 1 }] } });
+  expect(imported.authorMapping).toBe("match");
+  expect(imported.keepActivePlugins).toBe(false);
+  expect(imported.replacements.custom).toEqual([{ find: "x", replace: "", regex: false, caseSensitive: true }]);
   expect(normalizeExportOptions({ media: { mode: "since" } }).media).toEqual({ mode: "all" });
   const round = normalizeExportOptions(JSON.parse(JSON.stringify({ ...defaultExportOptions(), plugins: { mode: "except", items: ["akismet"] } })));
   expect(round.plugins).toEqual({ mode: "except", items: ["akismet"] });
-});
-
-test("recent runs accept kind/options shapes and envelopes", () => {
-  const run = normalizeRecentRun({ kind: "replace", options: { replacements: { custom: [{ find: "a", replace: "b", regex: true, caseSensitive: false }] } }, createdAt: "2026-09-01" });
-  expect(run?.action).toBe("replace");
-  expect(run?.importOptions.replacements.custom).toHaveLength(1);
-  expect(run?.startedAt).toBe("2026-09-01");
-  expect(unwrapList({ recent: [1, 2] }, "recent")).toEqual([1, 2]);
-  expect(unwrapList([3], "recent")).toEqual([3]);
-  expect(unwrapList(null, "recent")).toEqual([]);
 });
 
 test("pull contents classify both option generations", () => {
@@ -118,7 +99,4 @@ test("small helpers", () => {
   expect(compareVersions("0.4.0", "0.3.14")).toBe(1);
   expect(compareVersions("0.3.14", "0.3.14")).toBe(0);
   expect(compareVersions("0.3.9", "0.3.10")).toBe(-1);
-  expect(pushButtonLabel("all", 0)).toBe("Push all items");
-  expect(pushButtonLabel("selected", 1)).toBe("Push 1 selected item");
-  expect(pushButtonLabel("selected", 1200)).toBe(`Push ${(1200).toLocaleString()} selected items`);
 });

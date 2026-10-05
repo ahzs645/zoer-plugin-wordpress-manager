@@ -1,7 +1,4 @@
-import type {
-  TransferHistoryItem, ExportOptions, ImportOptions, PushJobStatus, ResourceMode, TransferAction, WordPressDiagnostics, WordPressPushJob,
-} from "../../../lib/api/types/wordpress-transfer";
-import { formatTransferBytes } from "../wordpressPullProgress";
+import type { ExportOptions, ImportOptions, ResourceMode, TransferAction, WordPressDiagnostics } from "../../../lib/api/types/wordpress-transfer";
 
 export const ACTION_LABELS: Record<TransferAction, { title: string; description: string }> = {
   pull: { title: "Pull", description: "Download this site to the Zoer server to make or refresh a local copy." },
@@ -56,43 +53,6 @@ export function phaseLabel(phase: string | null | undefined) {
   return words ? words[0].toUpperCase() + words.slice(1) : "Starting";
 }
 
-export const TERMINAL_PUSH_STATUSES: PushJobStatus[] = ["complete", "rolled_back", "failed", "cancelled"];
-export function isTerminalPush(job: Pick<WordPressPushJob, "status">) { return ["complete", "rolled_back", "cancelled"].includes(job.status); }
-
-export function pushStatusLabel(job: Pick<WordPressPushJob, "status" | "kind" | "runner">) {
-  const noun = job.kind === "replace" ? "Find & replace" : "Push";
-  switch (job.status) {
-    case "queued": return `${noun} queued`;
-    case "running": return job.runner === "idle" ? `${noun} waiting for the server` : `${noun} running`;
-    case "paused": return `${noun} paused`;
-    case "review": return "Review the changes before applying";
-    case "verification": return "Check the site, then finish";
-    case "complete": return `${noun} complete`;
-    case "rolled_back": return `${noun} rolled back`;
-    case "failed": return `${noun} failed`;
-    case "cancelled": return `${noun} cancelled`;
-    default: return noun;
-  }
-}
-
-export function pushProgress(job: WordPressPushJob) {
-  const p = job.progress ?? {};
-  const bytes = p.uploadedBytes ?? 0, total = p.totalBytes ?? 0;
-  const percent = typeof p.percent === "number" ? Math.max(0, Math.min(100, Math.round(p.percent)))
-    : total > 0 ? Math.min(100, Math.floor(bytes / total * 100))
-    : p.fileCount ? Math.min(100, Math.floor((p.filesUploaded ?? 0) / p.fileCount * 100)) : null;
-  return { bytes, total: total || null, percent, tableIndex: p.tableIndex ?? null, tableCount: p.tableCount ?? null, rowsRead: p.rowsRead ?? null, filesUploaded: p.filesUploaded ?? null, fileCount: p.fileCount ?? null };
-}
-
-const TRANSPORT_LABELS: Record<string, string> = { "octet-stream": "binary", multipart: "multipart", json: "JSON", chunks: "single blocks" };
-/** "12 requests · binary · 1.57 MB batches" for batched uploads; null otherwise. */
-export function uploadTransferSummary(job: Pick<WordPressPushJob, "transfer" | "progress">) {
-  const t = job.transfer;
-  if (!t) return null;
-  const requests = job.progress?.requests ?? 0;
-  return `${requests.toLocaleString()} ${requests === 1 ? "request" : "requests"} · ${TRANSPORT_LABELS[t.transport] ?? t.transport} · ${formatTransferBytes(t.batchBytes)} batches`;
-}
-
 export function formatDuration(ms: number) {
   if (!Number.isFinite(ms) || ms < 0) return "0s";
   const seconds = Math.round(ms / 1000);
@@ -101,27 +61,6 @@ export function formatDuration(ms: number) {
   if (minutes < 60) return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
   const hours = Math.floor(minutes / 60), mins = minutes % 60;
   return mins ? `${hours}h ${mins}m` : `${hours}h`;
-}
-
-export function jobElapsed(job: Pick<WordPressPushJob, "createdAt" | "startedAt" | "finishedAt">, now = Date.now()) {
-  const start = Date.parse(job.startedAt || job.createdAt);
-  const end = job.finishedAt ? Date.parse(job.finishedAt) : now;
-  return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0;
-}
-
-export function completionSummary(job: WordPressPushJob) {
-  const duration = formatDuration(jobElapsed(job));
-  if (job.kind === "replace") {
-    const count = (job.stats ?? job.review)?.replacements ?? 0;
-    return `${count.toLocaleString()} replacement${count === 1 ? "" : "s"} in ${duration}`;
-  }
-  const total = job.progress?.totalBytes ?? job.progress?.uploadedBytes;
-  return total ? `${formatTransferBytes(total)} in ${duration}` : `Finished in ${duration}`;
-}
-
-export function failureSummary(job: Pick<WordPressPushJob, "phase" | "lastError">) {
-  const phase = job.lastError?.phase || job.phase;
-  return `Failed during the ${phaseLabel(phase).toLowerCase()} stage`;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,30 +152,4 @@ export function connectionWarnings(diagnostics: WordPressDiagnostics | null | un
   const prefix = diagnostics?.wordpress?.prefix;
   if (sourcePrefix && prefix && sourcePrefix !== prefix) warnings.set("prefix_mismatch", { code: "prefix_mismatch", message: `Table prefix differs: source uses ${sourcePrefix}, this site uses ${prefix}. Zoer renames tables and prefix-dependent options during import.` });
   return [...warnings.values()];
-}
-
-// ---------------------------------------------------------------------------
-// Before/after highlighting for review samples.
-
-export type DiffSegment = { text: string; changed: boolean };
-/** Splits two strings into shared prefix, changed middle and shared suffix. */
-export function diffSegments(before: string, after: string): { before: DiffSegment[]; after: DiffSegment[] } {
-  let start = 0;
-  while (start < before.length && start < after.length && before[start] === after[start]) start++;
-  let endB = before.length, endA = after.length;
-  while (endB > start && endA > start && before[endB - 1] === after[endA - 1]) { endB--; endA--; }
-  const build = (text: string, end: number) => [
-    { text: text.slice(0, start), changed: false },
-    { text: text.slice(start, end), changed: true },
-    { text: text.slice(end), changed: false },
-  ].filter(segment => segment.text.length > 0);
-  return { before: build(before, endB), after: build(after, endA) };
-}
-
-// ---------------------------------------------------------------------------
-// History filters.
-
-/** Matches transfers to or from a site, optionally of one kind. Empty values match everything. */
-export function filterTransfers(items: TransferHistoryItem[], { siteId, kind }: { siteId: string; kind: string }) {
-  return items.filter(item => (!siteId || item.siteId === siteId || item.sourceSiteId === siteId) && (!kind || item.kind === kind));
 }

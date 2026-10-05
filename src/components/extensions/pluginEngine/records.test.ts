@@ -90,9 +90,9 @@ test("a site's History says when it is empty, and how many entries it has", () =
   expect(historySummaryHint({ loading: false, count: 0 })).toBe("None yet");
   expect(historySummaryHint({ loading: false, count: 1 })).toBe("1 transfer");
   expect(historySummaryHint({ loading: false, count: 1200 })).toBe("1,200 transfers");
-  expect(historyEmptyText({ siteScoped: true, anyHistory: true })).toBe("No plugin-engine transfers of this site yet. Finished, failed and cancelled transfers are listed here.");
+  expect(historyEmptyText({ siteScoped: true, anyHistory: true })).toBe("No transfers of this site yet. Finished, failed and cancelled transfers are listed here.");
   expect(historyEmptyText({ siteScoped: false, anyHistory: true })).toBe("No transfers match these filters.");
-  expect(historyEmptyText({ siteScoped: false, anyHistory: false })).toBe("No plugin-engine transfers yet.");
+  expect(historyEmptyText({ siteScoped: false, anyHistory: false })).toBe("No transfers yet.");
 });
 
 test("a failed run's history record shows its error", () => {

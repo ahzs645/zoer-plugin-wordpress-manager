@@ -12,7 +12,6 @@ import type {
   WordPressSiteDetails,
   WordPressCoreCheck,
   WordPressCoreUpdateState,
-  WordPressBackupRestore,
   HostingerSetupInventory,
 } from "./types";
 
@@ -27,11 +26,6 @@ export const wordpressManagerClient = {
   runHostingerSiteTool: (id: string, action: "clear-cache" | "enable-cacheless" | "disable-cacheless" | "detect-installations") => json<{state:"accepted";action:string;siteId:string;requestedAt:string}>(`/wordpress-manager/sites/${encodeURIComponent(id)}/hostinger-tools`, {method:"POST",body:JSON.stringify({action})}),
   getHostingerSetupInventory: (id: string) => json<HostingerSetupInventory>(`/wordpress-manager/connections/${encodeURIComponent(id)}/setup-inventory`),
   generateHostingerTemporaryDomain: (id: string) => json<{domain:string}>(`/wordpress-manager/connections/${encodeURIComponent(id)}/temporary-domain`, {method:"POST",body:"{}"}),
-  registerWordPressBackupRestore: (manifest: import("./computers-client").WordPressUpdraftImportManifest) => json<{id: string}>("/wordpress-manager/backup-restores", {method:"POST",body:JSON.stringify(manifest)}),
-  uploadWordPressBackupPart: (id: string, component: string, index: number, bytes: Blob) => json<{bytes:number}>(`/wordpress-manager/backup-restores/${encodeURIComponent(id)}/parts/${component}/${index}`, {method:"PUT",headers:{"content-type":"application/octet-stream"},body:bytes}),
-  prepareWordPressBackupRestore: (id: string) => json<WordPressBackupRestore>(`/wordpress-manager/backup-restores/${encodeURIComponent(id)}/prepare`, {method:"POST",body:"{}"}),
-  getWordPressBackupRestore: (id: string) => json<WordPressBackupRestore>(`/wordpress-manager/backup-restores/${encodeURIComponent(id)}`),
-  restoreWordPressBackupToDdev: (id: string) => json<WordPressBackupRestore>(`/wordpress-manager/backup-restores/${encodeURIComponent(id)}/restore`, {method:"POST",body:"{}"}),
   getWordPressCoreUpdates: (siteId: string) => json<WordPressCoreUpdateState>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/core-updates`),
   checkWordPressCoreUpdates: (siteId: string) => json<WordPressCoreUpdateState>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/core-updates/check`, { method: "POST", body: "{}" }),
   applyWordPressCoreUpdate: (siteId: string, check: WordPressCoreCheck) => json<WordPressCoreUpdateState>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/core-updates/update`, { method: "POST", body: JSON.stringify({ installed: check.installed, latest: check.latest, checkedAt: check.checkedAt }) }),

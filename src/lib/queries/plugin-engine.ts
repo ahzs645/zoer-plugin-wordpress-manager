@@ -1,6 +1,6 @@
 /**
- * Plugin-engine transfers (Zoer docs/plugin-shared-services.md 16.5 P3) through the native
- * bridge only: the catalog (`catalog.list`/`catalog.commit`), resumable runs (`action`,
+ * Transfers (Zoer docs/plugin-shared-services.md 16.5 P3/P4; since 0.8.0 the only engine, for
+ * every managed site) through the native bridge only: the catalog (`catalog.list`/`catalog.commit`), resumable runs (`action`,
  * `action.request`, `run`, `run.pause`, `run.resume`, `cancel`, `runs.recent`) and file sets
  * (`filesets.*`). Nothing here calls `/wordpress-manager/*`.
  */
@@ -8,11 +8,11 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { hostRequest } from "../../host/bridge";
 import { waitForRun } from "../../host/actions";
 import { wordpressKeys } from "./wordpress";
-import { effectiveEngine, parseSiteEngine, SITE_ENGINE_KIND, siteEngineRecord, type EngineCatalogRecord, type SiteEngineData, type TransferEngine } from "../../components/extensions/pluginEngine/engineRecord";
 import { isTerminalStatus, type EngineActionId, type EngineRun, type RecentRun } from "../../components/extensions/pluginEngine/runState";
 import type { FileSetStatus } from "../../components/extensions/pluginEngine/uploadPlan";
 
 export type CatalogRecord = { id: string; kind: string; title: string; data: Record<string, unknown>; updated_at?: string };
+export interface CatalogRecordInput<T = Record<string, unknown>> { id: string; kind: string; title: string; data: T }
 type CatalogList = { revision: number; records: CatalogRecord[]; next: string | null };
 
 export const engineKeys = {
@@ -44,7 +44,7 @@ export async function listCatalog(kind: string, { after = "", prefix, max = 5000
 }
 
 /** One commit with the current revision, re-reading and retrying when it changed meanwhile. */
-export async function commitCatalog(change: { records?: EngineCatalogRecord<unknown>[]; deletes?: string[] }, kind = SITE_ENGINE_KIND) {
+export async function commitCatalog(change: { records?: CatalogRecordInput<unknown>[]; deletes?: string[] }, kind = "pull") {
   for (let attempt = 0; attempt < 5; attempt++) {
     const { revision } = await hostRequest<CatalogList>("catalog.list", { kind, limit: 1 });
     const result = await hostRequest<{ revision: number; saved?: number; conflict?: boolean }>("catalog.commit", { revision, ...change });
@@ -59,24 +59,20 @@ export function useCatalogKind(kind: string, { enabled = true, refetchInterval }
 }
 
 // ---------------------------------------------------------------------------
-// Engine setting
+// Records left by 0.7.x
 
-/** All engine records; one query shared by every site. Errors (e.g. an older host) mean legacy. */
-export function useSiteEngines(enabled = true) {
-  return useCatalogKind(SITE_ENGINE_KIND, { enabled });
-}
+/** Kind of the 0.7.x per-site engine switch records (`site-engine:<siteId>`), unused since 0.8.0. */
+export const RETIRED_ENGINE_KIND = "site-engine";
 
-export function useSiteEngine(siteId: string | null | undefined, enabled = true) {
-  const client = useQueryClient();
-  const query = useSiteEngines(enabled && !!siteId);
-  const record = siteId ? query.data?.find(item => item.id === `site-engine:${siteId}`) : undefined;
-  const data: SiteEngineData | null = siteId && record ? parseSiteEngine(record, siteId) : null;
-  async function setEngine(input: { engine: TransferEngine; testTargetConfirmed?: boolean; label?: string; origin?: string | null }) {
-    if (!siteId) throw new Error("Choose a site first.");
-    await commitCatalog({ records: [siteEngineRecord({ siteId, ...input })] });
-    await client.invalidateQueries({ queryKey: engineKeys.catalog(SITE_ENGINE_KIND) });
-  }
-  return { engine: effectiveEngine(data), data, isLoading: query.isLoading, settled: !query.isLoading, error: query.error, setEngine };
+/**
+ * Deletes the `site-engine:` records the 0.7.x engine switch wrote. Nothing reads them any more;
+ * this only tidies the catalog. Returns how many were deleted.
+ */
+export async function retireEngineRecords() {
+  const { records } = await listCatalog(RETIRED_ENGINE_KIND, { max: 2000 });
+  const ids = records.filter(record => record.kind === RETIRED_ENGINE_KIND && record.id.startsWith("site-engine:")).map(record => record.id);
+  if (ids.length) await commitCatalog({ deletes: ids }, RETIRED_ENGINE_KIND);
+  return ids.length;
 }
 
 // ---------------------------------------------------------------------------

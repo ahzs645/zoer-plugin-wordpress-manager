@@ -31,7 +31,6 @@ import {
 } from "lucide-react";
 import {
   api,
-  type Computer,
   type HostingerConnectionPublic,
   type WordPressDeployment,
   type WordPressExtensionKind,
@@ -61,12 +60,12 @@ import WordPressConnect from "./WordPressConnect";
 import HostingerWebsiteSetup from "./HostingerWebsiteSetup";
 import WordPressCoreUpdates from "./WordPressCoreUpdates";
 import HostingerSiteTools from "./HostingerSiteTools";
-import WordPressTransferSummary from "./WordPressPullJobs";
-import TransferHistory from "./wordpressTransfer/TransferHistory";
-import SiteBackups from "./wordpressTransfer/SiteBackups";
 import { isTransferFence, TRANSFER_FENCE_NOTICE } from "./pluginEngine/runState";
+import PluginPulls from "./pluginEngine/PluginPulls";
+import PluginSiteRuns from "./pluginEngine/PluginSiteRuns";
 import PluginTransferHistory from "./pluginEngine/PluginTransferHistory";
-import { SiteEngineBadge } from "./pluginEngine/SiteEngineControl";
+import { mergeDeployments, parseDeploymentRecord, parseRecoveryPointRecord, parseSiteLink, recoveryPointRecord, recoveryPointsFor, withSiteLinks, type DeploymentRecord, type RecoveryPointRecord, type SiteLinkRecord } from "./pluginEngine/records";
+import { commitCatalog, engineKeys, retireEngineRecords, useCatalogKind } from "../../lib/queries/plugin-engine";
 import WordPressAddSite from "./WordPressAddSite";
 import WordPressTrash from "./WordPressTrash";
 import { runAction } from "../../host/actions";
@@ -163,11 +162,17 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const session = useOperationSession();
   const sitesQuery = useQuery(wordpressQueries.sites());
   const [separatedConnections, setSeparatedConnections] = useState(readSeparatedSiteConnections);
-  const sites = sitesQuery.data ?? [];
-  const identity = useMemo(() => consolidateWordPressSites(sites, separatedConnections), [sitesQuery.data, separatedConnections]);
-  const candidateIdentity = useMemo(() => consolidateWordPressSites(sites), [sitesQuery.data]);
+  // Local copies point at their source through `site-link:` records (copy.local, or migrated legacy
+  // copies); Zoer's list only knows copies its legacy engine made.
+  const siteLinks = useCatalogKind("site-link");
+  const sites = useMemo(() => withSiteLinks(sitesQuery.data ?? [], (siteLinks.data ?? []).map(parseSiteLink).filter((link): link is SiteLinkRecord => !!link)), [sitesQuery.data, siteLinks.data]);
+  const identity = useMemo(() => consolidateWordPressSites(sites, separatedConnections), [sites, separatedConnections]);
+  const candidateIdentity = useMemo(() => consolidateWordPressSites(sites), [sites]);
   const connectionsQuery = useQuery({ ...wordpressQueries.connections(), enabled: providersOpen || tab === "deployments" });
   const deploymentsQuery = useQuery({ ...wordpressQueries.deployments(), refetchInterval: query => query.state.data?.some(item => activeWordPressDeployment(item.status)) ? 5_000 : false, refetchIntervalInBackground: false });
+  // Receipts and recovery points migrated into the catalog (`deployment:`, `recovery-point:`) supplement Zoer's own lists.
+  const deploymentRecords = useCatalogKind("deployment");
+  const recoveryRecords = useCatalogKind("recovery-point");
   const connectorsQuery = useQuery(wordpressQueries.connectors());
   const selectedSummary = identity.sites.find(site => site.id === identity.canonicalId(selectedId ?? "") && (siteScope === "all" || isLocalWordPress(site))) ?? null;
   const inspectSelected = Boolean(selectedSummary && (!isLocalWordPress(selectedSummary) || selectedSummary.status === "running"));
@@ -177,7 +182,8 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const scopedSites = siteScope === "local" ? sites.filter(isLocalWordPress) : sites;
   const pickerSites = siteScope === "local" ? identity.sites.filter(isLocalWordPress) : identity.sites;
   const connections = connectionsQuery.data ?? [];
-  const deployments = deploymentsQuery.data ?? [];
+  const deployments = useMemo(() => mergeDeployments(deploymentsQuery.data ?? [], (deploymentRecords.data ?? []).map(parseDeploymentRecord).filter((item): item is DeploymentRecord => !!item)), [deploymentsQuery.data, deploymentRecords.data]);
+  const recoveryPoints = useMemo(() => (recoveryRecords.data ?? []).map(parseRecoveryPointRecord).filter((item): item is RecoveryPointRecord => !!item), [recoveryRecords.data]);
   const runtimeConnectors = connectorsQuery.data ?? [];
   const details = detailsQuery.data ?? null;
   const loading = sitesQuery.isPending;
@@ -222,6 +228,8 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     setSelectedId(current => current && scopedSites.some(site => site.id === current) ? current : scopedSites[0]?.id || null);
   }, [sitesQuery.data, siteScope, setSelectedId]);
   useEffect(() => { setPublishConnection(current => current || connectionsQuery.data?.[0]?.id || ""); }, [connectionsQuery.data]);
+  // 0.8.0: every site uses the plugin transfer engine; the 0.7.x per-site switch records are tidied away once per page load.
+  useEffect(() => { void retireEngineRecords().catch(() => undefined); }, []);
   useEffect(() => {
     setDirectoryResults([]); setExtensionQuery(""); setExtensionSlug(""); setExtensionPlan(null);
   }, [selectedId, tab]);
@@ -365,13 +373,6 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     setCreateOpen(true);
   };
 
-  const importedBackup = (computer: Computer) => {
-    setSelectedId(computer.id);
-    setTab("overview");
-    setNotice(`${computer.name} was restored and started as a local WordPress site.`);
-    void load(true, true);
-  };
-
   const planExtension = async (kind: WordPressExtensionKind, operation: WordPressExtensionOperation, slugs: string[]) => {
     if (!selected || selectedDetails?.site.id !== selected.id) return;
     setBusy(`plan:${kind}:${operation}`);
@@ -470,7 +471,9 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     setBusy("recovery");
     try {
       const { connectionId, domain } = selected;
-      await write(() => api.recordWordPressRecoveryPoint({ connectionId: connectionId!, domain: domain!, label, confirmed: true }));
+      const { recoveryPoint } = await write(() => api.recordWordPressRecoveryPoint({ connectionId: connectionId!, domain: domain!, label, confirmed: true }));
+      // Zoer keeps the point for its 24-hour checks but does not list it; keep a copy so this page shows it.
+      if (recoveryPoint?.id) await commitCatalog({ records: [recoveryPointRecord(recoveryPoint)] }, "recovery-point").then(() => client.invalidateQueries({ queryKey: engineKeys.catalog("recovery-point") })).catch(() => undefined);
       setNotice("Recovery point recorded for 24-hour production safety checks.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to record the recovery point.");
@@ -661,7 +664,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
         {!ddevConnector?.active && (
           <p className="mt-2 break-words text-[13px] leading-4 text-status-warning">{ddevConnector?.unavailableReason || "The DDEV connector is not available. Configure it in Extensions."}</p>
         )}
-      </section> : <WordPressUpdraftImport ddevAvailable={!!ddevConnector?.active} onRunningChange={setRestoreRunning} onImported={importedBackup} onViewSite={computer => { setSelectedId(computer.id); setTab("overview"); setCreateOpen(false); }} />}
+      </section> : <WordPressUpdraftImport ddevAvailable={!!ddevConnector?.active} ddevUnavailableReason={ddevConnector?.unavailableReason} onRunningChange={setRestoreRunning} />}
 
       </Modal>}
 
@@ -694,7 +697,6 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
                       <StatusBadge tone={updating ? "info" : statusTone(selected.status)} icon={updating ? <Loader2 className="animate-spin" /> : undefined}>{updating ? "Updating" : statusLabel(selected.status)}</StatusBadge>
                       {lifecycle === "start" && !updating && <span className="text-[12px] text-text-muted">Start to inspect.</span>}
                     </span>
-                    {(connectSite?.provider === "zoer-connect" || selected.provider === "ddev") && <SiteEngineBadge siteId={connectSite?.provider === "zoer-connect" ? connectSite.id : selected.id} />}
                     <a className="min-w-0 max-w-full truncate text-[12px] underline underline-offset-2 hover:text-text-primary" href={wordpressPreviewUrl(selected) || undefined} target="_blank" rel="noreferrer">{siteDomain(selected)}</a>
                   </p>
                   {(selectedSource || selectedCopies.length > 0) && <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-text-secondary">
@@ -713,18 +715,18 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
           </div>
           <PageTabs id="wordpress-sections" label="WordPress manager sections" tabs={tabs} value={tab} onChange={setTab} />
           <PageTabPanel id="wordpress-sections" value={tab} className="flex-1 overflow-y-auto p-3 sm:p-4">
-            {connectSite?.provider === "zoer-connect" && tab !== "history" && !(connectionsCombined && tab === "overview") && <WordPressTransferSummary key={connectSite.id} siteId={connectSite.id} />}
+            {connectSite?.provider === "zoer-connect" && tab !== "history" && !(connectionsCombined && tab === "overview") && <div className="mb-4 empty:hidden"><PluginSiteRuns key={connectSite.id} siteId={connectSite.id} compact /></div>}
             {connectionMembers.length > 1 && <section aria-label="Website connections" className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border-muted pb-3 text-sm"><p className="text-text-secondary">{connectionsCombined ? "Hostinger hosting and Zoer Connect transfers share this website view." : "Hostinger and Zoer Connect have the same website address."}</p><Btn size="sm" onClick={toggleConnections}>{connectionsCombined ? "Show connections separately" : "Combine connections"}</Btn></section>}
             {detailError && (isTransferFence(detailError)
               ? <div role="status" className="mb-3 text-sm text-status-warning">{TRANSFER_FENCE_NOTICE} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>
               : <div role="alert" className="mb-3 text-sm text-status-error">{detailError} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>)}
-            {tab === "history" ? <div className="min-w-0 space-y-8"><TransferHistory sites={sites} canonicalId={identity.canonicalId} /><PluginTransferHistory sites={sites} canonicalId={identity.canonicalId} /></div> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
+            {tab === "history" ? <div className="min-w-0 space-y-8"><PluginTransferHistory sites={sites} canonicalId={identity.canonicalId} /></div> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
               <>
                 {tab === "overview" && <OverviewTab site={selected} connectSite={connectSite} details={selectedDetails} loading={detailLoading} onSetup={()=>selected && void openSite(selected,true)} onRestore={openBackupImport} />}
                 {tab === "plugins" && <ExtensionsTab kind="plugin" site={selected} connectSiteId={connectSite?.id} rows={selectedDetails?.plugins || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
                 {tab === "themes" && <ExtensionsTab kind="theme" site={selected} connectSiteId={connectSite?.id} rows={selectedDetails?.themes || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
-                {tab === "backups" && connectSite?.provider === "zoer-connect" && <div className="mb-5"><SiteBackups key={connectSite.id} siteId={connectSite.id} siteName={selected?.name ?? connectSite.name} /></div>}
-                {tab === "backups" && <BackupsTab site={selected} details={selectedDetails} busy={busy} retainPortableBackup={retainPortableBackup} onRetainPortableBackup={setRetainPortableBackup} onCreatePortableBackup={createPortableBackup} onRecordRecovery={recordRecovery} onImportBackup={openBackupImport} />}
+                {tab === "backups" && connectSite?.provider === "zoer-connect" && <div className="mb-5"><PluginPulls key={connectSite.id} siteId={connectSite.id} siteName={selected?.name ?? connectSite.name} /></div>}
+                {tab === "backups" && <BackupsTab site={selected} details={selectedDetails} recoveryPoints={selected ? recoveryPointsFor([...(selectedDetails?.recoveryPoints ?? []), ...recoveryPoints], selected) : []} busy={busy} retainPortableBackup={retainPortableBackup} onRetainPortableBackup={setRetainPortableBackup} onCreatePortableBackup={createPortableBackup} onRecordRecovery={recordRecovery} onImportBackup={openBackupImport} />}
                 {tab === "deployments" && selected && (connectionsCombined || selectedDetails?.plugins.some(plugin => plugin.slug === "zoer-connect" && plugin.status === "active") || (!!connectSite && !!detailError)) && <section className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border-muted pb-3"><h3 className="text-sm font-medium text-text-heading">Zoer Connect transfers</h3><WordPressConnect key={connectSite?.id ?? selected.id} siteId={connectSite?.id ?? selected.id} siteName={selected.name} /></section>}
                 {tab === "deployments" && selected?.provider === "zoer-connect" && <p className="text-sm text-text-secondary">Use {connectLabel} to pull, push, back up or export this site.</p>}
                 {tab === "deployments" && selected?.provider !== "zoer-connect" && <DeploymentsTab sites={sites} fixedSource={selected?.capabilities.deploySource ? selected : null} connections={connections} deployments={deployments} source={publishSource} setSource={setPublishSource} connection={publishConnection} setConnection={setPublishConnection} domain={publishDomain} setDomain={setPublishDomain} mode={publishMode} setMode={setPublishMode} busy={busy} onPlan={planPublish} onVerify={confirmDeployment} onImport={() => setTab("backups")} />}
@@ -856,9 +858,9 @@ function ExtensionsTab({ kind, site, connectSiteId, rows, query, setQuery, slug,
   </div>;
 }
 
-function BackupsTab({ site, details, busy, retainPortableBackup, onRetainPortableBackup, onCreatePortableBackup, onRecordRecovery, onImportBackup }: { site: WordPressManagedSite | null; details: WordPressSiteDetails | null; busy: string | null; retainPortableBackup: boolean; onRetainPortableBackup: (value: boolean) => void; onCreatePortableBackup: () => void; onRecordRecovery: () => void; onImportBackup: () => void }) {
+function BackupsTab({ site, details, recoveryPoints, busy, retainPortableBackup, onRetainPortableBackup, onCreatePortableBackup, onRecordRecovery, onImportBackup }: { site: WordPressManagedSite | null; details: WordPressSiteDetails | null; recoveryPoints: RecoveryPointRecord[]; busy: string | null; retainPortableBackup: boolean; onRetainPortableBackup: (value: boolean) => void; onCreatePortableBackup: () => void; onRecordRecovery: () => void; onImportBackup: () => void }) {
   return <div className="space-y-5">
-    {site?.provider === "hostinger" && <section className="rounded-md border border-status-warning/25 bg-status-warning/5 p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-[13px] font-semibold text-status-warning">Remote recovery points</h4><p className="mt-1 max-w-2xl text-[13px] leading-4 text-text-secondary">Create and verify a backup in hPanel, then record it here. Required within 24 hours of production changes.</p></div><Btn size="sm" loading={busy === "recovery"} icon={<ShieldCheck className="h-3.5 w-3.5" />} onClick={onRecordRecovery}>Record verified backup</Btn></div><div className="mt-3 space-y-2">{details?.recoveryPoints.map((point) => <div key={point.id} className="rounded border border-border-muted bg-surface-primary/40 px-3 py-2 text-[13px]"><span className="font-medium text-text-primary">{point.label}</span><span className="ml-2 text-text-secondary">{new Date(point.verifiedAt).toLocaleString()}</span></div>)}{!details?.recoveryPoints.length && <p className="text-[13px] text-text-secondary">No verified recovery point recorded.</p>}</div></section>}
+    {site?.provider === "hostinger" && <section className="rounded-md border border-status-warning/25 bg-status-warning/5 p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-[13px] font-semibold text-status-warning">Remote recovery points</h4><p className="mt-1 max-w-2xl text-[13px] leading-4 text-text-secondary">Create and verify a backup in hPanel, then record it here. Required within 24 hours of production changes.</p></div><Btn size="sm" loading={busy === "recovery"} icon={<ShieldCheck className="h-3.5 w-3.5" />} onClick={onRecordRecovery}>Record verified backup</Btn></div><div className="mt-3 space-y-2">{recoveryPoints.map((point) => <div key={point.id} className="rounded border border-border-muted bg-surface-primary/40 px-3 py-2 text-[13px]"><span className="font-medium text-text-primary">{point.label}</span><span className="ml-2 text-text-secondary">{new Date(point.verifiedAt).toLocaleString()}</span></div>)}{!recoveryPoints.length && <p className="text-[13px] text-text-secondary">No verified recovery point recorded.</p>}</div></section>}
     {site?.provider === "ddev" && <><section className="rounded-md border border-border-default p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h4 className="text-[13px] font-semibold text-text-heading">Full-site backup</h4><p className="mt-1 max-w-2xl text-[13px] leading-4 text-text-secondary">Files + database. Brief maintenance mode.</p><label className="mt-3 flex items-start gap-2 text-[13px] text-text-secondary"><input type="checkbox" checked={retainPortableBackup} onChange={(event) => onRetainPortableBackup(event.target.checked)} className="ui-checkbox mt-0.5 h-4 w-4 shrink-0" /><span>Keep a copy in Files</span></label></div><Btn className="w-full shrink-0 sm:w-auto" size="sm" variant="primary" icon={<HardDriveDownload className="h-3.5 w-3.5" />} loading={busy === "portable-backup"} disabled={site.status !== "running" || busy !== null} onClick={onCreatePortableBackup}>Download backup</Btn></div>{site.status !== "running" && <p className="mt-2 text-[13px] text-status-warning">Start this DDEV site before creating a portable backup.</p>}</section><section><h4 className="text-[13px] font-semibold text-text-heading">Automatic recovery points</h4><p className="mt-1 text-xs text-text-secondary">Saved before each managed change so it can be rolled back. Not downloadable.</p><div className="mt-3 grid gap-2 md:grid-cols-2">{details?.backups.map((backup) => <div key={backup.id} className="rounded-md border border-border-muted bg-surface-primary/50 p-3"><div className="truncate text-[12px] font-medium text-text-primary" title={backup.name || backup.id}>{/* The date is shown below; drop the ISO stamp the backend appends to names. */}{(backup.name || backup.id || "").replace(/\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z?$/, "")}</div><div className="mt-1 text-[12px] text-text-secondary">{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : ""}</div><div className="mt-2 text-[12px] text-text-secondary">DB {humanBytes(backup.database?.bytes)} · Content {humanBytes(backup.content?.bytes)}</div></div>)}{!details?.backups.length && <p className="text-[13px] text-text-secondary">No recovery points yet.</p>}</div></section></>}
     <Btn icon={<HardDriveDownload className="h-4 w-4" />} onClick={onImportBackup}>Restore backup into a new local site</Btn>
   </div>;

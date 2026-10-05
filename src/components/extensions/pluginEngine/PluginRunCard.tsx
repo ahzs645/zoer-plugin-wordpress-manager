@@ -87,7 +87,7 @@ function RunOutput({ output }: { output: Output }) {
 }
 
 /**
- * One plugin-engine run: live phase and progress from `run.resumable`, Pause/Resume/Cancel through
+ * One transfer run: live phase and progress from `run.resumable`, Pause/Resume/Cancel through
  * `run.pause`/`run.resume`/`cancel`, and the import decisions (Approve, Finish, Roll back, Clean up)
  * through `transfer.push.control` followed by `run.resume` so the push continues.
  */

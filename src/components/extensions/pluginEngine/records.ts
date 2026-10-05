@@ -1,6 +1,8 @@
 /**
- * Catalog records written by the plugin-engine workers (plugin/worker/lib/catalog.js) and the
- * history list that merges them with `runs.recent`. Pure; parsing never trusts shapes.
+ * Catalog records written by the transfer workers (plugin/worker/lib/catalog.js) or migrated from
+ * Zoer's legacy host engine (`wordpress-manager.transfers-to-plugin`, `engine: "legacy"` /
+ * `"legacy-migrated"`), and the history list that merges them with `runs.recent`. Pure; parsing
+ * never trusts shapes.
  */
 import { pullContents, pullIncludesDownloadOnly } from "../../../lib/wordpress-transfer/options";
 import { ENGINE_ACTIONS, isTerminalStatus, runInput, runTransferId, type RecentRun } from "./runState";
@@ -40,7 +42,8 @@ export function parsePullRecord(record: Raw): PullRecord | null {
   const source = obj(data.source);
   return {
     pullId, siteId, kind: data.kind === "local-export" ? "local-export" : "pull", setId,
-    status: str(data.status) ?? "downloading",
+    // Migrated legacy pulls are finished by definition; Zoer marks them ready, earlier migrations did not.
+    status: str(data.status) ?? (data.engine === "legacy-migrated" ? "ready" : "downloading"),
     options: obj(data.options) as PullRecord["options"],
     ...(str(data.origin) ? { origin: str(data.origin) } : {}),
     source: source ? { url: str(source.url), prefix: str(source.prefix), abspath: str(source.abspath) } : null,
@@ -77,6 +80,17 @@ export function parseLocalCopyRecord(record: Raw): LocalCopyRecord | null {
     sourceSiteId: str(data.sourceSiteId), targetUrl: str(data.targetUrl), name: str(data.name), siteName: str(data.siteName),
     replaceSiteId: str(data.replaceSiteId), createdAt: str(data.createdAt), finishedAt: str(data.finishedAt),
   };
+}
+
+/** Complete local copies of `sourceSiteId` (one per target, newest first): copies and migrated legacy copies. */
+export function existingCopies(copies: LocalCopyRecord[], sourceSiteId: string) {
+  const byTarget = new Map<string, LocalCopyRecord>();
+  for (const copy of copies) {
+    if (copy.kind !== "copy" || copy.phase !== "complete" || copy.sourceSiteId !== sourceSiteId) continue;
+    const seen = byTarget.get(copy.targetId);
+    if (!seen || String(copy.finishedAt ?? copy.createdAt ?? "") > String(seen.finishedAt ?? seen.createdAt ?? "")) byTarget.set(copy.targetId, copy);
+  }
+  return [...byTarget.values()].sort((a, b) => String(b.finishedAt ?? b.createdAt ?? "").localeCompare(String(a.finishedAt ?? a.createdAt ?? "")));
 }
 
 /** Earlier complete copies of `sourceSiteId` that `copy.local { replaceSiteId }` may refresh (one per target). */
@@ -221,12 +235,91 @@ export function filterEngineHistory(items: EngineHistoryItem[], { siteId, kind, 
 
 /** Empty-state text of the transfer history (a site's History disclosure, or the all-sites list). */
 export function historyEmptyText({ siteScoped, anyHistory }: { siteScoped: boolean; anyHistory: boolean }) {
-  if (siteScoped) return "No plugin-engine transfers of this site yet. Finished, failed and cancelled transfers are listed here.";
-  return anyHistory ? "No transfers match these filters." : "No plugin-engine transfers yet.";
+  if (siteScoped) return "No transfers of this site yet. Finished, failed and cancelled transfers are listed here.";
+  return anyHistory ? "No transfers match these filters." : "No transfers yet.";
 }
 
 /** The hint beside a site's collapsed History heading: how many entries, or that there are none. */
 export function historySummaryHint({ loading, count }: { loading: boolean; count: number }) {
   if (loading) return "";
   return count ? `${count.toLocaleString("en-US")} ${count === 1 ? "transfer" : "transfers"}` : "None yet";
+}
+
+// ---------------------------------------------------------------------------
+// site-link:<targetSiteId>  (local copy → the site it was copied from)
+
+export interface SiteLinkRecord { targetSiteId: string; sourceSiteId: string }
+
+export function parseSiteLink(record: Raw): SiteLinkRecord | null {
+  const data = obj(record.data);
+  if (record.kind !== "site-link" || !data) return null;
+  const targetSiteId = str(data.targetSiteId), sourceSiteId = str(data.sourceSiteId);
+  if (!targetSiteId || !sourceSiteId || targetSiteId === sourceSiteId) return null;
+  return { targetSiteId, sourceSiteId };
+}
+
+/**
+ * Sites with `sourceSiteId` filled from `site-link` records where Zoer's site list has none (the
+ * host derives it from legacy local-copy files only). A link counts only when both sites are listed.
+ */
+export function withSiteLinks<T extends { id: string; sourceSiteId?: string | null }>(sites: T[], links: SiteLinkRecord[]): T[] {
+  if (!links.length) return sites;
+  const ids = new Set(sites.map(site => site.id));
+  const sourceOf = new Map(links.filter(link => ids.has(link.sourceSiteId)).map(link => [link.targetSiteId, link.sourceSiteId]));
+  return sites.map(site => !site.sourceSiteId && sourceOf.has(site.id) ? { ...site, sourceSiteId: sourceOf.get(site.id)! } : site);
+}
+
+// ---------------------------------------------------------------------------
+// deployment:<id> and recovery-point:<id>  (migrated from Zoer's wordpress-manager.json, non-secret fields)
+
+const DEPLOYMENT_TYPES = ["full-site", "site-create", "extension-change"] as const;
+const DEPLOYMENT_STATUSES = ["queued", "preparing", "uploading", "importing", "verifying", "verification_required", "succeeded", "failed", "outcome_unknown"] as const;
+const nullable = (value: unknown) => str(value) ?? null;
+
+export interface DeploymentRecord {
+  id: string; type: typeof DEPLOYMENT_TYPES[number]; sourceSiteId: string | null; targetSiteId: string | null; connectionId: string | null; domain: string | null;
+  status: typeof DEPLOYMENT_STATUSES[number]; step: string; createdAt: string; updatedAt: string; completedAt: string | null; error: string | null; details: Record<string, unknown>;
+}
+
+export function parseDeploymentRecord(record: Raw): DeploymentRecord | null {
+  const data = obj(record.data);
+  if (record.kind !== "deployment" || !data) return null;
+  const id = str(data.id), createdAt = str(data.createdAt);
+  const type = DEPLOYMENT_TYPES.find(value => value === data.type), status = DEPLOYMENT_STATUSES.find(value => value === data.status);
+  if (!id || !createdAt || !type || !status) return null;
+  return {
+    id, type, status, createdAt, updatedAt: str(data.updatedAt) ?? createdAt, step: str(data.step) ?? "",
+    sourceSiteId: nullable(data.sourceSiteId), targetSiteId: nullable(data.targetSiteId), connectionId: nullable(data.connectionId), domain: nullable(data.domain),
+    completedAt: nullable(data.completedAt), error: nullable(data.error), details: obj(data.details) ?? {},
+  };
+}
+
+/** Zoer's deployment receipts plus migrated catalog receipts it no longer lists (Zoer's entry wins). Newest first. */
+export function mergeDeployments<T extends { id: string; updatedAt: string }>(host: T[], catalog: T[]): T[] {
+  const ids = new Set(host.map(item => item.id));
+  return [...host, ...catalog.filter(item => !ids.has(item.id))].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export interface RecoveryPointRecord { id: string; connectionId: string; domain: string; label: string; method: "hostinger-hpanel"; verifiedAt: string; createdAt: string }
+
+export function parseRecoveryPointRecord(record: Raw): RecoveryPointRecord | null {
+  const data = obj(record.data);
+  if (record.kind !== "recovery-point" || !data) return null;
+  const id = str(data.id), connectionId = str(data.connectionId), domain = str(data.domain), verifiedAt = str(data.verifiedAt);
+  if (!id || !connectionId || !domain || !verifiedAt) return null;
+  return { id, connectionId, domain, label: str(data.label) ?? domain, method: "hostinger-hpanel", verifiedAt, createdAt: str(data.createdAt) ?? verifiedAt };
+}
+
+/** Recovery points of one Hostinger website (connection + domain), newest first, one per ID. */
+export function recoveryPointsFor<T extends { id: string; connectionId: string; domain: string; verifiedAt: string }>(points: T[], site: { connectionId?: string | null; domain?: string | null }) {
+  const domain = site.domain?.toLowerCase();
+  const seen = new Set<string>();
+  return points.filter(point => point.connectionId === site.connectionId && point.domain.toLowerCase() === domain && !seen.has(point.id) && (seen.add(point.id), true))
+    .sort((a, b) => b.verifiedAt.localeCompare(a.verifiedAt));
+}
+
+/** The catalog record for a recovery point Zoer just recorded, so this page lists it (Zoer's site details do not). */
+export function recoveryPointRecord(point: RecoveryPointRecord) {
+  return { id: `recovery-point:${point.id}`, kind: "recovery-point", title: (point.label || point.domain).slice(0, 300),
+    data: { id: point.id, connectionId: point.connectionId, domain: point.domain, label: point.label, method: point.method, verifiedAt: point.verifiedAt, createdAt: point.createdAt, engine: "host" } };
 }

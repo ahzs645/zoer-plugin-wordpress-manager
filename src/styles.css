@@ -37,12 +37,3 @@
   --color-danger-text: var(--danger-text);
 }
 
-/*
- * Phone sheets (below 768px, Zoer's sheet breakpoint): a dialog footer marked
- * .wpm-sheet-actions spans the sheet. Zoer wraps a native plugin's footer in a
- * content-width flex row that carries this scope class (the `:scope` here), so
- * the row itself has to grow before full-width buttons can be full width.
- */
-@media (max-width: 767px) {
-  :scope:has(> .wpm-sheet-actions) { flex: 1 1 100%; min-width: 0; }
-}

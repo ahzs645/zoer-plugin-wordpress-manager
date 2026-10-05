@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { bindHost } from "../../host/bridge";
-import { mergeRecentRuns, recentRunsInterval, recentRunsQuery } from "./plugin-engine";
+import { mergeRecentRuns, recentRunsInterval, recentRunsQuery, retireEngineRecords } from "./plugin-engine";
 import type { RecentRun } from "../../components/extensions/pluginEngine/runState";
 
 const run = (runId: string, actionId: string, status: string, createdAt: string, finishedAt?: string): RecentRun => ({ runId, actionId, status, createdAt, ...(finishedAt ? { finishedAt } : {}), input: { siteId: "s" } });
@@ -37,4 +37,21 @@ test("the list polls every 3 s only while a run is active", () => {
   expect(recentRunsInterval([run("1", "transfer.push", "running", "x")])).toBe(3_000);
   expect(recentRunsInterval([run("1", "transfer.push", "failed", "x")])).toBe(30_000);
   expect(recentRunsInterval(undefined)).toBe(30_000);
+});
+
+test("0.8.0 deletes the 0.7.x engine-switch records once and leaves everything else", async () => {
+  const calls: Array<[string, any]> = [];
+  const records = [{ id: "site-engine:external:shop", kind: "site-engine", title: "Shop", data: { engine: "plugin", testTarget: true } }, { id: "site-engine:ddev-a", kind: "site-engine", title: "A", data: { engine: "legacy" } }];
+  const unbind = bindHost({ request: async (method: string, input?: any) => {
+    calls.push([method, input]);
+    if (method === "catalog.list") return { revision: 7, records: input.limit === 1 ? records.slice(0, 1) : records, next: null };
+    return { revision: 8, saved: 0 };
+  }, subscribe: () => () => {} });
+  expect(await retireEngineRecords()).toBe(2);
+  expect(calls.filter(([method]) => method === "catalog.commit")).toEqual([["catalog.commit", { revision: 7, deletes: ["site-engine:external:shop", "site-engine:ddev-a"] }]]);
+  expect(calls.every(([method, input]) => method !== "catalog.list" || input.kind === "site-engine")).toBe(true);
+  records.length = 0; calls.length = 0;
+  expect(await retireEngineRecords()).toBe(0);
+  expect(calls.map(([method]) => method)).toEqual(["catalog.list"]);
+  unbind();
 });

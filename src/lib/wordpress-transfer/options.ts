@@ -1,6 +1,6 @@
 import type {
   DatabaseFilters, ExportOptions, ExportResources, ImportOptions, ReplacementRow, ResourceMode, TransferAction,
-  TransferProfile, TransferRecentRun, ZoerConnectCapabilities, ZoerConnectCapability,
+  ZoerConnectCapabilities, ZoerConnectCapability,
 } from "../api/types/wordpress-transfer";
 import { validateReplacementRow } from "./replacementRegex";
 
@@ -119,14 +119,6 @@ export function exportOptionsForAction(action: TransferAction, options: ExportOp
   };
 }
 
-/** Body for `POST /pulls` and local exports: the 0.4 `options`, plus legacy fields for older servers. */
-export function pullRequestBody(options: ExportOptions) {
-  const { database, ...files } = options.resources;
-  return { options, database, profile: { name: "Zoer remote pull", ...files, excludes: options.excludes } };
-}
-/** Serialized pull body (without request ID) used by `useWordPressPulls().command({ action: "start" })`. */
-export function pullOptionsPayload(options: ExportOptions) { return JSON.stringify(pullRequestBody(options)); }
-
 /** Default Find & Replace scope: every prefixed table except users and usermeta. */
 export function defaultReplaceTables(suffixes: string[]) { return suffixes.filter(suffix => suffix !== "users" && suffix !== "usermeta"); }
 
@@ -228,48 +220,6 @@ export function normalizeImportOptions(value: unknown): ImportOptions {
   });
 }
 
-const actionOf = (value: unknown): TransferAction | null => TRANSFER_ACTIONS.includes(value as TransferAction) ? value as TransferAction : null;
-
-export function normalizeProfile(value: unknown): TransferProfile | null {
-  if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") return null;
-  const action = actionOf(value.action) ?? "pull";
-  return {
-    id: value.id, name: value.name, action,
-    ...(typeof value.siteId === "string" ? { siteId: value.siteId } : {}),
-    ...(typeof value.sourceSiteId === "string" ? { sourceSiteId: value.sourceSiteId } : {}),
-    exportOptions: normalizeExportOptions(value.exportOptions, action),
-    importOptions: normalizeImportOptions(value.importOptions),
-    createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
-    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : typeof value.createdAt === "string" ? value.createdAt : "",
-  };
-}
-
-export function normalizeRecentRun(value: unknown, index = 0): TransferRecentRun | null {
-  if (!isRecord(value)) return null;
-  const kind = value.kind === "replace" ? "replace" : value.kind === "push" ? "push" : value.kind === "pull" ? "pull" : null;
-  const action = actionOf(value.action) ?? kind;
-  if (!action) return null;
-  const options = isRecord(value.options) ? value.options : {};
-  const startedAt = [value.startedAt, value.createdAt, value.at].find((x): x is string => typeof x === "string") ?? "";
-  return {
-    id: typeof value.id === "string" ? value.id : `recent-${index}`,
-    action,
-    ...(typeof value.siteId === "string" ? { siteId: value.siteId } : {}),
-    ...(typeof value.sourceSiteId === "string" ? { sourceSiteId: value.sourceSiteId } : {}),
-    ...(typeof value.name === "string" ? { name: value.name } : {}),
-    exportOptions: normalizeExportOptions(value.exportOptions ?? (action === "pull" || action === "backup" || action === "export" ? options : undefined), action),
-    importOptions: normalizeImportOptions(value.importOptions ?? (action === "push" || action === "replace" ? options : undefined)),
-    startedAt,
-  };
-}
-
-/** Accepts `{key: [...]}` envelopes or bare arrays. */
-export function unwrapList(value: unknown, key: string): unknown[] {
-  if (Array.isArray(value)) return value;
-  if (isRecord(value) && Array.isArray(value[key])) return value[key] as unknown[];
-  return [];
-}
-
 /** What a stored pull contains, for the backups list. Handles 0.3 and 0.4 option shapes. */
 export function pullContents(options: unknown): { database: boolean; files: boolean; label: string } {
   let database = false; let files: string[] = [];
@@ -307,11 +257,3 @@ export function compareVersions(a: string, b: string) {
   return 0;
 }
 
-export function pushButtonLabel(scope: "all" | "selected", selectedCount: number) {
-  if (scope === "all") return "Push all items";
-  return `Push ${selectedCount.toLocaleString()} selected item${selectedCount === 1 ? "" : "s"}`;
-}
-
-export function newRequestId() {
-  return crypto.randomUUID().replaceAll("-", "");
-}

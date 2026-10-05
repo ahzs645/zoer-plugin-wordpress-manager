@@ -11,7 +11,7 @@ import FilesPanel from "../wordpressTransfer/FilesPanel";
 import ReplacePanel from "../wordpressTransfer/ReplacePanel";
 import SafetyPanel from "../wordpressTransfer/SafetyPanel";
 import { ItemPicker, OptionToggle } from "../wordpressTransfer/TransferPanel";
-import { actionAvailability } from "../wordpressTransfer/TransferWorkspace";
+import { actionAvailability } from "../wordpressTransfer/availability";
 import { ACTION_LABELS } from "../wordpressTransfer/transferLabels";
 import { initialAction, initialDraft, switchAction, type DraftUpdate, type TransferDraft } from "../wordpressTransfer/draft";
 import PluginPulls from "./PluginPulls";
@@ -116,7 +116,7 @@ function ReplaceStart({ siteId, connection, diagnostics, diagnosticsLoading, dra
   }
   if (!hasCapability(caps, "siteReplace")) return <p className="text-sm text-status-warning">{REQUIRES_040}. Update the plugin in <a className="underline" href={`${target.replace(/\/+$/, "")}/wp-admin/plugins.php`} target="_blank" rel="noreferrer">WordPress → Plugins</a> to run Find &amp; Replace.</p>;
   return <div className="min-w-0 space-y-4">
-    <p className="text-xs text-text-secondary">The plugin engine snapshots this site's database, applies your rules to a staged copy and stops for your review. Nothing changes on the live site until you approve.</p>
+    <p className="text-xs text-text-secondary">WordPress Manager snapshots this site's database, applies your rules to a staged copy and stops for your review. Nothing changes on the live site until you approve.</p>
     <section className="min-w-0 space-y-2">
       <label className="block text-sm"><span className={fieldLabelClass}>Tables</span>
         <Select aria-label="Tables to search" className={selectClass("default", "w-full")} value={tables === "all" ? "all" : "selected"} onChange={event => setTables(event.target.value === "all" ? "all" : defaultReplaceTables(items.filter(i => !i.disabled).map(i => i.value)))}>
@@ -140,8 +140,8 @@ function ReplaceStart({ siteId, connection, diagnostics, diagnosticsLoading, dra
 }
 
 /**
- * The transfer workspace of a site on the plugin engine. Same action picker and option panels as
- * the legacy `TransferWorkspace`; transfers run as this plugin's resumable actions.
+ * A Zoer Connect site's transfer workspace: action picker and option panels; transfers run as
+ * this plugin's resumable actions (the only transfer engine since 0.8.0).
  */
 export default function PluginTransferWorkspace({ siteId, siteName, connection, diagnostics, diagnosticsLoading, onLocalCopy }: {
   siteId: string; siteName: string; connection: ZoerConnectConnection; diagnostics: WordPressDiagnostics | null | undefined; diagnosticsLoading: boolean;

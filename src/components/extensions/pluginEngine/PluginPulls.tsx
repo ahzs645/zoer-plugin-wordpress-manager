@@ -10,7 +10,7 @@ import { isReadyPull, parsePullRecord, pullHasDatabase, type PullRecord } from "
 
 const STATUS: Record<string, string> = { ready: "Verified", "dry-run": "Dry run · no files kept", downloading: "Downloading", cancelled: "Cancelled", failed: "Failed · nothing kept" };
 
-/** Plugin-engine pulls, backups and local exports of one site: download, delete, or copy locally. */
+/** Pulls, backups and local exports of one site (including migrated legacy downloads): download, delete, or copy locally. */
 export default function PluginPulls({ siteId, siteName, onLocalCopy }: { siteId: string; siteName: string; onLocalCopy?: (pull: PullRecord) => void }) {
   const dialogs = useDialogs();
   const client = useQueryClient();
@@ -43,11 +43,11 @@ export default function PluginPulls({ siteId, siteName, onLocalCopy }: { siteId:
     finally { setBusy(null); }
   }
 
-  return <section className="min-w-0 space-y-2" aria-label="Plugin-engine downloads">
+  return <section className="min-w-0 space-y-2" aria-label="Downloads">
     <h4 className="text-sm font-semibold text-text-heading">Downloads on the Zoer server</h4>
     {records.isLoading && <p className="text-sm text-text-secondary">Loading downloads…</p>}
     {records.error && <p role="alert" className="text-sm text-status-error">Could not load downloads: {engineErrorMessage(records.error)} <Btn size="sm" onClick={() => void records.refetch()}>Retry</Btn></p>}
-    {records.data && !pulls.length && <p className="text-sm text-text-secondary">No plugin-engine downloads of this site yet.</p>}
+    {records.data && !pulls.length && <p className="text-sm text-text-secondary">No downloads of this site yet.</p>}
     <ul className="min-w-0 space-y-2">{pulls.map(pull => {
       const contents = pullContents(pull.options);
       const ready = isReadyPull(pull);
