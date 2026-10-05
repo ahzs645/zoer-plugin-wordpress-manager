@@ -52,6 +52,8 @@ See [Zoer's architecture guide](https://github.com/ahzs645/zoer/blob/main/docs/w
 
 Unit tests cover transfer/replacement options, capability availability, grouping, lifecycle restrictions, clipboard parsing, progress/history labels and bridge cancellation/session fencing. The build rejects unexpected or dynamic native imports and local filesystem paths, and scopes plugin CSS including portaled dialog content. CI typechecks, tests, builds, validates and archives every push. Host tests cover runtime/upload restrictions, per-site operation grants/revocation, sanitized outputs and installed-worker file permissions. Browser integration is checked against Zoer's real cluster; UI unit stubs supply shared-module imports only.
 
+Live testing against a real Zoer, including by an agent working inside a Zoer computer, follows [`docs/live-testing.md`](docs/live-testing.md): setup, dev-push installs and upgrade review, the test-site rules, the open tests and the `tools/live-gate/` helpers (API, snapshots, push/rollback controls, UI smoke check).
+
 ## One-operation local copies (0.5.8)
 
 Hostinger and connected external sites expose **Overview → Make a local copy**.
