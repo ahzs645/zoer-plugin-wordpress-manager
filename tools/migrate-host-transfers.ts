@@ -35,6 +35,37 @@ export function createMigrationClient(options: MigrationClientOptions) {
   };
 }
 
+type Row = { id?: string; profileId?: string; reason?: string };
+
+/**
+ * Zoer's migration reports a second legacy local copy of the same target as "already
+ * migrated" for its `site-link:<target>` (one link per target; the newest copy is queued first
+ * and wins), even when the catalog had no link. A skipped link whose target this same run
+ * linked is a duplicate target: name it, and the copy that keeps the link (the `local-copy:`
+ * entry queued just before that link). Every copy still gets its own `local-copy` record.
+ */
+export function explainLocalCopies(value: { planned?: Row[]; created?: Row[]; skipped?: Row[] }): Row[] {
+  const done = Array.isArray(value.created) ? value.created : Array.isArray(value.planned) ? value.planned : [];
+  const skipped = Array.isArray(value.skipped) ? value.skipped : [];
+  const winners = new Map<string, string>();
+  let lastCopy: string | null = null;
+  for (const row of done) {
+    if (row.id?.startsWith("local-copy:")) lastCopy = row.id;
+    else if (row.id?.startsWith("site-link:") && lastCopy) winners.set(row.id.slice("site-link:".length), lastCopy);
+  }
+  const duplicates = new Map<string, number>();
+  for (const row of skipped) {
+    const target = row.id?.startsWith("site-link:") ? row.id.slice("site-link:".length) : null;
+    if (target && row.reason === "already migrated" && winners.has(target)) duplicates.set(target, (duplicates.get(target) ?? 0) + 1);
+  }
+  return skipped.map(row => {
+    const target = row.id?.startsWith("site-link:") ? row.id.slice("site-link:".length) : null;
+    if (!target || row.reason !== "already migrated" || !winners.has(target)) return row;
+    const copies = duplicates.get(target)! + 1;
+    return { ...row, reason: `duplicate target: ${copies} legacy local copies point at ${target}; the newest (${winners.get(target)}) keeps the site link, the others are kept as local-copy records only` };
+  });
+}
+
 /** One line per category: planned/created and skipped counts, then the skip reasons. */
 export function summarize(result: { apply: boolean; report: any }) {
   const lines = [`${result.apply ? "Applied" : "Dry run of"} ${MIGRATION_ID}`];
@@ -43,7 +74,7 @@ export function summarize(result: { apply: boolean; report: any }) {
   for (const [category, value] of Object.entries(report as Record<string, any>)) {
     if (!value || typeof value !== "object" || Array.isArray(value)) continue;
     const done = Array.isArray(value.created) ? value.created.length : Array.isArray(value.planned) ? value.planned.length : value.created ?? value.planned;
-    const skipped = Array.isArray(value.skipped) ? value.skipped : [];
+    const skipped = category === "localCopies" ? explainLocalCopies(value) : Array.isArray(value.skipped) ? value.skipped : [];
     lines.push(`  ${category}: ${done ?? 0} ${result.apply ? "created" : "planned"}, ${skipped.length} skipped`);
     for (const row of skipped.slice(0, 20)) lines.push(`    - ${row.id ?? row.profileId ?? "?"}: ${row.reason}`);
   }
