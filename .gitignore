@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.zip
 .DS_Store
+
+# Live-gate snapshots and screenshots (tools/live-gate)
+tools/live-gate/.baseline/
+tools/live-gate/.shots/

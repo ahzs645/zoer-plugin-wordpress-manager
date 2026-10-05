@@ -30,6 +30,7 @@
     "src",
     "tests",
     "scripts",
-    "tools/parity"
+    "tools/parity",
+    "tools/live-gate"
   ]
 }
