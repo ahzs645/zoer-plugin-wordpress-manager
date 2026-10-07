@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Tooling sources must not alter native UI styles when private source is initialized. */
+@source not "../security";
 @theme inline {
   --color-surface-base: var(--surface-base);
   --color-surface-primary: var(--surface-primary);
@@ -36,4 +38,3 @@
   --color-danger-hover: var(--danger-hover);
   --color-danger-text: var(--danger-text);
 }
-
