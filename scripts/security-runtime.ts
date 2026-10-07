@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 import { cp, mkdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-export const REVIEWED_RUNTIME_SHA256 = "e02ded17c445f9c90a66c7ba5d4739b4e2f6b93d630ac27acb80c259a0d00162";
-export const REVIEWED_RUNTIME_BYTES = 1191772;
-export const REVIEWED_SOURCE_COMMIT = "842e77834ffa38f19cc1ff4f7301d4267afa654d";
+export const REVIEWED_RUNTIME_SHA256 = "ab30f7c39fc04e6d5d84437a3c20b2171ece3432b9d348f632bf8cfde3aedc55";
+export const REVIEWED_RUNTIME_BYTES = 1193333;
+export const REVIEWED_SOURCE_COMMIT = "42b7f5a56be23089de15a7ef96d6df261af818a0";
 
 export function verifySecurityRuntime(bytes: Buffer, descriptor: { sourceCommit?: string; runtimeSha256?: string; bytes?: number }, sourcePin: string): void {
   if (sourcePin !== REVIEWED_SOURCE_COMMIT || descriptor.sourceCommit !== sourcePin) throw new Error("Scanner runtime sourceCommit does not match the reviewed pinned submodule.");
