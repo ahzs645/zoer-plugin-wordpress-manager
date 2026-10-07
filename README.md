@@ -35,8 +35,10 @@ Zoer can build a committed source through Repos → Plugin using `zoer-plugin.js
 
 The PHP plugins installed *into* WordPress sites moved here from the Zoer repository (Zoer `docs/plugin-shared-services.md`, section 16.3, phase P1). Neither is part of the Zoer package built above: `scripts/build.ts` copies only `plugin/` and the native module, and `typecheck`/`test` cover only `src`, `tests` and `scripts`.
 
-- `wordpress-plugins/zoer-connect` is a Git submodule pinned to the public [Zoer Connect repository](https://github.com/ahzs645/zoer-connect) (same remote and commit Zoer pinned). Run `git submodule update --init wordpress-plugins/zoer-connect` after cloning. Connector changes, tests (`make test`), builds (`make build`), release tags and the update feed belong in that repository; commit here only to move the pin. `branch = main` allows an explicit `git submodule update --remote`.
+- `wordpress-plugins/zoer-connect` is a Git submodule pinned to the public [Zoer Connect repository](https://github.com/ahzs645/zoer-connect). Run `git submodule update --init wordpress-plugins/zoer-connect` after cloning. Connector changes, tests (`make test`), builds (`make build`), release tags and the update feed belong in that repository; commit here only to move the pin. `branch = main` allows an explicit `git submodule update --remote`.
 - `wordpress-plugins/zoer-content-modules` is the standalone Content Modules plugin. Build and test it from its folder as its README describes (`php tests/package.php`, `node tests/upload.cjs`, `python3 build.py`, which writes `dist/zoer-content-modules-<version>.zip` plus a SHA-256 sidecar).
+
+Zoer Connect **0.5.2** migrates WordPress update checks and downloads to the public `zoer-connect` GitHub Releases. Its final compatibility bridge remains in `zoer-connect-releases` for older installations; future connectors and release jobs use the source repository directly. The submodule pin tracks the qualified bridge source.
 
 The Zoer Connect operating guide and the historical handoff are in [`docs/zoer-connect-operations.md`](docs/zoer-connect-operations.md) and [`docs/zoer-connect-handoff.md`](docs/zoer-connect-handoff.md). Agents editing an existing Zoer-managed DDEV site from outside Zoer use the [site-edit skill](.agents/skills/zoer-wordpress-site-edit/SKILL.md).
 
