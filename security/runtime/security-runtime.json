@@ -1,0 +1,38 @@
+{
+  "bytes": 1191772,
+  "controllerVersion": "0.2.1",
+  "engineSha256": "a7fbc16c573a29f89bcc5d1c46308aa370638bef26f1ecbe71fc2d93a50b5210",
+  "engineVersion": "0.21.15",
+  "profileModes": [
+    "stage",
+    "hook"
+  ],
+  "profileVersion": "2.1.5",
+  "resourceSha256": {
+    "vendor/amwscan/LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+    "vendor/amwscan/NOTICE.md": "5ad2c5d37d1e4346835f5f90d280794d44d1bcd1409c6f1d5efa444c5f523bbf",
+    "vendor/amwscan/scanner": "a7fbc16c573a29f89bcc5d1c46308aa370638bef26f1ecbe71fc2d93a50b5210",
+    "vendor/profile-command/LICENSE.md": "17af76a1d77de4abb3c6782f1a2b34cfbaa16bcde02d65f0ef0cc925d418c7b0",
+    "vendor/profile-command/composer.json": "d5bfdc82256c37adae56c76aa7bf191662952909345d8ab0b7d36c4cedd8209a",
+    "vendor/profile-command/profile-command.php": "24e9ce43bb3af8e19361f49cfc5a042b43b63b2d601cd7aca5ee894ae405ba2c",
+    "vendor/profile-command/src/Command.php": "44f24e55d7317d1473a93c5c4267b3a65566831c733eedd9f5b14175d2a6d4cb",
+    "vendor/profile-command/src/Formatter.php": "9de2f4c6dd2023a277ff3640be559e5e2fd74c2d43b74d9e45e6d685312ac258",
+    "vendor/profile-command/src/Logger.php": "fca7b108e4d6cfc3926dc7caf3616b166d08a4f20472db0267e033add38e54d7",
+    "vendor/profile-command/src/Profiler.php": "5375bd60ba2386eec8b132dddc1a2d3877aee79212e0c867a53d28c135dd543f",
+    "zoer_wp_security/__init__.py": "56eab06ad5b7c9ed7ad0d83cbda2e85ab931d88ad92c1818033ad9eee08aa887",
+    "zoer_wp_security/__main__.py": "0ac39f67e14f8466d7de21e5ef9ea600f66aabeff1dd1c5b490dbbc55f636961",
+    "zoer_wp_security/amwscan.py": "5bea1150bb25ae32428f82e7ea10009109446ed63def89608709ec47de623235",
+    "zoer_wp_security/database.py": "e2770ad2ee0a1077d1ff2ec5860bcdd91662052ef1696033153ded9b61ae8449",
+    "zoer_wp_security/files.py": "378ce1113c7c9d906264700841eee2773e211265880e49de0708102a7dc46899",
+    "zoer_wp_security/integrity.py": "c8d9225f7883f5142f9b064a5457e3e67051f6577c2e309bd51d13853371169c",
+    "zoer_wp_security/model.py": "4612b11125226f3616906d89a3f5f23869602a6b22729dd84e527e3e7a6d1811",
+    "zoer_wp_security/performance.py": "c2bc4db8ab3d36b8c04195fd15f5c4de8e9755c374b69708f1b86b5260d57bf6",
+    "zoer_wp_security/remediation.py": "391b70b883723f2dd0923ef86caedf56ca7b52b27045685005e0bd567896263f",
+    "zoer_wp_security/runtime.py": "f9b0dbeeb02cb2004b4193b7b24f551b8a0c6855597eb6882153dda0d4725130"
+  },
+  "runtimeSha256": "e02ded17c445f9c90a66c7ba5d4739b4e2f6b93d630ac27acb80c259a0d00162",
+  "runtimeVersion": "0.2.1",
+  "schemaVersion": 1,
+  "sourceCommit": "842e77834ffa38f19cc1ff4f7301d4267afa654d",
+  "sourceUrl": "https://github.com/ahzs645/zoer-wordpress-security"
+}

@@ -80,21 +80,26 @@ function updraft_rows(string $text): Generator {
     }
 }
 
-function updraft_convert_database(string $source, string $destination): array {
-    $h = gzopen($source, 'rb');
-    if (!$h) updraft_fail('Not an UpdraftPlus database.');
-    $header = (string)gzread($h, 65536); gzclose($h);
-    if (!str_contains($header, 'WordPress MySQL database backup') || !str_contains($header, 'UpdraftPlus')) updraft_fail('Not an UpdraftPlus database.');
-    if (preg_match('/multisite=1\b/', $header)) updraft_fail('Multisite is not supported.');
-    $field = static function (string $pattern) use ($header): string {
-        if (!preg_match($pattern, $header, $m)) updraft_fail('Required backup metadata is missing.');
-        return $m[1];
-    };
-    $prefix = $field('/# Table prefix:\s*([A-Za-z0-9_]{1,48})\s/');
-    $sourceUrl = rtrim($field('/# Home URL:\s*(https?:\/\/[^\s]+)/'), '/');
-    $url = parse_url($sourceUrl);
-    if (!is_array($url) || empty($url['host']) || isset($url['user']) || isset($url['pass']) || isset($url['path']) || isset($url['query']) || isset($url['fragment'])) updraft_fail('Only standard-root WordPress backups are supported.');
-    $version = $field('/# WordPress Version:\s*(\d+\.\d+(?:\.\d+)?)/');
+function updraft_convert_database(string $source, string $destination, ?array $hosting = null): array {
+    if ($hosting !== null) {
+        $prefix = $hosting['prefix']; $sourceUrl = ''; $version = $hosting['wordpressVersion'];
+    } else {
+        $h = gzopen($source, 'rb');
+        if (!$h) updraft_fail('Not an UpdraftPlus database.');
+        $header = (string)gzread($h, 65536); gzclose($h);
+        if (!str_contains($header, 'WordPress MySQL database backup') || !str_contains($header, 'UpdraftPlus')) updraft_fail('Not an UpdraftPlus database.');
+        if (preg_match('/multisite=1\b/', $header)) updraft_fail('Multisite is not supported.');
+        $field = static function (string $pattern) use ($header): string {
+            if (!preg_match($pattern, $header, $m)) updraft_fail('Required backup metadata is missing.');
+            return $m[1];
+        };
+        $prefix = $field('/# Table prefix:\s*([A-Za-z0-9_]{1,48})\s/');
+        $sourceUrl = rtrim($field('/# Home URL:\s*(https?:\/\/[^\s]+)/'), '/');
+        $url = parse_url($sourceUrl);
+        if (!is_array($url) || empty($url['host']) || isset($url['user']) || isset($url['pass']) || isset($url['path']) || isset($url['query']) || isset($url['fragment'])) updraft_fail('Only standard-root WordPress backups are supported.');
+        $version = $field('/# WordPress Version:\s*(\d+\.\d+(?:\.\d+)?)/');
+    }
+    $siteUrl = null;
     $schemas = []; $current = null; $total = 0; $activePlugins = null;
     $in = gzopen($source, 'rb'); $out = fopen($destination, 'wb');
     if (!$in || !$out) updraft_fail('Backup preparation failed. Verify all files and retry.');
@@ -102,6 +107,7 @@ function updraft_convert_database(string $source, string $destination): array {
     foreach (updraft_statements($in) as $sql) {
         $total += strlen($sql);
         if ($total > 512 * 1024 ** 2) updraft_fail('Database exceeds 512 MiB.');
+        if ($hosting !== null && preg_match('/^(?:SET @OLD_AUTOCOMMIT=@@AUTOCOMMIT, @@AUTOCOMMIT=0;|SET AUTOCOMMIT=@OLD_AUTOCOMMIT;|COMMIT;|LOCK TABLES `[A-Za-z0-9_]+` WRITE;|UNLOCK TABLES;)$/D', $sql)) continue;
         if (preg_match('/^DROP TABLE IF EXISTS `[A-Za-z0-9_]+`;$/D', $sql)) continue;
         if (preg_match('/^CREATE TABLE `([A-Za-z0-9_]+)` ([\s\S]+);$/D', $sql, $m)) {
             [, $table, $body] = $m;
@@ -114,13 +120,15 @@ function updraft_convert_database(string $source, string $destination): array {
             fwrite($out, "DROP TABLE IF EXISTS `{$table}`;\nCREATE TABLE `{$table}` {$body};\n");
             continue;
         }
-        if (!preg_match('/^INSERT INTO `([A-Za-z0-9_]+)` VALUES ([\s\S]+);$/D', $sql, $m) || $m[1] !== $current) updraft_fail('Unsupported SQL statement.');
+        if (!preg_match('/^INSERT INTO `([A-Za-z0-9_]+)` VALUES\s+([\s\S]+);$/D', $sql, $m) || $m[1] !== $current) updraft_fail('Unsupported SQL statement.');
         $table = $m[1]; $columns = $schemas[$table];
         $names = implode(',', array_map(fn($c) => '`' . $c . '`', $columns));
         foreach (updraft_rows($m[2]) as $row) {
             if (count($row) !== count($columns)) updraft_fail('INSERT columns do not match schema.');
             if ($table === $prefix . 'options') {
                 $values = array_combine($columns, $row);
+                if ($hosting !== null && ($values['option_name'] ?? null) === 'home') $sourceUrl = rtrim((string)$values['option_value'], '/');
+                if ($hosting !== null && ($values['option_name'] ?? null) === 'siteurl') $siteUrl = rtrim((string)$values['option_value'], '/');
                 if (($values['option_name'] ?? null) === 'active_plugins') $activePlugins = $values['option_value'] ?? null;
             }
             $cells = implode(',', array_map(fn($v) => $v === null ? 'NULL' : "X'" . bin2hex($v) . "'", $row));
@@ -128,6 +136,11 @@ function updraft_convert_database(string $source, string $destination): array {
         }
     }
     foreach (['options', 'posts', 'users', 'usermeta'] as $t) if (!isset($schemas[$prefix . $t])) updraft_fail('Required WordPress tables are missing.');
+    if ($hosting !== null) {
+        $url = parse_url($sourceUrl);
+        if ($siteUrl !== $sourceUrl || !is_array($url) || !in_array($url['scheme'] ?? '', ['http', 'https'], true) || empty($url['host']) || isset($url['user']) || isset($url['pass']) || isset($url['path']) || isset($url['query']) || isset($url['fragment'])) updraft_fail('Only standard-root WordPress backups are supported.');
+        foreach (array_keys($schemas) as $table) if (preg_match('/^' . preg_quote($prefix, '/') . '(?:\d+_|blogs$|site$|sitemeta$)/', $table)) updraft_fail('Multisite is not supported.');
+    }
     fwrite($out, "SET FOREIGN_KEY_CHECKS=1;\n");
     fclose($out); gzclose($in);
     return ['prefix' => $prefix, 'sourceUrl' => $sourceUrl, 'wordpressVersion' => $version, 'activePlugins' => $activePlugins, 'tables' => count($schemas)];

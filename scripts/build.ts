@@ -5,6 +5,7 @@ import postcss from "postcss";
 import { init, parse } from "es-module-lexer";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { copySecurityRuntime } from "./security-runtime";
 
 // Builds the installable package: manifest, workers and the native workspace
 // module Zoer loads into its page (see zoer docs/plugin-sources.md).
@@ -60,6 +61,9 @@ await cp(resolve(root, "plugin/manifest.json"), resolve(output, "manifest.json")
 await cp(resolve(root, "plugin/worker"), resolve(output, "worker"), { recursive: true });
 // Command bundles run by runtime.exec.v1 on DDEV sites (manifest `computerCommands`).
 await cp(resolve(root, "plugin/computer"), resolve(output, "computer"), { recursive: true });
+// Reviewed external scanner, never installed in WordPress wp-content.
+await copySecurityRuntime(root, output);
+
 await writeFile(resolve(output, "native/index.js"), js);
 await writeFile(resolve(output, "native/style.css"), scoped);
 const manifest = JSON.parse(await readFile(resolve(output, "manifest.json"), "utf8"));

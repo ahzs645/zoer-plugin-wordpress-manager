@@ -80,3 +80,8 @@ function zoer_write(string $path, string $data, int $mode = 0600): void {
     chmod($tmp, $mode);
     if (!rename($tmp, $path)) { @unlink($tmp); throw new ZoerCommandError('Could not write the copy stage.'); }
 }
+
+/** PHP source requires a PHP string literal; JSON escapes slashes differently. */
+function zoer_copy_guard_source(string $pending): string {
+    return "<?php if (is_file(" . var_export($pending, true) . ")) { if (PHP_SAPI !== 'cli') { http_response_code(503); exit('Local copy is being prepared.'); } } add_filter('pre_wp_mail', '__return_false'); add_filter('pre_http_request', static fn()=>new WP_Error('local_copy','Outbound requests are disabled in this local copy'));";
+}

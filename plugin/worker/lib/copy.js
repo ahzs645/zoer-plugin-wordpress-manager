@@ -9,7 +9,7 @@ import { deleteSet, describeSet, listEntries, readText } from "./filesets.js";
 import { defaultExportOptions } from "./options.js";
 import { HEX32, pullOfSet, pullSpec, runHex } from "./pull.js";
 import { fail, TransferError, UPLOAD_RUNTIME_REQUESTS } from "./slices.js";
-import { validateUpdraftSet } from "./updraft.js";
+import { validateUpdraftSet, validateHostingSet } from "./updraft.js";
 
 export const RUNTIME_ALIAS = "wordpress_site";
 const FILE_BATCH = 2000;
@@ -124,9 +124,10 @@ async function checkCopySource(state, ctx) {
 async function checkRestoreSource(state, ctx) {
   const { host } = ctx;
   const set = await describeSet(host, state.setId);
-  if (!set || set.status !== "sealed") fail("Upload all five backup files before restoring.");
+  if (!set || set.status !== "sealed") fail("Upload and verify all backup files before restoring.");
   const entries = await listEntries(host, state.setId);
-  const components = validateUpdraftSet(entries);
+  state.backupFormat = entries.some(e => /\.(tar|sql)\.gz$/i.test(e.path)) ? "hostinger" : "updraft";
+  const components = state.backupFormat === "hostinger" ? validateHostingSet(entries) : validateUpdraftSet(entries);
   state.order = components.map(c => c.entryIndex);
   state.components = components.map((c, position) => ({ component: c.component, size: c.size, sha256: c.sha256, source: String(position) }));
   if (!state.dryRun) return null;
@@ -137,6 +138,26 @@ async function checkRestoreSource(state, ctx) {
     const inspected = await host.call("archive.inspect", { source: { setId: state.setId, path: c.originalName }, maxEntries: 10000 });
     if (inspected.flags.encrypted || inspected.flags.symlinks || inspected.flags.traversal || inspected.flags.absolute) fail("Links, special files and encrypted archives are unsupported.");
     let files = 0, bytes = 0, skipped = 0;
+    if (state.backupFormat === "hostinger") {
+      const inspectedEntries = inspected.entries.map(e => ({ ...e, path: e.path.replace(/^\.\//, "") }));
+      if (inspected.totals.bytes > 2 * 1024 ** 3) fail("Archive exceeds expanded size limits.");
+      const roots = inspectedEntries.filter(e => e.kind === "file" && /(?:^|\/)wp-includes\/version\.php$/.test(e.path)).map(e => e.path.replace(/wp-includes\/version\.php$/, ""));
+      if (roots.length > 1) fail("Choose an archive containing exactly one WordPress installation.");
+      if (!roots.length && inspected.totals.entries <= inspected.entries.length) fail("WordPress core was not found in the website archive.");
+      const root = roots[0];
+      for (const entry of inspectedEntries) {
+        if (entry.kind === "other" || entry.kind === "symlink") fail("Links and special files are unsupported.");
+        if (!root || entry.kind === "dir" || !entry.path.startsWith(`${root}wp-content/`)) continue;
+        if (entry.bytes > 64 * 1024 ** 2) fail("Archive exceeds expanded size limits.");
+        if (/^wp-content\/uploads\//.test(entry.path.slice(root.length)) && /\.(php\d*|phtml|phar|cgi|pl|sh)(\.|$)/i.test(entry.path) && (entry.path.split("/").at(-1) !== "index.php" || entry.bytes > 256)) fail("Executable upload is unsupported.");
+        files++; bytes += entry.bytes;
+      }
+      plan.components.push({ component: c.component, name: c.originalName, bytes: c.size, files, expandedBytes: bytes });
+      plan.files += files; plan.bytes += bytes;
+      plan.warnings.push("The restore validates every member, the single WordPress root and the SQL dump, and omits core, configuration, caches and must-use plugins.");
+      if (inspected.totals.entries > inspected.entries.length) plan.warnings.push(`Only the first ${inspected.entries.length.toLocaleString("en-US")} archive entries were listed; file counts are partial.`);
+      continue;
+    }
     for (const entry of inspected.entries) {
       const parts = entry.path.replace(/\/+$/, "").split("/");
       if (entry.kind === "other" || entry.kind === "symlink") fail("Links, special files and encrypted archives are unsupported.");
@@ -275,7 +296,7 @@ export async function stepCopy(state, input, ctx) {
     state.phase = state.kind === "restore" ? "updraft" : "database";
   }
   if (state.phase === "updraft") {
-    const summary = await execCommand(host, state.targetId, "wordpress.updraft.prepare", { id: state.copyId, components: state.components });
+    const summary = await execCommand(host, state.targetId, state.backupFormat === "hostinger" ? "wordpress.hostinger.prepare" : "wordpress.updraft.prepare", { id: state.copyId, components: state.components });
     if (!summary?.metadata || !/^[a-f0-9]{64}$/.test(summary.databaseSha256 ?? "")) fail("Backup preparation failed. Verify all files and retry.");
     Object.assign(state, { prefix: summary.metadata.prefix, sourceUrl: summary.metadata.sourceUrl, dbSha256: summary.databaseSha256, dbIndex: "extracted/database.sql", fileCount: Math.max(0, summary.fileCount - 1),
       warnings: (summary.warnings ?? []).slice(0, 10).map(w => String(w).slice(0, 240)), metadata: { wordpressVersion: summary.metadata.wordpressVersion, tables: summary.metadata.tables } });

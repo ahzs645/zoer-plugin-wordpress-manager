@@ -10,8 +10,7 @@ zoer_main(function (): void {
     $mu = ZOER_WEB_ROOT . '/wp-content/mu-plugins';
     if (is_link($mu) || (!is_dir($mu) && !mkdir($mu, 0755, true) && !is_dir($mu))) throw new ZoerCommandError('Could not prepare the local site.');
     zoer_write($stage . '/pending', 'pending');
-    $guard = "<?php if (is_file(" . json_encode($stage . '/pending') . ")) { if (PHP_SAPI !== 'cli') { http_response_code(503); exit('Local copy is being prepared.'); } } add_filter('pre_wp_mail', '__return_false'); add_filter('pre_http_request', static fn()=>new WP_Error('local_copy','Outbound requests are disabled in this local copy.'));";
-    zoer_write($mu . '/zoer-local-copy.php', $guard, 0644);
+    zoer_write($mu . '/zoer-local-copy.php', zoer_copy_guard_source($stage . '/pending'), 0644);
     zoer_wp(['config', 'set', 'DISABLE_WP_CRON', 'true', '--raw'], 'Could not disable WordPress cron on the local copy.', 120);
     echo json_encode(['ok' => true, 'stage' => true]), "\n";
 }, 'Local copy operation failed. The partial destination and private staging are retained for inspection or retry.');

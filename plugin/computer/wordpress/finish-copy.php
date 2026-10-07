@@ -8,6 +8,10 @@ require __DIR__ . '/lib.php';
 zoer_main(function (): void {
     $plan = zoer_plan();
     $stage = zoer_stage($plan['id']);
+    // Refresh the generated guard for restores resumed from an older command bundle.
+    $mu = ZOER_WEB_ROOT . '/wp-content/mu-plugins';
+    if (is_link($mu) || !is_dir($mu)) throw new ZoerCommandError('The local copy guard is missing.');
+    zoer_write($mu . '/zoer-local-copy.php', zoer_copy_guard_source($stage . '/pending'), 0644);
     $target = (string)($plan['targetUrl'] ?? '');
     $url = parse_url($target);
     if (!preg_match('/^https:\/\/\S{1,2040}$/D', $target) || !is_array($url) || empty($url['host']) || isset($url['user']) || isset($url['query'])) throw new ZoerCommandError('The local site address is invalid.');
@@ -22,7 +26,7 @@ zoer_main(function (): void {
     zoer_wp(['rewrite', 'flush', '--hard'], $fail, 300, ['--skip-plugins', '--skip-packages']);
     @unlink($stage . '/pending');
     $path = ($url['path'] ?? '') === '' ? '/' : $url['path'];
-    [$code, $status] = zoer_run(['curl', '-sk', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '20', '--resolve', $url['host'] . ':443:127.0.0.1', 'https://' . $url['host'] . $path], 30);
+    [$code, $status] = zoer_run(['curl', '-sk', '-H', 'X-Forwarded-Proto: https', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '20', '--resolve', $url['host'] . ':443:127.0.0.1', 'https://' . $url['host'] . $path], 30);
     if ($code !== 0 || trim($status) !== '200') {
         zoer_write($stage . '/pending', 'pending');
         throw new ZoerCommandError('Local website verification failed.');

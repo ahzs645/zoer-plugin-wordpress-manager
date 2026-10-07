@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.zip
+!security/runtime/security-runtime.zip
 .DS_Store
 
 # Live-gate snapshots and screenshots (tools/live-gate)

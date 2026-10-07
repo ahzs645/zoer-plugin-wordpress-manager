@@ -2,22 +2,22 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { Btn, CheckboxField } from "@zoer/plugin-ui/controls";
-import type { WordPressUpdraftComponent } from "../../../lib/api/computers-client";
+import { backupComponents, type BackupComponent, type BackupFormat } from "../backupFiles";
 import { engineKeys, filesets, startEngineAction, useRecentRuns } from "../../../lib/queries/plugin-engine";
 import { wordpressQueries } from "../../../lib/queries/wordpress";
-import { COMPONENTS, sha256 } from "../updraftFiles";
+import { sha256 } from "../updraftFiles";
 import PluginRunCard from "./PluginRunCard";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
 import { planUpload, plannedBytes, sameManifest } from "./uploadPlan";
 
 const RESTORE_ACTIONS = [ENGINE_ACTIONS.restore] as const;
-const LABEL = { key: "kind", value: "updraft-upload" };
+
 type Entry = { path: string; bytes: number; sha256: string };
 
-/** An earlier upload of exactly these five files (open or sealed), so a reload resumes instead of re-uploading. */
-async function findUpload(entries: Entry[]) {
+/** An earlier upload of exactly these backup files (open or sealed), so a reload resumes instead of re-uploading. */
+async function findUpload(entries: Entry[], format: BackupFormat) {
   const total = entries.reduce((sum, entry) => sum + entry.bytes, 0);
-  const { sets } = await filesets.list(LABEL);
+  const { sets } = await filesets.list({ key: "kind", value: `${format}-upload` });
   for (const set of sets) {
     if (set.entryCount !== entries.length || set.totalBytes !== total) continue;
     const described = await filesets.describe(set.id);
@@ -27,14 +27,13 @@ async function findUpload(entries: Entry[]) {
 }
 
 /**
- * UpdraftPlus restore: the five files become one sealed file set
- * (`filesets.create` with rules `updraft-set`, 8 MiB `filesets.put` chunks, `filesets.seal`), then
- * `backup.restore-local` restores it into a new DDEV site. A dry run validates and plans the restore
- * in a scratch site that is archived afterwards.
+ * Backup uploads use the format-specific rules and resumable verified file sets.
+ * The local restore action creates a DDEV site; dry runs inspect without creating one.
  */
-export default function PluginUpdraftRestore({ files, complete, name, onBusyChange }: {
-  files: Partial<Record<WordPressUpdraftComponent, File>>; complete: boolean; name: string; onBusyChange?: (busy: boolean) => void;
+export default function PluginUpdraftRestore({ files, complete, name, onBusyChange, format = "updraft" }: {
+  format?: BackupFormat; files: Partial<Record<BackupComponent, File>>; complete: boolean; name: string; onBusyChange?: (busy: boolean) => void;
 }) {
+  const components = backupComponents(format);
   const client = useQueryClient();
   const [dryRun, setDryRun] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -50,7 +49,7 @@ export default function PluginUpdraftRestore({ files, complete, name, onBusyChan
   useEffect(() => () => { alive.current = false; }, []);
   useEffect(() => { onBusyChange?.(busy || active); }, [busy, active, onBusyChange]);
   // Files changed: the uploaded set no longer matches the selection.
-  const key = COMPONENTS.map(component => files[component] ? `${files[component]!.name}:${files[component]!.size}:${files[component]!.lastModified}` : "").join("|");
+  const key = format + components.map(component => files[component] ? `${files[component]!.name}:${files[component]!.size}:${files[component]!.lastModified}` : "").join("|");
   useEffect(() => { setSetId(null); setProgress(0); setStage(""); setError(""); }, [key]);
   const seen = useRef(new Set<string>());
   useEffect(() => {
@@ -62,18 +61,18 @@ export default function PluginUpdraftRestore({ files, complete, name, onBusyChan
 
   const restoreName = name.trim() || "Restored WordPress";
   async function upload(): Promise<string> {
-    const ordered = COMPONENTS.map(component => files[component]!);
+    const ordered = components.map(component => files[component]!);
     const entries: Entry[] = [];
     for (const [index, file] of ordered.entries()) {
-      setStage(`Verifying ${COMPONENTS[index]}…`);
+      setStage(`Verifying ${components[index]}…`);
       entries.push({ path: file.name, bytes: file.size, sha256: await sha256(file) });
       if (!alive.current) throw new Error("Closed.");
     }
     setStage("Checking for an earlier upload…");
-    let set = await findUpload(entries);
+    let set = await findUpload(entries, format);
     if (!set) {
       setStage("Creating the upload…");
-      set = (await filesets.create({ name: `UpdraftPlus · ${restoreName}`.slice(0, 120), entries, rules: "updraft-set", labels: { [LABEL.key]: LABEL.value } })).set;
+      set = (await filesets.create({ name: `${format === "hostinger" ? "Hostinger" : "UpdraftPlus"} · ${restoreName}`.slice(0, 120), entries, rules: format === "hostinger" ? "hostinger-backup" : "updraft-set", labels: { kind: `${format}-upload` } })).set;
     }
     setSetId(set.id);
     if (set.status !== "sealed") {
@@ -113,8 +112,8 @@ export default function PluginUpdraftRestore({ files, complete, name, onBusyChan
 
   const lastDry = related.find(run => runInput(run).dryRun === true && run.status === "succeeded" && runInput(run).uploadSetId === setId);
   return <div className="mt-3 min-w-0 space-y-3 rounded-lg border border-status-warning/40 p-3">
-    <p className="text-sm text-text-secondary">WordPress Manager uploads the five files to the Zoer server as one verified set, then restores them into a new local DDEV site. Uploads resume after a reload when you choose the same files again.</p>
-    <CheckboxField label="Dry run" description="Checks the archives and plans the restore in a scratch site (zoer-dryrun-…) that is archived afterwards. No new site is kept." checked={dryRun} onChange={setDryRun} disabled={busy} />
+    <p className="text-sm text-text-secondary">WordPress Manager uploads the backup files to the Zoer server as one verified set, then restores them into a new local DDEV site. Uploads resume after a reload when you choose the same files again.</p>
+    <CheckboxField label="Dry run" description="Inspects the archive and plans the restore without creating a site. The database and every extracted file are checked during the actual restore." checked={dryRun} onChange={setDryRun} disabled={busy} />
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
       <Btn variant="primary" className="w-full sm:w-auto" loading={busy} disabled={!complete || busy || active || restored} onClick={() => void start(!dryRun)}>{setId ? (dryRun ? "Run another dry run" : "Restore into a new DDEV site") : dryRun ? "Upload and check (dry run)" : "Upload and restore"}</Btn>
       {lastDry && !dryRun && <span className="self-center text-xs text-text-secondary">Uses the files already uploaded for the dry run.</span>}

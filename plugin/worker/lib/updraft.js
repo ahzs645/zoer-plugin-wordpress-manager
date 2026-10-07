@@ -34,3 +34,24 @@ export function validateUpdraftSet(entries) {
   if (prefixes.size !== 1) fail("all five files must belong to the same UpdraftPlus backup set");
   return components;
 }
+
+/** Hostinger hPanel download pair. Filenames bind the account, domain and timestamp. */
+export function validateHostingSet(entries) {
+  if (!Array.isArray(entries) || entries.length !== 2) fail("Select one website .tar.gz archive and one database .sql.gz dump.");
+  const byComponent = new Map();
+  const matches = [];
+  for (const [entryIndex, entry] of entries.entries()) {
+    const name = entry.path;
+    const match = /^([A-Za-z0-9]+)(?:_[A-Za-z0-9]+)?\.([A-Za-z0-9.-]+)\.(\d{14})\.(tar|sql)\.gz$/i.exec(name ?? "");
+    if (!match || name.length > 255) fail("Unexpected Hostinger backup filename. Use the original hPanel download names.");
+    const component = match[4].toLowerCase() === "tar" ? "archive" : "database";
+    if (byComponent.has(component)) fail(`Duplicate ${component} backup component.`);
+    if (!Number.isSafeInteger(entry.bytes) || entry.bytes <= 0 || entry.bytes > MAX_COMPONENT_BYTES) fail(`${component} has an invalid size`);
+    if (!/^[a-f0-9]{64}$/.test(entry.sha256)) fail(`${component} has an invalid SHA-256 digest`);
+    matches.push([match[1], match[2], match[3]].join(".").toLowerCase());
+    byComponent.set(component, { component, originalName: name, size: entry.bytes, sha256: entry.sha256, entryIndex });
+  }
+  if (new Set(matches).size !== 1) fail("Both files must belong to the same Hostinger account, website and backup time.");
+  if (entries.reduce((sum,e) => sum + e.bytes,0) > MAX_TOTAL_BYTES) fail("backup set exceeds the 2 GiB import limit");
+  return [byComponent.get("database"), byComponent.get("archive")];
+}

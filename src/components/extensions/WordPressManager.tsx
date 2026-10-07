@@ -55,10 +55,12 @@ import { SearchInput as SearchInput } from "@zoer/plugin-ui/controls";
 import { controlClass, selectClass } from "@zoer/plugin-ui/controls";
 import { useDialogs } from "@zoer/plugin-ui/controls";
 import WordPressUpdraftImport from "./WordPressUpdraftImport";
-import { wordpressExtensionActions } from "./wordpressExtensionActions";
+import { wordpressExtensionActions, wordpressExtensionActionLabel, wordpressExtensionAutoUpdateLabel } from "./wordpressExtensionActions";
 import WordPressConnect from "./WordPressConnect";
 import HostingerWebsiteSetup from "./HostingerWebsiteSetup";
 import WordPressCoreUpdates from "./WordPressCoreUpdates";
+import WordPressUpdates from "./WordPressUpdates";
+import WordPressSecurity from "./WordPressSecurity";
 import HostingerSiteTools from "./HostingerSiteTools";
 import { isTransferFence, TRANSFER_FENCE_NOTICE } from "./pluginEngine/runState";
 import PluginPulls from "./pluginEngine/PluginPulls";
@@ -74,12 +76,14 @@ import { consolidateWordPressSites, readSeparatedSiteConnections, writeSeparated
 import { filterWordPressSiteGroups, groupWordPressSites, readSeparatedSitePairs, wordPressSiteCopies, wordPressSiteSource, writeSeparatedSitePairs } from "./wordpressSiteGroups";
 import { databaseKeys } from "../../lib/queries/databases";
 
-type ManagerTab = "overview" | "plugins" | "themes" | "backups" | "deployments" | "history" | "connections";
+type ManagerTab = "overview" | "plugins" | "themes" | "updates" | "security" | "backups" | "deployments" | "history" | "connections";
 
 const tabs: Array<{ id: ManagerTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "plugins", label: "Plugins" },
   { id: "themes", label: "Themes" },
+  { id: "updates", label: "Updates & logs" },
+  { id: "security", label: "Scan & report" },
   { id: "backups", label: "Backups & import" },
   { id: "deployments", label: "Transfer & publish" },
   { id: "history", label: "Transfer history" },
@@ -132,7 +136,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const [providersOpen, setProvidersOpen] = useState(false);
   const [addSiteOpen, setAddSiteOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
-  const [tab, setTab] = useResourceSelection<ManagerTab>("tab", "overview", ["overview", "plugins", "themes", "backups", "deployments", "history", "connections"]);
+  const [tab, setTab] = useResourceSelection<ManagerTab>("tab", "overview", ["overview", "plugins", "themes", "updates", "security", "backups", "deployments", "history", "connections"]);
   const [busy, setBusy] = useState<string | null>(null);
   const lifecycleLock = useRef(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,7 +164,9 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
 
   const client = useQueryClient();
   const session = useOperationSession();
-  const sitesQuery = useQuery(wordpressQueries.sites());
+  // A scanner bookmark must not inspect or bootstrap the uploaded WordPress site.
+  const inventoryQuery = tab === "security" ? wordpressQueries.securitySites() : wordpressQueries.sites();
+  const sitesQuery = useQuery(inventoryQuery);
   const [separatedConnections, setSeparatedConnections] = useState(readSeparatedSiteConnections);
   // Local copies point at their source through `site-link:` records (copy.local, or migrated legacy
   // copies). Since Zoer P4 the host's site list no longer tracks copies (`sourceSiteId` is always null).
@@ -176,9 +182,10 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const connectorsQuery = useQuery(wordpressQueries.connectors());
   const selectedSummary = identity.sites.find(site => site.id === identity.canonicalId(selectedId ?? "") && (siteScope === "all" || isLocalWordPress(site))) ?? null;
   const inspectSelected = Boolean(selectedSummary && (!isLocalWordPress(selectedSummary) || selectedSummary.status === "running"));
-  // Transfer history is cross-site; it reuses the overview details request for the selected site.
-  const detailSection = tab === "history" ? "overview" : tab;
-  const detailsQuery = useQuery({ ...wordpressQueries.site(selectedSummary?.id ?? "", detailSection), enabled: inspectSelected });
+  // Logs use saved receipts; opening them does not need to run Site Health or inspect extensions.
+  const inspectDetails = inspectSelected && tab !== "updates" && tab !== "security";
+  const detailSection = tab === "history" || tab === "updates" || tab === "security" ? "overview" : tab;
+  const detailsQuery = useQuery({ ...wordpressQueries.site(selectedSummary?.id ?? "", detailSection), enabled: inspectDetails });
   const scopedSites = siteScope === "local" ? sites.filter(isLocalWordPress) : sites;
   const pickerSites = siteScope === "local" ? identity.sites.filter(isLocalWordPress) : identity.sites;
   const connections = connectionsQuery.data ?? [];
@@ -187,21 +194,21 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const runtimeConnectors = connectorsQuery.data ?? [];
   const details = detailsQuery.data ?? null;
   const loading = sitesQuery.isPending;
-  const detailLoading = detailsQuery.isPending && inspectSelected;
+  const detailLoading = detailsQuery.isPending && inspectDetails;
   const checkedAt = sitesQuery.dataUpdatedAt ? new Date(sitesQuery.dataUpdatedAt).toLocaleTimeString() : null;
-  const detailError = inspectSelected ? detailsQuery.error?.message ?? details?.errors?.join(" ") ?? null : null;
+  const detailError = inspectDetails ? detailsQuery.error?.message ?? details?.errors?.join(" ") ?? null : null;
   const readError = sitesQuery.error?.message ?? connectionsQuery.error?.message ?? deploymentsQuery.error?.message ?? connectorsQuery.error?.message;
   const load = async (_quiet = false, fresh = false) => {
     await client.cancelQueries({ queryKey: wordpressKeys.all() });
     if (fresh) {
-      try { await client.fetchQuery({ ...wordpressQueries.sites(true), staleTime: 0 }); }
+      try { await client.fetchQuery({ ...(tab === "security" ? wordpressQueries.securitySites() : wordpressQueries.sites(true)), staleTime: 0 }); }
       catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to refresh sites."); }
     }
     await Promise.all([
-      client.invalidateQueries({ queryKey: wordpressKeys.all(), predicate: query => !fresh || query.queryKey[2] !== "sites" }),
+      client.invalidateQueries({ queryKey: wordpressKeys.all(), predicate: query => !fresh || query.queryKey[2] !== inventoryQuery.queryKey[2] }),
       client.invalidateQueries({ queryKey: resourceQueries.connectors().queryKey }),
     ]);
-    return client.getQueryData(wordpressQueries.sites().queryKey) ?? [];
+    return client.getQueryData(inventoryQuery.queryKey) ?? [];
   };
   const loadDetails = async (siteId: string, _quiet = false) => {
     const queryKey = wordpressQueries.site(siteId, detailSection).queryKey;
@@ -304,7 +311,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
       session.assertCurrent();
       await load(true, true);
       await client.invalidateQueries({ queryKey: databaseKeys.all() });
-      const current = client.getQueryData(wordpressQueries.sites().queryKey)?.find(item => item.id === site.id);
+      const current = client.getQueryData(inventoryQuery.queryKey)?.find(item => item.id === site.id);
       setNotice(`${site.name}: ${current?.status ?? `${action} request completed`}. Files and database preserved.`);
     } catch (caught) {
       if (session.isCurrent()) { setError(caught instanceof Error ? caught.message : "Unable to change site status. Refresh before retrying."); await load(true, true); }
@@ -648,7 +655,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
       </div> : undefined}>
       <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2" role="group" aria-label="How to start the WordPress site">
         <button type="button" aria-pressed={createMode === "blank"} disabled={restoreRunning || busy !== null} onClick={() => setCreateMode("blank")} className={`min-h-16 rounded-lg border p-3 text-left text-sm ${createMode === "blank" ? "border-accent bg-accent-subtle text-text-primary" : "border-border-default text-text-secondary hover:bg-surface-hover"}`}><span className="block font-medium">Start a blank site</span><span className="mt-1 block text-xs">Choose Playground or DDEV.</span></button>
-        <button type="button" aria-pressed={createMode === "backup"} disabled={restoreRunning || busy !== null} onClick={() => setCreateMode("backup")} className={`min-h-16 rounded-lg border p-3 text-left text-sm ${createMode === "backup" ? "border-accent bg-accent-subtle text-text-primary" : "border-border-default text-text-secondary hover:bg-surface-hover"}`}><span className="block font-medium">Restore from backup</span><span className="mt-1 block text-xs">Upload an UpdraftPlus set and start a local site.</span></button>
+        <button type="button" aria-pressed={createMode === "backup"} disabled={restoreRunning || busy !== null} onClick={() => setCreateMode("backup")} className={`min-h-16 rounded-lg border p-3 text-left text-sm ${createMode === "backup" ? "border-accent bg-accent-subtle text-text-primary" : "border-border-default text-text-secondary hover:bg-surface-hover"}`}><span className="block font-medium">Restore from backup</span><span className="mt-1 block text-xs">Upload an UpdraftPlus or Hostinger backup and start a local site.</span></button>
       </div>
       {createMode === "blank" ? <section aria-labelledby="wordpress-create-workspace" className="rounded-lg border border-border-default bg-surface-secondary/60 p-3 sm:p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)] lg:items-end">
@@ -713,7 +720,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
             {/* Phones put the main button on its own row so the title keeps its width. */}
             {selected && mainAction && <div className="mt-3 flex flex-wrap gap-2 sm:hidden">{mainAction}</div>}
           </div>
-          <PageTabs id="wordpress-sections" label="WordPress manager sections" tabs={tabs} value={tab} onChange={setTab} />
+          <PageTabs id="wordpress-sections" label="WordPress manager sections" tabs={tabs.filter(item => item.id !== "security" || selected?.provider === "ddev")} value={tab} onChange={setTab} />
           <PageTabPanel id="wordpress-sections" value={tab} className="flex-1 overflow-y-auto p-3 sm:p-4">
             {connectSite?.provider === "zoer-connect" && tab !== "history" && !(connectionsCombined && tab === "overview") && <div className="mb-4 empty:hidden"><PluginSiteRuns key={connectSite.id} siteId={connectSite.id} compact /></div>}
             {connectionMembers.length > 1 && <section aria-label="Website connections" className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border-muted pb-3 text-sm"><p className="text-text-secondary">{connectionsCombined ? "Hostinger hosting and Zoer Connect transfers share this website view." : "Hostinger and Zoer Connect have the same website address."}</p><Btn size="sm" onClick={toggleConnections}>{connectionsCombined ? "Show connections separately" : "Combine connections"}</Btn></section>}
@@ -725,6 +732,8 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
                 {tab === "overview" && <OverviewTab site={selected} connectSite={connectSite} details={selectedDetails} loading={detailLoading} onSetup={()=>selected && void openSite(selected,true)} onRestore={openBackupImport} />}
                 {tab === "plugins" && <ExtensionsTab kind="plugin" site={selected} connectSiteId={connectSite?.id} rows={selectedDetails?.plugins || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
                 {tab === "themes" && <ExtensionsTab kind="theme" site={selected} connectSiteId={connectSite?.id} rows={selectedDetails?.themes || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
+                {tab === "updates" && <WordPressUpdates key={selected?.id} site={selected} siteIds={selected ? [selected.id, ...connectionMembers.map(member => member.id)] : []} deployments={deployments} loading={deploymentsQuery.isFetching} error={deploymentsQuery.error?.message || deploymentRecords.error?.message} onRefresh={() => { void deploymentsQuery.refetch(); void deploymentRecords.refetch(); }} onExtensions={setTab} />}
+                {tab === "security" && selected && <WordPressSecurity key={selected.id} site={selected} onStart={() => void changeLifecycle(selected)} />}
                 {tab === "backups" && connectSite?.provider === "zoer-connect" && <div className="mb-5"><PluginPulls key={connectSite.id} siteId={connectSite.id} siteName={selected?.name ?? connectSite.name} /></div>}
                 {tab === "backups" && <BackupsTab site={selected} details={selectedDetails} recoveryPoints={selected ? recoveryPointsFor([...(selectedDetails?.recoveryPoints ?? []), ...recoveryPoints], selected) : []} busy={busy} retainPortableBackup={retainPortableBackup} onRetainPortableBackup={setRetainPortableBackup} onCreatePortableBackup={createPortableBackup} onRecordRecovery={recordRecovery} onImportBackup={openBackupImport} />}
                 {tab === "deployments" && selected && (connectionsCombined || selectedDetails?.plugins.some(plugin => plugin.slug === "zoer-connect" && plugin.status === "active") || (!!connectSite && !!detailError)) && <section className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border-muted pb-3"><h3 className="text-sm font-medium text-text-heading">Zoer Connect transfers</h3><WordPressConnect key={connectSite?.id ?? selected.id} siteId={connectSite?.id ?? selected.id} siteName={selected.name} /></section>}
@@ -738,7 +747,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
       </div>
 
       {providersOpen && <Modal title="Provider accounts" onClose={() => setProvidersOpen(false)}><ConnectionsTab onConnected={() => void load(true, true)} connections={connections} name={connectionName} setName={setConnectionName} token={connectionToken} setToken={setConnectionToken} busy={busy} onAdd={addConnection} onTest={testConnection} onRemove={removeConnection} /></Modal>}
-      {extensionPlan && <ReviewPanel title={`${extensionPlan.plan.operation} ${extensionPlan.plan.kind}${extensionPlan.plan.slugs.length > 1 ? "s" : ""}`} plan={extensionPlan.plan} confirmation={confirmation} setConfirmation={setConfirmation} busy={busy === "apply-extension"} onApply={applyExtension} onCancel={() => { setExtensionPlan(null); setConfirmation(""); }} />}
+      {extensionPlan && <ReviewPanel title={`${wordpressExtensionActionLabel(extensionPlan.plan.operation)} ${extensionPlan.plan.kind}${extensionPlan.plan.slugs.length > 1 ? "s" : ""}`} plan={extensionPlan.plan} confirmation={confirmation} setConfirmation={setConfirmation} busy={busy === "apply-extension"} onApply={applyExtension} onCancel={() => { setExtensionPlan(null); setConfirmation(""); }} />}
       {publishPlan && <ReviewPanel title={`${publishPlan.mode === "replace" ? "Replace" : "Publish"} ${publishPlan.domain}`} plan={publishPlan} confirmation={confirmation} setConfirmation={setConfirmation} busy={busy === "execute-publish"} onApply={executePublish} onCancel={() => { setPublishPlan(null); setConfirmation(""); }} />}
     </section>
     </PluginPage>
@@ -836,7 +845,7 @@ function ExtensionsTab({ kind, site, connectSiteId, rows, query, setQuery, slug,
   const updates = rows.filter(row => row.updateAvailable).map(row => row.slug);
   const title = (row: WordPressInstalledExtension) => row.name !== row.slug ? row.name : row.slug.split("-").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
   const plan = (operation: WordPressExtensionOperation, slugs: string[]) => { setAddOpen(false); onPlan(kind, operation, slugs); };
-  const actions = (row: WordPressInstalledExtension) => <div className="flex flex-wrap justify-end gap-1">{wordpressExtensionActions(kind, row.status, row.updateAvailable).filter(op => op !== "uninstall").map(op => <Btn key={op} size="sm" disabled={busy !== null} onClick={() => plan(op, [row.slug])}>{op.charAt(0).toUpperCase() + op.slice(1)}</Btn>)}{wordpressExtensionActions(kind, row.status, row.updateAvailable).includes("uninstall") && <ActionMenu label={`More actions for ${title(row)}`} size="sm" items={[{ label: "Uninstall", icon: <Trash2 className="h-4 w-4" />, tone: "danger", disabled: busy !== null, onClick: () => plan("uninstall", [row.slug]) }]} />}</div>;
+  const actions = (row: WordPressInstalledExtension) => <div className="flex flex-wrap justify-end gap-1">{wordpressExtensionActions(kind, row.status, row.updateAvailable).map(op => <Btn key={op} size="sm" variant={op === "uninstall" ? "danger" : "secondary"} aria-label={`${wordpressExtensionActionLabel(op)} ${title(row)}`} disabled={busy !== null} onClick={() => plan(op, [row.slug])}>{wordpressExtensionActionLabel(op)}</Btn>)}</div>;
   const allUnchecked = rows.length > 0 && rows.every(row => !row.securityCheckedAt && !row.vulnerabilities.length);
   const security = (row: WordPressInstalledExtension) => row.vulnerabilities.length ? `${row.vulnerabilities.length} known risks` : row.securityCheckedAt ? "No reported risks" : "Security not checked";
   if (!site) return <EmptyState icon={<Package className="h-7 w-7" />} title="Select a site" />;
@@ -845,6 +854,7 @@ function ExtensionsTab({ kind, site, connectSiteId, rows, query, setQuery, slug,
     {kind === "plugin" && rows.some(row => row.slug === "zoer-connect" && row.status === "active") && <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-default p-3"><div><h4 className="text-sm font-medium">Zoer Connect</h4><p className="text-xs text-text-secondary">Paste the connection info generated in WordPress.</p></div><WordPressConnect key={connectSiteId ?? site.id} siteId={connectSiteId ?? site.id} siteName={site.name} /></section>}
     <div className="flex flex-wrap gap-2"><SearchInput className="min-w-0 flex-1 basis-44" value={query} onChange={setQuery} placeholder={`Filter installed ${kind}s…`} /><Btn variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => { setAddOpen(true); setSearched(false); setSlug(""); }}>Add {kind}</Btn>{updates.length > 0 && <Btn disabled={busy !== null} onClick={() => plan("update", updates)}>Review {updates.length} updates</Btn>}</div>
     {allUnchecked && <p className="text-xs text-text-secondary">Security: not checked.</p>}
+    <p className="text-xs text-text-secondary">Auto-update settings below are reported by the site. Change the policy in WordPress or your hosting dashboard.</p>
     {addOpen && <Modal title={`Add ${kind}`} onClose={() => setAddOpen(false)}>
       <form onSubmit={e => { e.preventDefault(); if (slug.trim().length >= 3) { setSearched(true); onSearch(kind); } }} className="flex gap-2"><input autoFocus aria-label={`Search ${kind} directory`} className={controlClass()} value={slug} onChange={e => setSlug(e.target.value)} placeholder={`Search WordPress.org ${kind}s…`} /><Btn type="submit" disabled={slug.trim().length < 3 || busy !== null} loading={busy === `search:${kind}`}>Search</Btn></form>
       <p className="mt-2 text-xs text-text-secondary">Choose a result to review installation.</p>
@@ -852,8 +862,8 @@ function ExtensionsTab({ kind, site, connectSiteId, rows, query, setQuery, slug,
       {searched && busy !== `search:${kind}` && <div className="mt-4 space-y-3">{directoryResults.map(result => <article key={result.slug} className="rounded-lg border border-border-default p-3"><h3 className="text-sm font-medium">{decode(result.name)}</h3><p className="mt-1 text-xs text-text-muted">{result.slug}</p><p className="my-2 text-sm text-text-secondary">{decode(result.description)}</p><Btn disabled={busy !== null} onClick={() => plan("install", [result.slug])}>Review installation</Btn></article>)}{!directoryResults.length && !error && <p className="text-sm text-text-secondary">No results. Try another name.</p>}</div>}
       <details className="mt-5 border-t border-border-default pt-3"><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-sm text-text-secondary">Advanced: install by exact slug</summary><p className="my-2 text-xs text-text-secondary">Use a WordPress.org slug such as contact-form-7 in the search field above.</p><Btn disabled={!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug.trim()) || busy !== null} onClick={() => plan("install", [slug.trim()])}>Review slug installation</Btn></details>
     </Modal>}
-    <div className="space-y-2 md:hidden">{filtered.map(row => <article key={row.slug} className="rounded-lg border border-border-default p-3"><div className="flex items-start justify-between gap-2"><h4 className="min-w-0 break-words text-sm font-medium">{title(row)}</h4><Status status={row.status} /></div><p className="mt-1 text-xs text-text-secondary">Version {row.version}{row.updateAvailable ? ` → ${row.updateVersion || "latest"}` : ""}{!allUnchecked && ` · ${security(row)}`}</p><div className="mt-3">{actions(row)}</div></article>)}</div>
-    <div className="hidden overflow-x-auto rounded-lg border border-border-default md:block"><table className="w-full text-left text-sm"><thead className="bg-surface-primary text-xs text-text-secondary"><tr><th className="p-3">{kind === "plugin" ? "Plugin" : "Theme"}</th><th className="p-3">Status</th><th className="p-3">Version</th>{!allUnchecked && <th className="p-3">Security</th>}<th className="p-3">Actions</th></tr></thead><tbody>{filtered.map(row => <tr key={row.slug} className="border-t border-border-muted"><td className="p-3"><div className="font-medium">{title(row)}</div><div className="text-xs text-text-secondary">{row.slug}</div></td><td className="p-3"><Status status={row.status} /></td><td className="p-3 text-xs">{row.version}{row.updateAvailable && <div className="text-status-warning">→ {row.updateVersion || "latest"}</div>}</td>{!allUnchecked && <td className="p-3 text-xs text-text-secondary">{security(row)}</td>}<td className="p-3">{actions(row)}</td></tr>)}</tbody></table></div>
+    <div className="space-y-2 md:hidden">{filtered.map(row => <article key={row.slug} className="rounded-lg border border-border-default p-3"><div className="flex items-start justify-between gap-2"><h4 className="min-w-0 break-words text-sm font-medium">{title(row)}</h4><Status status={row.status} /></div><p className="mt-1 text-xs text-text-secondary">Version {row.version}{row.updateAvailable ? ` → ${row.updateVersion || "latest"}` : ""}{!allUnchecked && ` · ${security(row)}`}</p><p className="mt-1 text-xs text-text-secondary">Auto-update: {wordpressExtensionAutoUpdateLabel(row.autoUpdate)}</p><div className="mt-3">{actions(row)}</div></article>)}</div>
+    <div className="hidden overflow-x-auto rounded-lg border border-border-default md:block"><table className="w-full text-left text-sm"><thead className="bg-surface-primary text-xs text-text-secondary"><tr><th className="p-3">{kind === "plugin" ? "Plugin" : "Theme"}</th><th className="p-3">Status</th><th className="p-3">Version</th><th className="p-3">Auto-update</th>{!allUnchecked && <th className="p-3">Security</th>}<th className="p-3">Actions</th></tr></thead><tbody>{filtered.map(row => <tr key={row.slug} className="border-t border-border-muted"><td className="p-3"><div className="font-medium">{title(row)}</div><div className="text-xs text-text-secondary">{row.slug}</div></td><td className="p-3"><Status status={row.status} /></td><td className="p-3 text-xs">{row.version}{row.updateAvailable && <div className="text-status-warning">→ {row.updateVersion || "latest"}</div>}</td><td className="p-3 text-xs text-text-secondary">{wordpressExtensionAutoUpdateLabel(row.autoUpdate)}</td>{!allUnchecked && <td className="p-3 text-xs text-text-secondary">{security(row)}{row.securitySource && <div className="mt-1">{row.securitySource}{row.securityCheckedAt ? ` · ${new Date(row.securityCheckedAt).toLocaleString()}` : ""}</div>}</td>}<td className="p-3">{actions(row)}</td></tr>)}</tbody></table></div>
     {!filtered.length && <p className="py-6 text-center text-sm text-text-secondary">{query ? `No ${kind}s match “${query}”.` : `No installed ${kind}s reported.`}</p>}
   </div>;
 }
@@ -885,7 +895,7 @@ function DeploymentsTab({ sites, fixedSource, connections, deployments, source, 
       <div className="mt-4 flex flex-wrap items-center justify-end gap-3">{mode === "replace" && <p className="mr-auto text-sm text-text-secondary">Back up the live site first.</p>}<Btn type="submit" variant="primary" loading={busy === "plan-publish"} disabled={!source || !connection || !domain}>Review publication</Btn></div>
     </form>
     <HostingerWebsiteSetup connections={connections} onCreated={()=>void destinations.refetch()} />
-    <section className="rounded-lg border border-border-default p-4"><h4 className="flex items-center gap-2 text-base font-semibold text-text-heading"><HardDriveDownload className="h-4 w-4 shrink-0" />Hostinger → local</h4><p className="my-3 text-sm leading-6 text-text-secondary">Restore an UpdraftPlus backup of the live site into a new local site.</p><Btn onClick={onImport}>Open backup import</Btn></section>
+    <section className="rounded-lg border border-border-default p-4"><h4 className="flex items-center gap-2 text-base font-semibold text-text-heading"><HardDriveDownload className="h-4 w-4 shrink-0" />Hostinger → local</h4><p className="my-3 text-sm leading-6 text-text-secondary">Restore an UpdraftPlus or Hostinger backup of the live site into a new local site.</p><Btn onClick={onImport}>Open backup import</Btn></section>
     <section><h4 className="flex items-center gap-2 text-[13px] font-semibold text-text-heading"><History className="h-4 w-4" /> Deployment history</h4><div className="mt-3 space-y-2">{deployments.slice(0, 50).map((item) => <div key={item.id} className="rounded-md border border-border-muted bg-surface-primary/50 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div className="text-[12px] font-medium text-text-primary">{item.domain || item.type}<span className="ml-2 text-[12px] font-normal text-text-secondary">{item.type.replace("-", " ")}</span></div><div className="flex items-center gap-2">{item.status === "verification_required" && <Btn size="sm" variant="ghost" loading={busy === `verify:${item.id}`} onClick={() => onVerify(item)}>Mark verified</Btn>}<Status status={item.status} /></div></div><div className="mt-1 text-[13px] text-text-secondary">{item.step}</div>{item.error && <div className="mt-2 text-[12px] text-status-error">{item.error}</div>}<div className="mt-2 text-[12px] text-text-secondary">{new Date(item.updatedAt).toLocaleString()} · {item.id}</div></div>)}{!deployments.length && <p className="text-[13px] text-text-secondary">No deployment receipts yet.</p>}</div></section>
   </div>;
 }

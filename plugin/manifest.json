@@ -1,7 +1,7 @@
 {
   "id": "wordpress-manager",
   "name": "WordPress Manager",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Independent WordPress workspace with Hostinger temporary-domain setup, safe imports, backups, transfers, update review and cache tools.",
   "author": "Zoer contributors",
   "type": "integration",
@@ -2373,8 +2373,8 @@
       },
       {
         "id": "backup.restore-local",
-        "title": "Restore UpdraftPlus backup locally",
-        "description": "Restore an uploaded five-part UpdraftPlus set into a new local DDEV site: the database is converted to data-only SQL (never executed), archives are checked and extracted, plugins start inactive. A dry run only inspects the set and plans the restore.",
+        "title": "Restore WordPress backup locally",
+        "description": "Restore a verified UpdraftPlus set or Hostinger website archive and SQL dump into a new DDEV site. Converts database literals to data-only SQL, checks archives, and leaves restored plugins inactive. Dry runs inspect archives without creating a site.",
         "effect": "local_write",
         "approval": "when_configured",
         "execution": {
@@ -2388,7 +2388,7 @@
         "requiredRuntimes": [
           {
             "alias": "wordpress_site",
-            "purpose": "Create a local DDEV site and restore an UpdraftPlus backup into it.",
+            "purpose": "Create a local DDEV site and restore a supported WordPress backup into it.",
             "connectorIds": [
               "ddev"
             ],
@@ -2829,6 +2829,22 @@
         "digests": [
           "sha256"
         ]
+      },
+      {
+        "id": "hostinger-backup",
+        "maxFiles": 2,
+        "maxFileBytes": 1073741824,
+        "include": [
+          "*.tar.gz",
+          "*.sql.gz"
+        ],
+        "extensions": [
+          "gz"
+        ],
+        "macMetadata": "reject",
+        "digests": [
+          "sha256"
+        ]
       }
     ],
     "computerCommands": [
@@ -2890,6 +2906,19 @@
         "argv": [
           "php",
           "prepare-updraft.php"
+        ],
+        "timeoutMs": 840000,
+        "targets": [
+          "runtime"
+        ],
+        "effect": "local_write"
+      },
+      {
+        "id": "wordpress.hostinger.prepare",
+        "bundle": "computer/wordpress",
+        "argv": [
+          "php",
+          "prepare-hostinger.php"
         ],
         "timeoutMs": 840000,
         "targets": [
