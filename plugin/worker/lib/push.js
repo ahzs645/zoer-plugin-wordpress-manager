@@ -22,6 +22,9 @@ const MANIFEST_BODY_BYTES = 8 * 1024 * 1024;
 const TERMINAL = ["complete", "rolled_back", "cancelled"];
 const CHANGED = "Connection changed. Restore the original connection to recover this import.";
 const GIB = 1024 ** 3;
+// Older connectors retain their full responses. New connectors explicitly advertise the
+// bounded view; immutable manifests and the upload cursor protocol remain unchanged.
+const importRoute = (route, compact) => compact ? `${route}?view=compact` : route;
 
 function endpointOf(request, siteId) {
   const endpoint = siteEndpoint(request, siteId);
@@ -252,6 +255,13 @@ function applyRemotePhase(state, remote) {
   if (typeof remote?.cleanedUp === "boolean") state.cleanedUp = remote.cleanedUp;
   state.remotePhase = typeof phase === "string" ? phase.slice(0, 40) : state.remotePhase;
   if (remote?.stats && typeof remote.stats === "object") state.stats = compactStats(remote.stats);
+  // Keep a few numeric counters, never the site's large artifact/table arrays, in the
+  // resumable checkpoint. Show progress through recovery and application, after upload.
+  const count = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
+  state.remoteCursor = count(remote?.cursor);
+  state.remoteArtifactCount = count(remote?.artifactCount) ?? (Array.isArray(remote?.artifacts) ? remote.artifacts.length : null);
+  state.remoteTableIndex = count(remote?.progress?.tableIndex);
+  state.remoteTableCount = count(remote?.progress?.tableCount);
 }
 
 /** Bounded copy of the remote statistics (numbers and short strings only). */
@@ -294,7 +304,16 @@ export function waitingReason(state, decision) {
 
 function progressOf(state) {
   if (state.phase === "uploading") return { phase: "uploading", done: state.uploadedRaw ?? 0, total: state.totalBytes ?? 0, unit: "bytes" };
-  return { phase: state.phase, ...(state.remotePhase ? { message: `Destination: ${state.remotePhase}` } : {}) };
+  const progress = { phase: state.phase, ...(state.remotePhase ? { message: `Destination: ${state.remotePhase}` } : {}) };
+  if (state.phase === "importing") {
+    if (["reusing_artifacts", "checking_artifacts", "preparing_files", "applying_files"].includes(state.remotePhase) && state.remoteArtifactCount > 0 && state.remoteCursor !== null && state.remoteCursor !== undefined) {
+      return { ...progress, done: Math.min(state.remoteCursor, state.remoteArtifactCount), total: state.remoteArtifactCount, unit: "files" };
+    }
+    if (["preparing_tables", "reading_database", "verifying_tables", "activating_tables"].includes(state.remotePhase) && state.remoteTableCount > 0 && state.remoteTableIndex !== null && state.remoteTableIndex !== undefined) {
+      return { ...progress, done: Math.min(state.remoteTableIndex, state.remoteTableCount), total: state.remoteTableCount, unit: "items" };
+    }
+  }
+  return progress;
 }
 
 /** Upload order (database first, then the selected entries in set order) without block digests. */
@@ -380,7 +399,7 @@ export async function stepPush(state, input, ctx) {
       return ctx.continue(state, { phase: "submitting", message: "Sending the import manifest to the destination." });
     }
     if (state.manifestSha256 && digest !== state.manifestSha256) fail("The download, the destination or the selection changed before the import was created. Start the push again.");
-    const remote = await client.request("/imports", "POST", built.manifest);
+    const remote = await client.request(importRoute("/imports", state.destination?.capabilities?.compactImportResponses === true), "POST", built.manifest);
     if (remote?.id !== state.importId) fail("Destination import identity mismatch.");
     applyRemotePhase(state, remote);
     state.phase = (remote.phase ?? remote.status) === "uploading" ? "uploading" : "importing";
@@ -390,7 +409,7 @@ export async function stepPush(state, input, ctx) {
   }
   if (["review_required", "verification_required"].includes(state.phase)) {
     // Resumed after the user acted through transfer.push.control: read where the import is now.
-    applyRemotePhase(state, await client.request(`/imports/${state.importId}`));
+    applyRemotePhase(state, await client.request(importRoute(`/imports/${state.importId}`, state.destination?.capabilities?.compactImportResponses === true)));
   }
   // Zoer does not interrupt an external-write slice for a user pause: it takes effect when the
   // slice returns a checkpoint. Upload and import slices therefore end after PUSH_SLICE_MS and at
@@ -402,7 +421,7 @@ export async function stepPush(state, input, ctx) {
   }
   for (let first = true; ["importing", "rolling_back"].includes(state.phase) && ctx.timeLeft() > 5_000 && ctx.now() < until; first = false) {
     if (!first) stopIfPaused(ctx);
-    const remote = await client.request(`/imports/${state.importId}/${state.phase === "rolling_back" ? "rollback" : "step"}`, "POST");
+    const remote = await client.request(importRoute(`/imports/${state.importId}/${state.phase === "rolling_back" ? "rollback" : "step"}`, state.destination?.capabilities?.compactImportResponses === true), "POST");
     applyRemotePhase(state, remote);
   }
   if (["importing", "rolling_back", "uploading"].includes(state.phase)) return ctx.continue(state, progressOf(state));
@@ -493,32 +512,41 @@ export const controlSpec = {
     const endpoint = endpointOf(ctx.request, state.siteId);
     const client = connectClient(ctx.host, endpoint, endpoint.generation, counter);
     const id = state.importId;
+    if (state.compactImportResponses === undefined) {
+      const status = parseStatus(endpoint.origin, await client.request("/status"));
+      state.compactImportResponses = status.capabilities?.compactImportResponses === true;
+    }
+    const route = (path) => importRoute(path, state.compactImportResponses);
     const result = (phase, summary, extra = {}) => ctx.done({ importId: id, control: state.control, phase: String(phase ?? ""), requests: state.requests, ...extra, summary }, { phase: "done" });
     const sent = () => { state.requests++; };
     if (state.control === "approve") {
-      const current = await client.request(`/imports/${id}`);
+      const current = await client.request(route(`/imports/${id}`));
       // A retried approval after a lost answer is a no-op on the site (approvedAt).
       if (phaseOf(current) !== "review_required" && !state.approving) fail("This import is not waiting for review.");
       state.approving = true;
-      const remote = await client.request(`/imports/${id}/approve`, "POST"); sent();
+      const remote = await client.request(route(`/imports/${id}/approve`), "POST"); sent();
       return result(phaseOf(remote) ?? "importing", "Import approved. Resume the push to activate it.");
     }
     if (state.control === "finish") {
-      let remote = await client.request(`/imports/${id}/finish`, "POST"); sent();
-      for (let calls = 0; calls < 5 && phaseOf(remote) === "finishing"; calls++) { remote = await client.request(`/imports/${id}/finish`, "POST"); sent(); }
+      // A finish may have released the fence before its response was lost. Reconcile the
+      // native status first, so a retry acknowledges completion without repeating the write.
+      const current = await client.request(route(`/imports/${id}`));
+      if (phaseOf(current) === "complete") return result("complete", "Import finished.");
+      let remote = await client.request(route(`/imports/${id}/finish`), "POST"); sent();
+      for (let calls = 0; calls < 5 && phaseOf(remote) === "finishing"; calls++) { remote = await client.request(route(`/imports/${id}/finish`), "POST"); sent(); }
       if (phaseOf(remote) !== "complete") fail("Destination has not completed verification.");
       return result("complete", "Import finished.");
     }
     if (state.control === "cleanup") {
       if (!state.checked) {
-        const current = await client.request(`/imports/${id}`);
+        const current = await client.request(route(`/imports/${id}`));
         if (current?.cleanedUp === true) return result(phaseOf(current), "Staged import files were already removed.", { cleanedUp: true });
         if (!TERMINAL.includes(phaseOf(current))) fail("Clean up after the import completes, rolls back or is cancelled.");
         state.checked = true;
       }
       while (budgetLeft(ctx, counter)) {
         stopIfPaused(ctx);
-        const remote = await client.request(`/imports/${id}/cleanup`, "POST"); sent();
+        const remote = await client.request(route(`/imports/${id}/cleanup`), "POST"); sent();
         state.remotePhase = String(phaseOf(remote) ?? "").slice(0, 40);
         if (remote?.cleanedUp !== false) return result(state.remotePhase, "Staged import files removed from the destination.", { cleanedUp: true });
         await ctx.progress(controlProgress(state));
@@ -529,10 +557,10 @@ export const controlSpec = {
     while (budgetLeft(ctx, counter)) {
       stopIfPaused(ctx);
       let remote;
-      try { remote = await client.request(`/imports/${id}/rollback`, "POST"); }
+      try { remote = await client.request(route(`/imports/${id}/rollback`), "POST"); }
       catch (error) {
         if (isTransient(error)) throw error;
-        const status = await client.request(`/imports/${id}`).catch(() => null);
+        const status = await client.request(route(`/imports/${id}`)).catch(() => null);
         if (status?.rollbackRefused) fail(REFUSED);
         throw error;
       }

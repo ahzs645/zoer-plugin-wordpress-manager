@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Eraser, Loader2, Pause, Play, ShieldCheck, Undo2, X } from "lucide-react";
 import { Btn, StatusBadge, useDialogs } from "@zoer/plugin-ui/controls";
 import { cancelRun, controlImport, engineKeys, pauseRun, resumeRun, useEngineRun, useRecentRuns } from "../../../lib/queries/plugin-engine";
+import { completedPushUrl } from "../publishGuidance";
 import { formatTransferBytes } from "../wordpressPullProgress";
 import { formatDuration } from "../wordpressTransfer/transferLabels";
 import { describeRun, ENGINE_ACTIONS, engineErrorMessage, importStateFromControls, runInput, type RecentRun, type RunButton } from "./runState";
@@ -134,6 +135,8 @@ export default function PluginRunCard({ recent, title, kind = "other", siteId }:
 
   const icon = view.working ? <Loader2 className="animate-spin" aria-hidden="true" /> : view.tone === "success" ? <CheckCircle2 aria-hidden="true" /> : view.tone === "error" || view.tone === "warning" ? <AlertTriangle aria-hidden="true" /> : undefined;
   const output = run.output && typeof run.output === "object" ? run.output as Output : null;
+  // The completed run validated this exact address against its endpoint; do not link an old run to a later connection URL.
+  const publishedUrl = view.terminal ? completedPushUrl({ kind, status: output?.status, dryRun: input.dryRun, rolledBack: later.rolledBack === true, url: input.confirmTarget }) : null;
   return <article className="min-w-0 space-y-2 rounded-lg border border-border-muted bg-surface-primary/40 p-3" aria-label={`${title} started ${Number.isFinite(started) ? new Date(started).toLocaleString() : ""}`}>
     <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
       <div className="min-w-0 flex-1">
@@ -158,8 +161,9 @@ export default function PluginRunCard({ recent, title, kind = "other", siteId }:
 
     {view.reason && <p className={`break-words text-sm ${view.tone === "error" ? "text-status-error" : view.needsUser ? "text-text-primary" : "text-text-secondary"}`} role={view.tone === "error" ? "alert" : undefined}>{view.reason}</p>}
     {view.needsUser === "review" && <p className="text-xs text-text-secondary">Everything is staged and the site is still online. Approve to activate the changes, or roll back to discard them. Each decision asks for Zoer's approval.</p>}
-    {view.needsUser === "verify" && <p className="text-xs text-text-secondary">The new content is active and WordPress is paused for visitors. Check the site, then finish to reopen it, or roll back.</p>}
+    {view.needsUser === "verify" && <p className="text-xs text-text-secondary">The new content is active and WordPress is paused for visitors. Public browsing is blocked while paused, so an ordinary preview cannot verify the site yet. Review the transfer result, then Finish to reopen and check the website, or Roll back. Backups remain available after Finish.</p>}
     {output && view.terminal && <RunOutput output={output} />}
+    {publishedUrl && <div className="space-y-1 text-sm"><a className="inline-flex min-h-11 items-center underline" href={publishedUrl} target="_blank" rel="noopener noreferrer">Open published website</a><p className="text-xs text-text-secondary">Check the home page, important pages and sign-in on the reopened destination. A completed transfer does not verify website behaviour.</p></div>}
     {view.terminal && output?.status === "complete" && output.cleanedUp !== true && !later.rolledBack && !later.cleanedUp && (kind === "push" || kind === "replace") && <p className="text-xs text-text-secondary">Backups are kept on the destination so you can roll back. Clean them up when you are satisfied.</p>}
 
     {view.buttons.length > 0 && <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">

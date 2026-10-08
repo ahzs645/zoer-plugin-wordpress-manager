@@ -2278,7 +2278,8 @@
           "timeoutMs": 180000,
           "maxMemoryMb": 128,
           "maxOutputBytes": 1048576,
-          "maxNetworkRequests": 2000
+          "maxNetworkRequests": 2000,
+          "maxNetworkResponseBytes": 8388608
         },
         "idempotent": false
       },

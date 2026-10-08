@@ -57,6 +57,8 @@ import { useDialogs } from "@zoer/plugin-ui/controls";
 import WordPressUpdraftImport from "./WordPressUpdraftImport";
 import { wordpressExtensionActions, wordpressExtensionActionLabel, wordpressExtensionAutoUpdateLabel } from "./wordpressExtensionActions";
 import WordPressConnect from "./WordPressConnect";
+import LocalPublishChoice from "./LocalPublishChoice";
+import type { PublishDestination } from "./publishGuidance";
 import HostingerWebsiteSetup from "./HostingerWebsiteSetup";
 import WordPressCoreUpdates from "./WordPressCoreUpdates";
 import WordPressUpdates from "./WordPressUpdates";
@@ -151,6 +153,8 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const [extensionSlug, setExtensionSlug] = useState("");
   const [directoryResults, setDirectoryResults] = useState<Array<{ slug: string; name: string; description: string; imageUrl: string | null }>>([]);
   const [extensionPlan, setExtensionPlan] = useState<{ input: { siteId: string; kind: WordPressExtensionKind; operation: WordPressExtensionOperation; slugs: string[] }; plan: WordPressExtensionPlan } | null>(null);
+  const [localPublish, setLocalPublish] = useState<WordPressManagedSite | null>(null);
+  const [guidedPublish, setGuidedPublish] = useState<{ source: WordPressManagedSite; destination: PublishDestination } | null>(null);
   const [publishPlan, setPublishPlan] = useState<WordPressPublishPlan | null>(null);
   const [confirmation, setConfirmation] = useState("");
   const [connectionName, setConnectionName] = useState("");
@@ -607,7 +611,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     ...(lifecycle === "stop" ? [{ label: "Stop site", icon: <Square className="h-4 w-4" />, disabled: busy !== null, onClick: () => void changeLifecycle(selected) }] : []),
     ...(isLocalWordPress(selected) && !lifecycle ? [{ label: "Refresh site status", icon: <RefreshCw className="h-4 w-4" />, disabled: busy !== null, onClick: () => void refreshAll() }] : []),
     ...(previewUrl ? [{ label: "Preview", icon: <ExternalLink className="h-4 w-4" />, onClick: () => window.open(previewUrl, "_blank", "noopener,noreferrer") }] : []),
-    ...(selected.capabilities.deploySource || selected.provider === "hostinger" ? [{ label: selected.provider === "ddev" ? "Publish local changes" : "Transfer & publish", icon: <Rocket className="h-4 w-4" />, onClick: () => openPublish(selected) }] : []),
+    ...(selected.capabilities.deploySource || selected.provider === "hostinger" ? [{ label: selected.provider === "ddev" ? "Publish local changes" : "Transfer & publish", icon: <Rocket className="h-4 w-4" />, onClick: () => selected.provider === "ddev" ? setLocalPublish(selected) : openPublish(selected) }] : []),
     { label: "Site name & URL", icon: <Pencil className="h-4 w-4" />, onClick: () => { setEditSite(selected); setEditName(selected.name); setEditError(null); } },
     ...(isLocalWordPress(selected) ? [{ label: "Move to trash", icon: <Trash2 className="h-4 w-4" />, tone: "danger" as const, loading: busy === `delete:${selected.id}`, disabled: busy !== null, onClick: () => void removeSite(selected) }] : []),
   ] : [];
@@ -746,6 +750,8 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
         </div>
       </div>
 
+      {localPublish && <LocalPublishChoice key={localPublish.id} source={localPublish} sites={sites} onClose={() => setLocalPublish(null)} onHosting={() => { openPublish(localPublish); setLocalPublish(null); }} onContinue={destination => { setGuidedPublish({ source: localPublish, destination }); setLocalPublish(null); }} />}
+      {guidedPublish && <WordPressConnect key={`${guidedPublish.source.id}:${guidedPublish.destination.id}`} siteId={guidedPublish.destination.id} siteName={guidedPublish.destination.name} initialPushSource={guidedPublish.source.id} autoOpen onDismiss={() => setGuidedPublish(null)} />}
       {providersOpen && <Modal title="Provider accounts" onClose={() => setProvidersOpen(false)}><ConnectionsTab onConnected={() => void load(true, true)} connections={connections} name={connectionName} setName={setConnectionName} token={connectionToken} setToken={setConnectionToken} busy={busy} onAdd={addConnection} onTest={testConnection} onRemove={removeConnection} /></Modal>}
       {extensionPlan && <ReviewPanel title={`${wordpressExtensionActionLabel(extensionPlan.plan.operation)} ${extensionPlan.plan.kind}${extensionPlan.plan.slugs.length > 1 ? "s" : ""}`} plan={extensionPlan.plan} confirmation={confirmation} setConfirmation={setConfirmation} busy={busy === "apply-extension"} onApply={applyExtension} onCancel={() => { setExtensionPlan(null); setConfirmation(""); }} />}
       {publishPlan && <ReviewPanel title={`${publishPlan.mode === "replace" ? "Replace" : "Publish"} ${publishPlan.domain}`} plan={publishPlan} confirmation={confirmation} setConfirmation={setConfirmation} busy={busy === "execute-publish"} onApply={executePublish} onCancel={() => { setPublishPlan(null); setConfirmation(""); }} />}

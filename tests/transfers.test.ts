@@ -3,11 +3,11 @@ import { FakeWorld } from "./fakes/host";
 import { BLOCK, FakeZoerConnect, sampleSite, sha } from "./fakes/zoer-connect";
 import { writeZip } from "./fakes/zip";
 import { createTicketHost } from "../plugin/worker/lib/host.js";
-import { mapConnectResponse } from "../plugin/worker/lib/zoer-connect.js";
+import { connectClient, mapConnectResponse } from "../plugin/worker/lib/zoer-connect.js";
 import { connectRefusal, validatePullFiles } from "../plugin/worker/lib/files.js";
 import { defaultExportOptions } from "../plugin/worker/lib/options.js";
 import { preparationMessage } from "../plugin/worker/lib/pull.js";
-import { runtimeError } from "../plugin/worker/lib/slices.js";
+import { isTransient, runtimeError } from "../plugin/worker/lib/slices.js";
 import { statsText, waitingReason } from "../plugin/worker/lib/push.js";
 import { EXPORT_CREATE_INPUT_SCHEMA, schemaIssues } from "./fakes/ddev-schemas";
 
@@ -362,6 +362,48 @@ describe("transfer.preview and transfer.push", () => {
     expect(routes).toContain("POST /imports");
     expect(routes).toContain(`GET /imports/${IMPORT}?view=upload`);
     expect(routes.filter(r => r === `POST /imports/${IMPORT}/batch`).length).toBeGreaterThan(0);
+  });
+
+  test("compact import summaries are negotiated without changing upload or manifest contracts", async () => {
+    const { w, destination } = world();
+    destination.options.capabilities = { compactImportResponses: true };
+    await pulled(w);
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
+    expect(result.status).toBe("succeeded");
+    const routes = destination.log.map(l => `${l.method} ${l.route}`);
+    expect(routes).toContain("POST /imports?view=compact");
+    expect(routes).toContain(`POST /imports/${IMPORT}/step?view=compact`);
+    expect(routes).toContain(`GET /imports/${IMPORT}?view=upload`);
+    expect(routes).toContain(`POST /imports/${IMPORT}/batch`);
+    expect(destination.imports.get(IMPORT)!.manifest).toMatchObject({ target: "https://dest.example", sourceUrl: "https://source.example", migrationMode: "shared-replacement", replacementAccepted: true });
+    destination.log.length = 0;
+    const finished = await w.run("transfer.push.control", { siteId: "external:dest", importId: IMPORT, control: "finish" });
+    expect(finished.status).toBe("succeeded");
+    expect(destination.log.map(l => `${l.method} ${l.route}`)).toEqual(["GET /status", `GET /imports/${IMPORT}?view=compact`]);
+  });
+
+  for (const [remote, expected] of [
+    [{ phase: "applying_files", cursor: 3, artifactCount: 7 }, { done: 3, total: 7, unit: "files" }],
+    [{ phase: "verifying_tables", progress: { tableIndex: 2, tableCount: 28 } }, { done: 2, total: 28, unit: "items" }],
+    [{ phase: "applying_files", cursor: 90, artifactCount: 7 }, { done: 7, total: 7, unit: "files" }],
+    [{ phase: "applying_files", cursor: "3", artifactCount: -7 }, {}],
+  ] as const) test(`destination progress uses bounded counters: ${JSON.stringify(remote)}`, async () => {
+    const { w } = world();
+    await pulled(w);
+    let now = Date.parse("2026-10-04T12:00:00Z"), injected = false;
+    w.services["network.fetch"] = async (input, context) => {
+      const response = await w.serve("network.fetch", input, context.effect);
+      if (!injected && input.method === "POST" && String(input.url).endsWith(`/imports/${IMPORT}/step`)) {
+        injected = true; now += 30_000;
+        return { ...response, bodyBase64: Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(response.bodyBase64, "base64").toString()), ...remote })).toString("base64") };
+      }
+      return response;
+    };
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm }, { clock: () => now });
+    const progress = result.envelopes.find((e: any) => e.progress?.message === `Destination: ${remote.phase}`)?.progress;
+    expect(progress).toMatchObject({ phase: "importing", ...expected });
+    if (!("done" in expected)) expect(progress).not.toHaveProperty("done");
+    expect(result.status).toBe("succeeded");
   });
 
   test("a pause during the upload parks the run within one upload slice, before review", async () => {
@@ -770,6 +812,47 @@ describe("transfer.push.control", () => {
     expect((result as any).output).toMatchObject({ control: "cleanup", cleanedUp: true });
     expect(destination.imports.get(IMPORT)!.requests.cleanup).toBe(7);
   });
+
+  test("finish reconciles an already completed import without another write", async () => {
+    const { w, destination } = await completedPush(3);
+    destination.log.length = 0;
+    const result = await w.run("transfer.push.control", { siteId: "external:dest", importId: IMPORT, control: "finish" });
+    expect(result.status).toBe("succeeded");
+    expect((result as any).output.phase).toBe("complete");
+    expect(destination.log.map(l => `${l.method} ${l.route}`)).toEqual(["GET /status", `GET /imports/${IMPORT}`]);
+  });
+
+  test("finish accepts a legacy full import acknowledgment above the host's default 1 MiB", async () => {
+    const { w, destination } = await completedPush(3);
+    const artifacts = Array.from({ length: 10969 }, (_, i) => ({ path: `wp-content/plugins/example/vendor/${"a".repeat(90)}/file-${i}.php`, bytes: 1234, sha256: "a".repeat(64) }));
+    let receivedBytes = 0;
+    w.services["network.fetch"] = async (input, context) => {
+      const response = await w.serve("network.fetch", input, context.effect);
+      if (input.method === "GET" && String(input.url).endsWith(`/imports/${IMPORT}`)) {
+        const bytes = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(response.bodyBase64, "base64").toString()), artifacts }));
+        receivedBytes = bytes.length;
+        return { ...response, bodyBase64: bytes.toString("base64") };
+      }
+      return response;
+    };
+    const result = await w.run("transfer.push.control", { siteId: "external:dest", importId: IMPORT, control: "finish" });
+    expect(receivedBytes).toBeGreaterThan(1048576);
+    expect(result.status).toBe("succeeded");
+    expect((result as any).output.phase).toBe("complete");
+    expect(destination.log.filter(l => l.route.endsWith("/finish"))).toHaveLength(0);
+  });
+
+  test("a lost finish answer reconciles completion on retry instead of repeating finish", async () => {
+    const { w, destination } = await completedPush(3);
+    destination.imports.get(IMPORT)!.phase = "verification_required";
+    destination.log.length = 0;
+    w.loseResponses.push({ method: "POST", pattern: /\/finish$/, count: 1 });
+    const result = await w.run("transfer.push.control", { siteId: "external:dest", importId: IMPORT, control: "finish" });
+    expect(result.status).toBe("succeeded");
+    expect((result as any).output.phase).toBe("complete");
+    expect(destination.log.filter(l => l.route.endsWith("/finish"))).toHaveLength(1);
+    expect(destination.log.filter(l => l.route === `/imports/${IMPORT}`)).toHaveLength(2);
+  });
 });
 
 describe("files Zoer Connect refuses", () => {
@@ -873,5 +956,14 @@ describe("line protocol and response mapping", () => {
     expect(error.message).toBe("Table [path] missing");
     try { mapConnectResponse("/imports/x/step", "POST", answer(503, {}, { "retry-after": "12" })); } catch (e) { error = e; }
     expect(error).toMatchObject({ transient: true, retryAfterMs: 12000 });
+  });
+
+  test("an oversized acknowledgment is not mislabeled as an unreachable site or retried blindly", async () => {
+    const host = { call: async () => { throw Object.assign(new Error("Network response exceeded its size limit."), { name: "HostCallError", code: "database_query_failed" }); } };
+    const client = connectClient(host, { id: "external:dest", generation: "g1", origin: "https://dest.example" });
+    const error = await client.request(`/imports/${IMPORT}/finish`, "POST").catch(e => e);
+    expect(error).toMatchObject({ code: "network_response_limit" });
+    expect(isTransient(error)).toBe(false);
+    expect(error.message).toContain("The operation may have completed.");
   });
 });

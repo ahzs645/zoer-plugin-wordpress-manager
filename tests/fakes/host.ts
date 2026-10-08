@@ -259,7 +259,8 @@ export class FakeWorld {
 
   host(actionId: string, runId: string, effect: string, execution: number) {
     const world = this;
-    const limit = (manifest as any).integration.actions.find((a: any) => a.id === actionId)?.resourceLimits?.maxOutputBytes ?? 1_048_576;
+    const limits = (manifest as any).integration.actions.find((a: any) => a.id === actionId)?.resourceLimits;
+    const limit = limits?.maxOutputBytes ?? 1_048_576;
     const counters: Execution = { actionId, runtime: 0, peer: 0, output: 0, limit, checkpointBytes: 0 };
     this.executions.push(counters);
     return {
@@ -274,8 +275,11 @@ export class FakeWorld {
         if ((method === "runtime.invoke" || method === "adapter.invoke") && ++counters.runtime > 250) refuse("Runtime RPC budget exhausted.", "capability_denied");
         if (this.pause && ["network.fetch", "runtime.invoke"].includes(method)) refuse("Paused for Zoer update", "ZOER_PAUSED");
         const service = this.services[method];
-        if (service) return service(input, { actionId, runId, effect, execution });
-        return this.serve(method, input, effect);
+        const response = await (service ? service(input, { actionId, runId, effect, execution }) : this.serve(method, input, effect));
+        if (method === "network.fetch" && Buffer.from(response?.bodyBase64 ?? "", "base64").length > (limits?.maxNetworkResponseBytes ?? 1_048_576)) {
+          refuse("Network response exceeded its size limit.", "database_query_failed");
+        }
+        return response;
       },
     };
   }

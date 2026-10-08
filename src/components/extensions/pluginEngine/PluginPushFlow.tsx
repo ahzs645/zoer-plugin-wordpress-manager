@@ -14,6 +14,7 @@ import ReplacePanel from "../wordpressTransfer/ReplacePanel";
 import SafetyPanel from "../wordpressTransfer/SafetyPanel";
 import { connectionWarnings } from "../wordpressTransfer/transferLabels";
 import type { DraftUpdate, TransferDraft } from "../wordpressTransfer/draft";
+import { guidedPushSources, pushReviewMessage } from "../publishGuidance";
 import PluginRunCard from "./PluginRunCard";
 import PreviewSelection from "./PreviewSelection";
 import { defaultSelection, MAX_SELECTED_PATHS, parsePullRecord, previewExpired, previewFiles, pushSources, type PullRecord } from "./records";
@@ -33,11 +34,11 @@ function useNow(intervalMs: number) {
 }
 
 /** `transfer.local-export` of a running local DDEV site. */
-function LocalExportSource({ destinationSiteId, draft, update }: { destinationSiteId: string; draft: TransferDraft; update: DraftUpdate }) {
+function LocalExportSource({ destinationSiteId, draft, update, guidedSourceId }: { guidedSourceId?: string; destinationSiteId: string; draft: TransferDraft; update: DraftUpdate }) {
   const client = useQueryClient();
   const sites = useQuery(wordpressQueries.sites()).data ?? [];
-  const choices = sites.filter(site => site.provider === "ddev" && site.id !== destinationSiteId);
-  const [siteId, setSiteId] = useState("");
+  const choices = sites.filter(site => site.provider === "ddev" && site.id !== destinationSiteId && (!guidedSourceId || site.id === guidedSourceId));
+  const [siteId, setSiteId] = useState(guidedSourceId ?? "");
   const site = choices.find(item => item.id === siteId) ?? null;
   const diagnostics = useWordPressDiagnostics(siteId, { local: true, enabled: site?.status === "running" });
   const runs = useRecentRuns(EXPORT_ACTIONS);
@@ -63,15 +64,16 @@ function LocalExportSource({ destinationSiteId, draft, update }: { destinationSi
     } catch (caught) { setError(engineErrorMessage(caught, "The export could not start.")); }
     finally { setStarting(false); }
   }
-  return <details data-zoer-disclosure className="min-w-0 rounded-lg border border-border-default">
+  return <details open={guidedSourceId ? true : undefined} data-zoer-disclosure className="min-w-0 rounded-lg border border-border-default">
     <summary className="flex min-h-11 cursor-pointer flex-col justify-center px-3 py-2"><span className="text-sm font-medium">Export a local DDEV site</span><span className="text-xs text-text-secondary">Prepare a verified export of a local site, then choose it above.</span></summary>
     <div className="min-w-0 space-y-3 border-t border-border-muted p-3">
       <label className="block min-w-0 text-sm"><span className={fieldLabelClass}>Local site</span>
-        <Select searchable aria-label="Local site to export" className={selectClass("default", "w-full")} value={siteId} onChange={event => { setSiteId(event.target.value); setError(""); }}>
+        <Select searchable aria-label="Local site to export" className={selectClass("default", "w-full")} value={siteId} disabled={!!guidedSourceId} onChange={event => { setSiteId(event.target.value); setError(""); }}>
           <option value="">Choose local site</option>
           {choices.map(item => <option key={item.id} value={item.id} disabled={item.status !== "running"}>{item.name}{item.status === "running" ? "" : " (start it first)"}</option>)}
         </Select>
       </label>
+      {guidedSourceId && !site && <p role="alert" className="text-status-warning">The selected local source is no longer available. Close this dialog and choose a current local site.</p>}
       {!choices.length && <p className="text-xs text-text-secondary">No local DDEV sites. Create or start one in WordPress Manager first.</p>}
       {site && <>
         <DatabasePanel exportOptions={options} onExport={next => update(d => ({ ...d, exportOptions: next }))} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} localSource />
@@ -91,9 +93,9 @@ function LocalExportSource({ destinationSiteId, draft, update }: { destinationSi
  * (optional) → `transfer.push` through Zoer's approval, with the same destination confirmation and
  * replacement policy as Zoer's earlier host-side Push. Dry run is on by default.
  */
-export default function PluginPushFlow({ siteId, connection, destination, draft, update, dryRun, onDryRun, busy }: {
+export default function PluginPushFlow({ siteId, connection, destination, draft, update, guidedSourceId, dryRun, onDryRun, busy }: {
   siteId: string; connection: ZoerConnectConnection; destination: WordPressDiagnostics | null | undefined; draft: TransferDraft; update: DraftUpdate;
-  dryRun: boolean; onDryRun: (value: boolean) => void; /** Another transfer of this site is active. */ busy: boolean;
+  guidedSourceId?: string; dryRun: boolean; onDryRun: (value: boolean) => void; /** Another transfer of this site is active. */ busy: boolean;
 }) {
   const client = useQueryClient();
   const status = connection.status;
@@ -104,7 +106,7 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
   const sites = useQuery(wordpressQueries.sites()).data ?? [];
   const siteName = (id: string) => sites.find(site => site.id === id)?.name ?? id;
   const records = useCatalogKind("pull");
-  const sources = pushSources((records.data ?? []).map(parsePullRecord).filter((pull): pull is PullRecord => !!pull), siteId);
+  const sources = guidedPushSources(pushSources((records.data ?? []).map(parsePullRecord).filter((pull): pull is PullRecord => !!pull), siteId), guidedSourceId);
   const [setId, setSetId] = useState("");
   const chosen = sources.find(pull => pull.setId === setId) ?? null;
   // Selective push needs Zoer Connect's file comparison on the destination.
@@ -172,6 +174,7 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
   if (!enabled) return <p className="text-sm text-text-secondary">Push requires an import-capable Zoer Connect with Push permission enabled in WordPress → Tools → Zoer Connect.</p>;
   return <div className="min-w-0 space-y-5">
     <Step n={1} title="Choose the source">
+      {guidedSourceId && <p className="text-sm text-text-secondary">Local source: <strong>{siteName(guidedSourceId)}</strong>. Prepare a fresh export below, then choose it from this source’s verified exports.</p>}
       <label className="block min-w-0 text-sm"><span className={fieldLabelClass}>Verified download or local export</span>
         <Select searchable aria-label="Push source" className={selectClass("default", "w-full")} value={chosen ? setId : ""} onChange={event => choose(event.target.value)}>
           <option value="">Choose source</option>
@@ -179,8 +182,8 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
         </Select>
       </label>
       {records.isLoading && <p className="text-xs text-text-secondary">Loading downloads…</p>}
-      {records.data && !sources.length && <p className="text-xs text-text-secondary">No verified downloads of other sites yet. Pull another connected site, or export a local site below.</p>}
-      <LocalExportSource destinationSiteId={siteId} draft={draft} update={update} />
+      {records.data && !sources.length && <p className="text-xs text-text-secondary">{guidedSourceId ? "No verified exports of this local source yet. Prepare one below." : "No verified downloads of other sites yet. Pull another connected site, or export a local site below."}</p>}
+      <LocalExportSource destinationSiteId={siteId} guidedSourceId={guidedSourceId} draft={draft} update={update} />
       {partialUnsupported && <p className="text-xs text-status-warning">This download contains only some tables. {REQUIRES_040} to import a partial database.</p>}
     </Step>
 
@@ -207,7 +210,7 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
 
     {chosen && <Step n={4} title="Confirm">
       <CheckboxField label="Dry run" description="Plans the import against the destination and stops. Nothing is uploaded or activated." checked={dryRun} onChange={onDryRun} />
-      <p className="text-xs text-text-secondary">Push does not update WordPress core, the destination's user accounts or its Zoer Connect key. Zoer asks for approval before the push starts; a real push then stops for your review before activating.</p>
+      <p className="text-xs text-text-secondary">Push does not update WordPress core, the destination's user accounts or its Zoer Connect key. Zoer asks for approval before the push starts. {pushReviewMessage(draft.importOptions.review, draft.importOptions.fence)} Every real push pauses after activation until you choose Finish or Roll back.</p>
       <ConfirmDestination target={target} value={confirm} onChange={setConfirm} shared={shared} writers={writers} onWriters={setWriters} disabled={starting !== null} />
       {busy && <p className="text-xs text-status-warning">Another transfer is running on this site. Finish, roll back or cancel it below before starting another.</p>}
       {comparing && !previewReady && <p className="text-xs text-text-secondary">Compare with this site first, or turn off “Compare first” to push everything in the download.</p>}

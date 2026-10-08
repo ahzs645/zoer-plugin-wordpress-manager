@@ -143,13 +143,14 @@ function ReplaceStart({ siteId, connection, diagnostics, diagnosticsLoading, dra
  * A Zoer Connect site's transfer workspace: action picker and option panels; transfers run as
  * this plugin's resumable actions (the only transfer engine since 0.8.0).
  */
-export default function PluginTransferWorkspace({ siteId, siteName, connection, diagnostics, diagnosticsLoading, onLocalCopy }: {
+export default function PluginTransferWorkspace({ siteId, siteName, connection, diagnostics, diagnosticsLoading, onLocalCopy, initialPushSource }: {
   siteId: string; siteName: string; connection: ZoerConnectConnection; diagnostics: WordPressDiagnostics | null | undefined; diagnosticsLoading: boolean;
+  initialPushSource?: string;
   onLocalCopy?: (pull: PullRecord) => void;
 }) {
   const client = useQueryClient();
   const availability = actionAvailability(connection);
-  const [draft, setDraft] = useState(() => initialDraft(initialAction(availability)));
+  const [draft, setDraft] = useState(() => initialDraft(initialPushSource ? "push" : initialAction(availability)));
   const update: DraftUpdate = fn => setDraft(fn);
   const [dryRuns, setDryRuns] = useState(DRY_RUN_DEFAULTS);
   const action = draft.action;
@@ -183,7 +184,7 @@ export default function PluginTransferWorkspace({ siteId, siteName, connection, 
     </fieldset>
     {availability[action] ? <p role="status" className="text-sm text-status-warning">{availability[action]}.</p> : <>
       {(action === "pull" || action === "backup" || action === "export") && <PullStart siteId={siteId} connection={connection} diagnostics={diagnostics} diagnosticsLoading={diagnosticsLoading} draft={draft} update={update} busy={busy} {...dryRunFor(action)} />}
-      {action === "push" && <PluginPushFlow siteId={siteId} connection={connection} destination={diagnostics} draft={draft} update={update} busy={busy} {...dryRunFor("push")} />}
+      {action === "push" && <PluginPushFlow siteId={siteId} connection={connection} destination={diagnostics} guidedSourceId={initialPushSource} draft={draft} update={update} busy={busy} {...dryRunFor("push")} />}
       {action === "replace" && <ReplaceStart siteId={siteId} connection={connection} diagnostics={diagnostics} diagnosticsLoading={diagnosticsLoading} draft={draft} update={update} busy={busy} {...dryRunFor("replace")} />}
     </>}
 

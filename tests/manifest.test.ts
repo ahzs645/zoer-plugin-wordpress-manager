@@ -62,6 +62,9 @@ test("P3 transfer actions are resumable with the documented effects, locks and g
  // 0.7.1: one approved control drives a rollback or cleanup to its end across slices; its own lock (per import) so it can act while the push run waits at review.
  expect(byId["transfer.push.control"].resumable).toEqual({stepTimeoutMs:180000,maxSteps:20000,maxRunHours:48,lock:{input:"importId",group:"import-control"}});
  expect(byId["transfer.push.control"].inputSchema.required).toContain("importId");
+ // Older connectors return the full manifest even from finish/rollback. A normal 10k-file
+ // import exceeds the host's 1 MiB default; controls must accept the same bound as Push.
+ expect(byId["transfer.push.control"].resourceLimits.maxNetworkResponseBytes).toBe(byId["transfer.push"].resourceLimits.maxNetworkResponseBytes);
  for(const id of ["transfer.pull","transfer.push","copy.local","transfer.local-export","transfer.replace"])expect(byId[id].presets).toEqual({max:100});
  expect(byId["transfer.pull"].requiredCapabilities).toEqual(["network-egress","file-transfer"]);
 });

@@ -71,6 +71,9 @@ function mapHostError(error) {
   if (["ZOER_PAUSED", "endpoint_changed"].includes(error.code)) return error;
   if (error.code === "endpoint_unbound") return new TransferError("This site's connection was removed. Add the site again in WordPress Manager.", { code: "endpoint_unbound" });
   if (error.code === "network_limit") return new TransferError("This step used its request budget. Continuing in the next step.", { code: "network_limit", transient: true, retryAfterMs: 0 });
+  if (error.code === "network_response_limit" || error.message === "Network response exceeded its size limit.") {
+    return new TransferError("The destination response exceeded this action's limit. The operation may have completed. Refresh the import status before retrying or rolling back.", { code: "network_response_limit", transient: false });
+  }
   // Network failures (DNS, TLS, timeouts) are transient like the host engine's transport errors.
   if (!["capability_denied", "network_denied", "endpoint_route_denied", "secret_exfiltration", "invalid_request", "resource_unbound"].includes(error.code)) {
     return new TransferError("Could not reach the site. Check HTTPS, the certificate and network access; retrying.", { code: error.code, transient: true });
