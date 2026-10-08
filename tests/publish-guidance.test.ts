@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { WordPressManagedSite } from "../src/lib/api";
 import type { HostEndpoint } from "../src/host/actions";
 import type { PullRecord } from "../src/components/extensions/pluginEngine/records";
+import { applyImportCapabilities, defaultImportOptions } from "../src/lib/wordpress-transfer/options";
 import { completedPushUrl, guidedPushSources, localPublishDestinations, publishedWebsiteUrl, pushReviewMessage } from "../src/components/extensions/publishGuidance";
 
 const site = (id: string, provider: WordPressManagedSite["provider"], url = "https://live.example/", sourceSiteId: string | null = null) => ({ id, provider, url, sourceSiteId, name: "Same title" } as WordPressManagedSite);
@@ -42,6 +43,16 @@ describe("guided local publication", () => {
     expect(pushReviewMessage(true, "activation")).toContain("waits for your approval before activation");
     expect(pushReviewMessage(false, "early")).toContain("pauses when the import starts");
     expect(pushReviewMessage(false, "activation")).toContain("pauses during activation");
+  });
+  test("legacy destinations describe their effective early fence instead of an unsupported requested review", () => {
+    const requested = { ...defaultImportOptions(), review: true, fence: "activation" as const };
+    const effective = applyImportCapabilities(requested, undefined);
+    expect(effective.options.review).toBe(false);
+    expect(effective.options.fence).toBe("early");
+    const message = pushReviewMessage(effective.options.review, effective.options.fence);
+    expect(message).toContain("pauses when the import starts");
+    expect(message).not.toContain("waits for your approval before activation");
+    expect(requested.review).toBe(true);
   });
   test("website link is only offered for a completed real push and uses a safe known HTTPS identity", () => {
     const run = { kind: "push", status: "complete", dryRun: false, rolledBack: false, url: "https://live.example/subdir/" };
