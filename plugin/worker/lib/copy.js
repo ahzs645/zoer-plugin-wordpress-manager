@@ -42,6 +42,32 @@ export async function execCommand(host, resourceId, command, plan) {
   try { return line ? JSON.parse(line) : {}; } catch { return {}; }
 }
 
+/**
+ * `users`: "local" keeps the copy's own accounts (default); "source" copies the source's users and user
+ * meta and keeps the local administrator; "exact" copies them with no extra administrator (WP Migrate).
+ */
+function userMode(value) {
+  if (value === undefined || value === null || value === "local") return "local";
+  if (value === "source" || value === "exact") return value;
+  fail("Choose whether to keep the local accounts or copy the source's users.");
+}
+
+/**
+ * The importer's summary, reduced to the counts the run output and catalog record keep, and the
+ * collations it converted because the local server lacks them (`from` → `to` in `tables` tables).
+ */
+export function databaseSummary(value) {
+  if (!value || typeof value !== "object") return null;
+  const count = (v) => Number.isSafeInteger(v) && v >= 0 ? v : null;
+  const collation = (v) => typeof v === "string" && /^[A-Za-z0-9_]{1,64}$/.test(v);
+  const users = value.users && typeof value.users === "object" ? value.users : {};
+  const collations = (Array.isArray(value.collations) ? value.collations : []).filter(c => c && typeof c === "object" && collation(c.from) && collation(c.to)).slice(0, 20)
+    .map(c => ({ from: c.from, to: c.to, tables: count(c.tables) }));
+  return { tables: count(value.tables), rows: count(value.rows), replacements: count(value.replacements),
+    users: { mode: ["source", "exact"].includes(users.mode) ? users.mode : "local", copied: count(users.copied), meta: count(users.meta), droppedMeta: count(users.droppedMeta), roles: users.roles === "source" ? "source" : "local", loginChanged: users.loginChanged === true },
+    collations };
+}
+
 function validName(value, max) {
   // eslint-disable-next-line no-control-regex -- rejects control characters in untrusted input
   if (typeof value !== "string" || !value.trim() || value.length > max || /[\x00-\x1f]/.test(value)) return null;
@@ -56,7 +82,7 @@ export async function startCopy(input, ctx) {
   const { host, request, now } = ctx;
   const copyId = input.copyId ?? runHex(request);
   if (!HEX32.test(copyId)) fail("A valid copy request ID is required.");
-  const state = { v: 1, kind: "copy", copyId, siteId: input.siteId, phase: "pulling", dryRun: input.dryRun === true, fileOffset: 0, startedAt: new Date(now()).toISOString() };
+  const state = { v: 1, kind: "copy", copyId, siteId: input.siteId, phase: "pulling", dryRun: input.dryRun === true, users: userMode(input.users), fileOffset: 0, startedAt: new Date(now()).toISOString() };
   if (input.replaceSiteId !== undefined && input.replaceSiteId !== null) {
     if (typeof input.replaceSiteId !== "string" || !input.replaceSiteId.startsWith("ddev-")) fail("Choose a local DDEV copy to refresh.");
     if (state.dryRun) fail("A dry run creates its own scratch site; refresh an existing copy without a dry run.");
@@ -92,7 +118,7 @@ export async function startRestore(input, ctx) {
   if (!name) fail("Invalid backup site name.");
   const dryRun = input.dryRun === true;
   return { v: 1, kind: "restore", copyId: restoreId, setId: input.uploadSetId, name, siteName: dryRun ? `zoer-dryrun-${restoreId.slice(0, 8)}` : `${name.slice(0, 50)}-${restoreId.slice(0, 8)}`,
-    phase: "checking", dryRun, fileOffset: 0, startedAt: new Date(now()).toISOString() };
+    phase: "checking", dryRun, users: userMode(input.users), fileOffset: 0, startedAt: new Date(now()).toISOString() };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -175,6 +201,7 @@ async function checkRestoreSource(state, ctx) {
   }
   if (plan.bytes > 2 * 1024 ** 3) fail("Archive exceeds expanded size or compression limits.");
   plan.warnings.push("The database is converted and checked during the restore itself; the dry run does not read it.");
+  plan.users = state.users ?? "local";
   return plan;
 }
 
@@ -304,7 +331,8 @@ export async function stepCopy(state, input, ctx) {
   }
   if (state.phase === "database") {
     if (ctx.timeLeft() < 60_000) return ctx.continue(state, progressOf(state));
-    await execCommand(host, state.targetId, "wordpress.copy.database", { id: state.copyId, prefix: state.prefix, sourceUrl: state.sourceUrl, targetUrl: state.targetUrl, databaseIndex: String(state.dbIndex), databaseSha256: state.dbSha256 });
+    const imported = await execCommand(host, state.targetId, "wordpress.copy.database", { id: state.copyId, prefix: state.prefix, sourceUrl: state.sourceUrl, targetUrl: state.targetUrl, databaseIndex: String(state.dbIndex), databaseSha256: state.dbSha256, users: state.users ?? "local" });
+    state.database = databaseSummary(imported?.summary);
     state.phase = "files";
   }
   if (state.phase === "files") {
@@ -327,17 +355,19 @@ export async function stepCopy(state, input, ctx) {
   }
   const finishedAt = new Date(ctx.now()).toISOString();
   const status = state.dryRun ? "dry-run" : "complete";
+  const copied = state.database && state.database.users.mode !== "local" && state.database.users.copied !== null ? ` with ${state.database.users.copied.toLocaleString("en-US")} source users` : "";
   const records = [historyRecord({ kind: state.kind === "restore" ? "restore" : "local-copy", id: state.copyId, siteId: state.targetId, siteName: state.siteName, ...(state.siteId ? { sourceSiteId: state.siteId } : {}), status, startedAt: state.startedAt, finishedAt,
-    summary: state.dryRun ? `Dry run verified a scratch copy (${state.siteName}); it was moved to the trash.` : `${state.kind === "restore" ? "Backup restored" : "Local copy"} ready at ${state.targetUrl}`, runId: ctx.request.run?.id })];
+    summary: state.dryRun ? `Dry run verified a scratch copy (${state.siteName})${copied}; it was moved to the trash.` : `${state.kind === "restore" ? "Backup restored" : "Local copy"} ready at ${state.targetUrl}${copied}`, runId: ctx.request.run?.id })];
   if (!state.dryRun) {
     records.push({ id: `local-copy:${state.copyId}`, kind: "local-copy", title: state.siteName, data: { v: 1, copyId: state.copyId, kind: state.kind, sourceSiteId: state.siteId ?? `backup:${state.copyId}`, pullId: state.pullId ?? null, setId: state.setId,
-      targetId: state.targetId, targetUrl: state.targetUrl, name: state.siteName, siteName: state.siteName, phase: "complete", ...(state.replaceSiteId ? { replaceSiteId: state.replaceSiteId, backup: state.backup } : {}), ...(state.warnings ? { warnings: state.warnings } : {}),
+      targetId: state.targetId, targetUrl: state.targetUrl, name: state.siteName, siteName: state.siteName, phase: "complete", users: state.users ?? "local", ...(state.database ? { database: state.database } : {}),
+      ...(state.replaceSiteId ? { replaceSiteId: state.replaceSiteId, backup: state.backup } : {}), ...(state.warnings ? { warnings: state.warnings } : {}),
       createdAt: state.startedAt, finishedAt, engine: "plugin" } });
     if (state.siteId) records.push({ id: `site-link:${state.targetId}`, kind: "site-link", title: state.siteName, data: { v: 1, targetSiteId: state.targetId, sourceSiteId: state.siteId, copyId: state.copyId, createdAt: finishedAt } });
   }
   await commitRecords(host, records);
   return ctx.done({ ...(state.kind === "restore" ? { restoreId: state.copyId } : { copyId: state.copyId }), status, targetId: state.targetId, targetUrl: state.dryRun ? null : state.targetUrl, siteName: state.siteName,
-    ...(state.warnings ? { warnings: state.warnings } : {}), ...(state.metadata ? { metadata: state.metadata } : {}),
+    ...(state.warnings ? { warnings: state.warnings } : {}), ...(state.metadata ? { metadata: state.metadata } : {}), ...(state.database ? { database: state.database } : {}),
     summary: records[0].data.summary }, { phase: "done" });
 }
 

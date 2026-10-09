@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Eraser, Loader2, Pause, Play, ShieldCheck, Undo2, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, Eraser, Loader2, Pause, Play, ShieldCheck, Undo2, X } from "lucide-react";
 import { Btn, StatusBadge, useDialogs } from "@zoer/plugin-ui/controls";
 import { cancelRun, controlImport, engineKeys, pauseRun, resumeRun, useEngineRun, useRecentRuns } from "../../../lib/queries/plugin-engine";
 import { completedPushUrl } from "../publishGuidance";
@@ -40,6 +40,76 @@ export function skippedFiles(value: unknown): { count: number; reason: string; f
   return count ? { count, reason: text(raw.reason) ?? "not accepted by Zoer Connect", files } : null;
 }
 
+/** One stage of a local copy or restore: the worker's progress phases (plugin/worker/lib/copy.js PROGRESS_PHASES). */
+export interface RunStage { label: string; phases: string[] }
+
+/** `copy.local` stages; a refresh takes a recovery backup, an existing pull skips the download. */
+export function localCopyStages(input: Record<string, unknown>): RunStage[] {
+  return [
+    ...(input.pullSetId ? [] : [{ label: "Pull the source", phases: ["pulling"] }]),
+    { label: "Check the download", phases: ["checking"] },
+    { label: input.replaceSiteId ? "Start the local copy" : "Create the local site", phases: ["creating site"] },
+    ...(input.replaceSiteId ? [{ label: "Recovery backup", phases: ["recovery backup"] }] : []),
+    { label: "Stage verified files", phases: ["preparing", "staging files"] },
+    { label: copiesUsers(input) ? "Import database and users" : "Import database", phases: ["importing database"] },
+    { label: "Place files", phases: ["placing files"] },
+    { label: "Verify the local site", phases: ["verifying", "archiving dry-run site", "finishing"] },
+  ];
+}
+
+const copiesUsers = (input: Record<string, unknown>) => input.users === "source" || input.users === "exact";
+
+/** `backup.restore-local` stages. */
+export function restoreStages(input: Record<string, unknown>): RunStage[] {
+  return [
+    { label: "Check the backup", phases: ["checking"] },
+    { label: "Create the local site", phases: ["creating site"] },
+    { label: "Stage verified files", phases: ["preparing", "staging files"] },
+    { label: "Convert the backup", phases: ["preparing backup"] },
+    { label: copiesUsers(input) ? "Import database and users" : "Import database", phases: ["importing database"] },
+    { label: "Place files", phases: ["placing files"] },
+    { label: "Verify the local site", phases: ["verifying", "archiving dry-run site", "finishing"] },
+  ];
+}
+
+/** Index of the stage `phase` belongs to (a nested pull reports "pulling: …"), or -1. */
+export function stageIndex(stages: RunStage[], phase: string | null | undefined) {
+  const base = (phase ?? "").split(":")[0]!.trim();
+  return stages.findIndex(stage => stage.phases.includes(base));
+}
+
+/** WP Migrate-style checklist of the run's stages: done, current, still to come. */
+export function StageList({ stages, current, succeeded }: { stages: RunStage[]; current: number; succeeded: boolean }) {
+  return <ol className="min-w-0 space-y-1 text-xs" aria-label="Stages">
+    {stages.map((stage, index) => {
+      const done = succeeded || (current >= 0 && index < current);
+      const active = !succeeded && index === current;
+      return <li key={stage.label} className={`flex min-h-6 items-center gap-1.5 ${done ? "text-text-secondary" : active ? "font-medium text-text-primary" : "text-text-muted"}`} aria-current={active ? "step" : undefined}>
+        {done ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-status-success" aria-hidden="true" /> : active ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" /> : <Circle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+        <span className="min-w-0 break-words">{stage.label}</span>{done && <span className="sr-only"> (done)</span>}
+      </li>;
+    })}
+  </ol>;
+}
+
+/** The local importer's summary (copy.js databaseSummary) as short facts. */
+export function databaseFacts(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const db = value as Output;
+  const users = db.users && typeof db.users === "object" ? db.users as Output : {};
+  const facts = [num(db.tables) !== null ? `${num(db.tables)!.toLocaleString()} tables` : null, num(db.rows) !== null ? `${num(db.rows)!.toLocaleString()} rows` : null,
+    num(db.replacements) ? `${num(db.replacements)!.toLocaleString()} URL replacements` : null];
+  if (users.mode === "source") facts.push(`${(num(users.copied) ?? 0).toLocaleString()} users and ${(num(users.meta) ?? 0).toLocaleString()} user meta rows copied`);
+  else if (users.mode === "exact") facts.push(`${(num(users.copied) ?? 0).toLocaleString()} users and ${(num(users.meta) ?? 0).toLocaleString()} user meta rows copied exactly, no extra administrator`);
+  else if (users.mode === "local") facts.push("local accounts kept");
+  // Collations the local server lacks (MySQL 8 `_0900_` ones on MariaDB) and what the import used instead.
+  for (const c of Array.isArray(db.collations) ? db.collations as Output[] : []) {
+    const from = text(c?.from), to = text(c?.to), tables = num(c?.tables);
+    if (from && to) facts.push(`collation ${from} → ${to}${tables !== null ? ` in ${tables.toLocaleString()} ${tables === 1 ? "table" : "tables"}` : ""}`);
+  }
+  return facts.filter((fact): fact is string => !!fact);
+}
+
 /** Dry-run plans and results the transfer workers return. */
 function RunOutput({ output }: { output: Output }) {
   const plan = output.plan && typeof output.plan === "object" ? output.plan as Output : null;
@@ -49,6 +119,8 @@ function RunOutput({ output }: { output: Output }) {
   const transfer = output.transfer && typeof output.transfer === "object" ? output.transfer as Output : null;
   const targetUrl = text(output.targetUrl), targetId = text(output.targetId);
   const skipped = skippedFiles(output.skipped) ?? skippedFiles(plan?.skipped);
+  const database = databaseFacts(output.database);
+  const users = output.database && typeof output.database === "object" && (output.database as Output).users && typeof (output.database as Output).users === "object" ? (output.database as Output).users as Output : null;
   const facts = [
     num(output.fileCount) !== null && `${num(output.fileCount)!.toLocaleString()} files`,
     num(output.totalBytes) ? formatTransferBytes(num(output.totalBytes)!) : null,
@@ -59,6 +131,10 @@ function RunOutput({ output }: { output: Output }) {
   return <div className="min-w-0 space-y-2 text-xs">
     {text(output.summary) && <p className="break-words text-sm text-text-primary">{text(output.summary)}</p>}
     {facts.length > 0 && <p className="tabular-nums text-text-secondary">{facts.join(" · ")}</p>}
+    {database.length > 0 && <p className="break-words tabular-nums text-text-secondary"><span className="text-text-primary">Database:</span> {database.join(" · ")}</p>}
+    {users?.loginChanged === true && <p className="text-text-secondary">The source already has an account with the local administrator's login, so the local administrator was added as zoer-local-admin.</p>}
+    {plan?.users === "source" && <p className="text-text-secondary">Users and user metadata will be copied from the backup, with the local administrator kept.</p>}
+    {plan?.users === "exact" && <p className="text-text-secondary">The backup's users and user metadata will replace the local accounts exactly, with no extra administrator.</p>}
     {plan && !components.length && <dl className="grid grid-cols-1 gap-x-4 gap-y-1 rounded-md border border-border-muted p-2 sm:grid-cols-2" aria-label="Dry-run plan">
       {text(plan.target) && <div className="min-w-0"><dt className="text-text-secondary">Destination</dt><dd className="break-all">{text(plan.target)}</dd></div>}
       {num(plan.files) !== null && <div><dt className="text-text-secondary">Files</dt><dd className="tabular-nums">{num(plan.files)!.toLocaleString()}</dd></div>}
@@ -92,7 +168,7 @@ function RunOutput({ output }: { output: Output }) {
  * `run.pause`/`run.resume`/`cancel`, and the import decisions (Approve, Finish, Roll back, Clean up)
  * through `transfer.push.control` followed by `run.resume` so the push continues.
  */
-export default function PluginRunCard({ recent, title, kind = "other", siteId }: { recent: RecentRun; title: string; kind?: "push" | "replace" | "other"; siteId?: string }) {
+export default function PluginRunCard({ recent, title, kind = "other", siteId, stages }: { recent: RecentRun; title: string; kind?: "push" | "replace" | "other"; siteId?: string; stages?: RunStage[] }) {
   const dialogs = useDialogs();
   const client = useQueryClient();
   const detail = useEngineRun<Output>(recent.runId);
@@ -149,6 +225,7 @@ export default function PluginRunCard({ recent, title, kind = "other", siteId }:
       <span role="status"><StatusBadge tone={view.tone} icon={icon}>{pending ? `${view.label} · updating…` : view.label}</StatusBadge></span>
     </div>
 
+    {stages && !(view.terminal && run.status !== "succeeded") && !(run.status === "succeeded" && output?.status === "dry-run" && output?.plan) && <StageList stages={stages} current={stageIndex(stages, run.resumable?.progress?.phase)} succeeded={run.status === "succeeded"} />}
     {!view.terminal && view.progress && <div className="min-w-0 space-y-1">
       <p className="text-xs text-text-secondary">Stage: <span className="text-text-primary">{view.progress.label}</span></p>
       {view.progress.percent !== null && <progress aria-label={`${title} progress`} className="h-2 w-full accent-indigo-500" value={view.progress.percent} max={100} />}

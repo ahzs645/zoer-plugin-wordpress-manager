@@ -4,7 +4,8 @@ import { Btn, CheckboxField, Select, controlClass, fieldLabelClass, radioClass, 
 import { engineKeys, startEngineAction, useCatalogKind, useRecentRuns } from "../../../lib/queries/plugin-engine";
 import { resourceQueries } from "../../../lib/queries/resources";
 import { wordpressQueries } from "../../../lib/queries/wordpress";
-import PluginRunCard from "./PluginRunCard";
+import LocalImportPanels, { type LocalUserMode } from "./LocalImportPanels";
+import PluginRunCard, { localCopyStages } from "./PluginRunCard";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
 import { existingCopies, parseLocalCopyRecord, refreshCandidates, type LocalCopyRecord, type PullRecord } from "./records";
 
@@ -16,7 +17,7 @@ const COPY_ACTIONS = [ENGINE_ACTIONS.copy] as const;
  * they cannot refresh an existing copy. Earlier copies (`local-copy:` records, including copies the
  * legacy host engine made, migrated by Zoer) are listed and can be refreshed.
  */
-export default function PluginLocalCopy({ siteId, siteName, pull = null, onClearPull }: { siteId: string; siteName: string; pull?: PullRecord | null; onClearPull?: () => void }) {
+export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pull = null, onClearPull }: { siteId: string; siteName: string; sourceUrl?: string | null; pull?: PullRecord | null; onClearPull?: () => void }) {
   const client = useQueryClient();
   const connectors = useQuery({ ...resourceQueries.connectors(), refetchInterval: 10_000 });
   const ddev = connectors.data?.find(c => c.id === "ddev");
@@ -33,6 +34,7 @@ export default function PluginLocalCopy({ siteId, siteName, pull = null, onClear
   const [name, setName] = useState(siteName ? `${siteName} local`.slice(0, 60) : "");
   const [replaceSiteId, setReplaceSiteId] = useState("");
   const [dryRun, setDryRun] = useState(false);
+  const [users, setUsers] = useState<LocalUserMode>("local");
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const finished = useRef(new Set<string>());
@@ -60,6 +62,7 @@ export default function PluginLocalCopy({ siteId, siteName, pull = null, onClear
         ...(refresh ? { replaceSiteId } : { name: name.trim() }),
         ...(pull?.setId ? { pullSetId: pull.setId } : {}),
         ...(dryRun && !refresh ? { dryRun: true } : {}),
+        ...(users !== "local" ? { users } : {}),
       });
       await client.invalidateQueries({ queryKey: [...engineKeys.all(), "recent"] });
     } catch (caught) { setError(engineErrorMessage(caught, "The local copy could not start.")); }
@@ -91,13 +94,16 @@ export default function PluginLocalCopy({ siteId, siteName, pull = null, onClear
           </Select>
         </label>
         : <label className="block"><span className={fieldLabelClass}>Local site name</span><input className={controlClass("default", "text-base sm:text-[14px]")} value={name} maxLength={60} onChange={event => setName(event.target.value)} required disabled={starting || !available} /></label>}
+      <LocalImportPanels id={siteId} kind="copy" users={users} onUsers={setUsers} sourceUrl={sourceUrl} disabled={starting || !available} />
+      {refresh && <p className="text-xs text-text-secondary">{users === "source" ? "The refresh replaces the copy's accounts with the source's; its local administrator is kept and marked so later refreshes find it."
+        : users === "exact" ? "The refresh replaces the copy's accounts with exactly the source's, including its local administrator." : "The copy keeps the accounts it has now."}</p>}
       <CheckboxField label="Dry run" description={refresh ? "Not available when refreshing an existing copy." : "Builds a scratch site named zoer-dryrun-…, verifies the import and archives the scratch site. Your sites are unchanged."} checked={dryRun && !refresh} onChange={setDryRun} disabled={refresh || starting} />
       {running && <p className="text-xs text-text-secondary">Wait for the current copy of this site to finish before starting another.</p>}
       <Btn type="submit" variant="primary" className="w-full sm:w-auto" disabled={!canStart} loading={starting}>{dryRun && !refresh ? "Start dry run" : refresh ? "Refresh local copy" : "Create local copy"}</Btn>
     </form>
     {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
     {runs.error && <p role="alert" className="text-sm text-status-error">Could not load local copies: {engineErrorMessage(runs.error)}</p>}
-    {siteRuns.length > 0 && <div className="min-w-0 space-y-2">{siteRuns.map(run => <PluginRunCard key={run.runId} recent={run} title={runInput(run).replaceSiteId ? "Refresh local copy" : "Local copy"} />)}</div>}
+    {siteRuns.length > 0 && <div className="min-w-0 space-y-2">{siteRuns.map(run => <PluginRunCard key={run.runId} recent={run} title={runInput(run).replaceSiteId ? "Refresh local copy" : "Local copy"} stages={localCopyStages(runInput(run))} />)}</div>}
     {existing.length > 0 && <div className="min-w-0 space-y-2">
       <h4 className="text-sm font-semibold text-text-heading">Local copies of this site</h4>
       <ul className="min-w-0 space-y-1.5">{existing.map(copy => {

@@ -57,6 +57,8 @@ export interface FakeSiteOptions {
   singleExport?: boolean;
   batchLimits?: Record<string, number>;
   version?: string;
+  /** WordPress siteurl when it differs from home (Zoer Connect 0.5.3 reports it as `source.originalUrls`). */
+  siteUrl?: string;
 }
 
 const json = (status: number, value: unknown, headers: Record<string, string> = {}): FakeResponse => ({ status, headers: { "content-type": "application/json", ...headers }, body: Buffer.from(JSON.stringify(value)) });
@@ -206,7 +208,7 @@ export class FakeZoerConnect {
     const ready = job.status === "ready";
     return { id: job.id, status: job.status, phase: ready ? "complete" : "database", fileCount: job.files.length,
       ...(ready && !job.paged ? { files: job.files.map(({ data: _d, ...f }) => f) } : {}),
-      ...(ready ? { source: { url: this.options.origin, prefix: "wp_", originalUrls: [this.options.origin], abspath: "/var/www/html", tables: ["options", "posts"] }, skipped: [{ path: "wp-content/cache/x", reason: "cache" }], skippedCount: 1 } : {}) };
+      ...(ready ? { source: { url: this.options.origin, prefix: "wp_", originalUrls: this.options.siteUrl ? [this.options.siteUrl] : [], abspath: "/var/www/html", tables: ["options", "posts"] }, skipped: [{ path: "wp-content/cache/x", reason: "cache" }], skippedCount: 1 } : {}) };
   }
   private stepExport(id: string) {
     const job = this.exports.get(id); if (!job) return json(404, {});

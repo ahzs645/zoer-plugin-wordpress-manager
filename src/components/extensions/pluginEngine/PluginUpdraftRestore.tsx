@@ -6,7 +6,8 @@ import { backupComponents, type BackupComponent, type BackupFormat } from "../ba
 import { engineKeys, filesets, startEngineAction, useRecentRuns } from "../../../lib/queries/plugin-engine";
 import { wordpressQueries } from "../../../lib/queries/wordpress";
 import { sha256 } from "../updraftFiles";
-import PluginRunCard from "./PluginRunCard";
+import LocalImportPanels, { type LocalUserMode } from "./LocalImportPanels";
+import PluginRunCard, { restoreStages } from "./PluginRunCard";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
 import { planUpload, plannedBytes, sameManifest } from "./uploadPlan";
 
@@ -36,6 +37,7 @@ export default function PluginUpdraftRestore({ files, complete, name, onBusyChan
   const components = backupComponents(format);
   const client = useQueryClient();
   const [dryRun, setDryRun] = useState(true);
+  const [users, setUsers] = useState<LocalUserMode>("local");
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState("");
   const [progress, setProgress] = useState(0);
@@ -102,7 +104,7 @@ export default function PluginUpdraftRestore({ files, complete, name, onBusyChan
     try {
       const uploadSetId = setId ?? await upload();
       setStage(real ? "Starting the restore…" : "Starting the dry run…");
-      await startEngineAction(ENGINE_ACTIONS.restore, { uploadSetId, restoreId: newHexId(), name: restoreName.slice(0, 100), ...(real ? {} : { dryRun: true }) });
+      await startEngineAction(ENGINE_ACTIONS.restore, { uploadSetId, restoreId: newHexId(), name: restoreName.slice(0, 100), ...(real ? {} : { dryRun: true }), ...(users !== "local" ? { users } : {}) });
       setStage(real ? "Restore started. It continues on the Zoer server if you close this dialog." : "Dry run started.");
       await client.invalidateQueries({ queryKey: [...engineKeys.all(), "recent"] });
     } catch (caught) {
@@ -113,6 +115,7 @@ export default function PluginUpdraftRestore({ files, complete, name, onBusyChan
   const lastDry = related.find(run => runInput(run).dryRun === true && run.status === "succeeded" && runInput(run).uploadSetId === setId);
   return <div className="mt-3 min-w-0 space-y-3 rounded-lg border border-status-warning/40 p-3">
     <p className="text-sm text-text-secondary">WordPress Manager uploads the backup files to the Zoer server as one verified set, then restores them into a new local DDEV site. Uploads resume after a reload when you choose the same files again.</p>
+    <LocalImportPanels id={`restore-${format}`} kind={format} users={users} onUsers={setUsers} disabled={busy} />
     <CheckboxField label="Dry run" description="Inspects the archive and plans the restore without creating a site. The database and every extracted file are checked during the actual restore." checked={dryRun} onChange={setDryRun} disabled={busy} />
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
       <Btn variant="primary" className="w-full sm:w-auto" loading={busy} disabled={!complete || busy || active || restored} onClick={() => void start(!dryRun)}>{setId ? (dryRun ? "Run another dry run" : "Restore into a new DDEV site") : dryRun ? "Upload and check (dry run)" : "Upload and restore"}</Btn>
@@ -122,6 +125,6 @@ export default function PluginUpdraftRestore({ files, complete, name, onBusyChan
     {(busy || progress > 0) && stage && <div><div className="flex justify-between gap-2 text-[12px] text-text-secondary"><span className="min-w-0 break-words">{stage}</span><span className="tabular-nums">{progress}%</span></div><progress aria-label="Backup upload progress" className="mt-1 h-1.5 w-full accent-indigo-500" value={progress} max={100} /></div>}
     {error && <div role="alert" className="flex gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[12px] text-status-error"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{error}</div>}
     {runs.error && <p role="alert" className="text-sm text-status-error">Could not load restores: {engineErrorMessage(runs.error)}</p>}
-    {related.map(run => <PluginRunCard key={run.runId} recent={run} title={runInput(run).dryRun === true ? "Restore dry run" : "Restore"} />)}
+    {related.map(run => <PluginRunCard key={run.runId} recent={run} title={runInput(run).dryRun === true ? "Restore dry run" : "Restore"} stages={runInput(run).dryRun === true ? undefined : restoreStages(runInput(run))} />)}
   </div>;
 }

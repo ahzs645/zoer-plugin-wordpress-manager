@@ -567,6 +567,33 @@ describe("copy.local", () => {
     expect(w.catalog.records.get(`local-copy:${COPY}`)!.data.phase).toBe("complete");
   });
 
+  test("users: copies the source's accounts only when asked, and records the import summary", async () => {
+    const { w } = world();
+    const copied = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop", users: "source" });
+    expect(copied.status).toBe("succeeded");
+    expect(w.ddev.commands.find(c => c.command === "wordpress.copy.database")!.plan.users).toBe("source");
+    const output = (copied as any).output;
+    expect(output.database).toMatchObject({ tables: 12, users: { mode: "source", copied: 114, meta: 3403 } });
+    // Collation conversions are kept as reported; malformed names are dropped.
+    expect(output.database.collations).toEqual([{ from: "utf8mb4_0900_ai_ci", to: "utf8mb4_unicode_520_ci", tables: 12 }]);
+    expect(output.summary).toContain("with 114 source users");
+    expect(w.catalog.records.get(`local-copy:${COPY}`)!.data).toMatchObject({ users: "source", database: { users: { copied: 114 } } });
+
+    const plain = world();
+    await plain.w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    expect(plain.w.ddev.commands.find(c => c.command === "wordpress.copy.database")!.plan.users).toBe("local");
+    expect(plain.w.catalog.records.get(`local-copy:${COPY}`)!.data).toMatchObject({ users: "local", database: { users: { mode: "local" } } });
+
+    const exact = world();
+    const replaced = await exact.w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop", users: "exact" });
+    expect(exact.w.ddev.commands.find(c => c.command === "wordpress.copy.database")!.plan.users).toBe("exact");
+    expect((replaced as any).output.database.users).toMatchObject({ mode: "exact", copied: 114 });
+    expect((replaced as any).output.summary).toContain("with 114 source users");
+
+    const bad = await world().w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop", users: "everyone" });
+    expect((bad as any).error.message).toBe("Choose whether to keep the local accounts or copy the source's users.");
+  });
+
   test("refresh takes a recovery backup first and reuses the copy", async () => {
     const { w } = world();
     const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
@@ -740,6 +767,17 @@ describe("backup.restore-local", () => {
     expect(site.files.get("wp-content/themes/t/style.css")!.toString()).toBe("x");
     expect(w.ddev.commands.map(c => c.command)).toEqual(["wordpress.copy.prepare", "wordpress.updraft.prepare", "wordpress.copy.database", "wordpress.copy.files", "wordpress.copy.finish"]);
     expect(w.ddev.commands.at(-1)!.plan.updateDb).toBe(true);
+    expect(w.ddev.commands.find(c => c.command === "wordpress.copy.database")!.plan.users).toBe("local");
+  });
+  test("a restore can copy the backup's users; the dry run plan says so", async () => {
+    const w = new FakeWorld();
+    const setId = upload(w);
+    const dry = await w.run("backup.restore-local", { uploadSetId: setId, restoreId: RESTORE, name: "Restored", dryRun: true, users: "source" });
+    expect((dry as any).output.plan.users).toBe("source");
+    const result = await w.run("backup.restore-local", { uploadSetId: setId, restoreId: "c".repeat(32), name: "Restored", users: "source" });
+    expect(result.status).toBe("succeeded");
+    expect(w.ddev.commands.find(c => c.command === "wordpress.copy.database")!.plan.users).toBe("source");
+    expect((result as any).output.database.users).toMatchObject({ mode: "source", copied: 114 });
   });
   test("an incomplete set is refused with the host engine's message", async () => {
     const w = new FakeWorld();

@@ -85,3 +85,20 @@ function zoer_write(string $path, string $data, int $mode = 0600): void {
 function zoer_copy_guard_source(string $pending): string {
     return "<?php if (is_file(" . var_export($pending, true) . ")) { if (PHP_SAPI !== 'cli') { http_response_code(503); exit('Local copy is being prepared.'); } } add_filter('pre_wp_mail', '__return_false'); add_filter('pre_http_request', static fn()=>new WP_Error('local_copy','Outbound requests are disabled in this local copy'));";
 }
+
+/**
+ * Drops the zc_b_* tables an import's cutover set aside (named in its tables.json journal).
+ * Best effort: returns the number dropped, or null when the journal or WP-CLI is unavailable.
+ */
+function zoer_drop_replaced_tables(string $stage): ?int {
+    $journal = json_decode((string)@file_get_contents($stage . '/tables.json'), true);
+    if (!is_array($journal)) return null;
+    $names = [];
+    foreach ($journal as $table) if (is_array($table) && ($table['hadOld'] ?? false) === true && is_string($table['backup'] ?? null) && preg_match('/^zc_b_[a-f0-9]{16}$/D', $table['backup'])) $names[] = $table['backup'];
+    if (!$names) return 0;
+    $script = $stage . '/drop-replaced.php';
+    zoer_write($script, "<?php global \$wpdb; foreach (" . var_export($names, true) . " as \$t) if (\$wpdb->query('DROP TABLE IF EXISTS `' . \$t . '`') === false) exit(1); echo 'DROPPED';", 0600);
+    try { $out = zoer_wp(['eval-file', $script], 'Could not drop the replaced tables.', 300); }
+    catch (ZoerCommandError $error) { return null; }
+    return str_contains($out, 'DROPPED') ? count($names) : null;
+}

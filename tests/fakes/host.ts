@@ -179,7 +179,10 @@ export class FakeDdev {
         const db = stage?.get(String(plan.databaseIndex));
         if (!db || sha(db) !== plan.databaseSha256) fail("Local copy operation failed.");
         s.database = Buffer.from(db!.toString("utf8").replaceAll(plan.sourceUrl, plan.targetUrl));
-        return tail({ ok: true, database: "ready" });
+        // The importer's summary (import-copy.php); users are copied only when the plan asks.
+        const copied = plan.users === "source" || plan.users === "exact";
+        return tail({ ok: true, database: "ready", summary: { tables: 12, rows: 340, replacements: 5, users: { mode: copied ? plan.users : "local", copied: copied ? 114 : 0, meta: copied ? 3403 : 0, droppedMeta: 0, roles: copied ? "source" : "local", loginChanged: false }, localAdministrator: copied ? 115 : 1,
+          collations: [{ from: "utf8mb4_0900_ai_ci", to: "utf8mb4_unicode_520_ci", tables: 12 }, { from: "x'; DROP", to: "utf8mb4_bin", tables: 1 }] } });
       }
       case "wordpress.copy.files": {
         const files = plan.fromPrepared ? JSON.parse(stage!.get("prepared.json")!.toString()).files.filter((f: any) => f.path !== "database.sql").slice(plan.offset, plan.offset + plan.limit) : plan.files;

@@ -9,7 +9,7 @@ final class SerializedReplacement {
   if($parser->at!==strlen($input))throw new \RuntimeException('Trailing serialized data.');return $out;
  }
  private function take(string $literal):void{if(substr($this->input,$this->at,strlen($literal))!==$literal)throw new \RuntimeException('Malformed serialized value.');$this->at+=strlen($literal);}
- private function number():int{$end=strpos($this->input,':',$this->at);if($end===false||$end-$this->at>7)throw new \RuntimeException('Invalid serialized count.');$raw=substr($this->input,$this->at,$end-$this->at);if(!preg_match('/^(?:0|[1-9][0-9]*)$/D',$raw)||(int)$raw>1048576)throw new \RuntimeException('Invalid serialized count.');$this->at=$end+1;return (int)$raw;}
+ private function number():int{$end=strpos($this->input,':',$this->at);if($end===false||$end-$this->at>8)throw new \RuntimeException('Invalid serialized count.');$raw=substr($this->input,$this->at,$end-$this->at);if(!preg_match('/^(?:0|[1-9][0-9]*)$/D',$raw)||(int)$raw>Replacement::MAX_VALUE_BYTES)throw new \RuntimeException('Invalid serialized count.');$this->at=$end+1;return (int)$raw;}
  private function raw(int $bytes):string{if($this->at+$bytes>strlen($this->input))throw new \RuntimeException('Truncated serialized value.');$out=substr($this->input,$this->at,$bytes);$this->at+=$bytes;return $out;}
  private function value(int $depth,bool $change):string{
   if($depth>30||++$this->nodes>100000)throw new \RuntimeException('Nested value limit exceeded.');
@@ -22,7 +22,7 @@ final class SerializedReplacement {
   $this->take($kind.':');
   if($kind==='s'){
    $length=$this->number();$this->take('"');$payload=$this->raw($length);$this->take('";');
-   $next=$change?($this->replace)($payload,$depth+1):$payload;if(strlen($next)>1048576)throw new \RuntimeException('Replacement output too large.');return 's:'.strlen($next).':"'.$next.'";';
+   $next=$change?($this->replace)($payload,$depth+1):$payload;if(strlen($next)>Replacement::MAX_VALUE_BYTES)throw new \RuntimeException('Replacement output too large.');return 's:'.strlen($next).':"'.$next.'";';
   }
   if(in_array($kind,['O','C','E'],true)){
    $length=$this->number();$this->take('"');$class=$this->raw($length);$this->take('"');
@@ -36,7 +36,7 @@ final class SerializedReplacement {
   for($i=0;$i<$count;$i++){
    if(!in_array($this->input[$this->at]??'',['s','i'],true))throw new \RuntimeException('Invalid serialized key.');
    $out.=$this->value($depth+1,false).$this->value($depth+1,$change);
-   if(strlen($out)>1048576)throw new \RuntimeException('Replacement output too large.');
+   if(strlen($out)>Replacement::MAX_VALUE_BYTES)throw new \RuntimeException('Replacement output too large.');
   }
   $this->take('}');return $out.'}';
  }

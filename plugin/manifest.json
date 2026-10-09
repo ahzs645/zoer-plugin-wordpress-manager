@@ -2345,6 +2345,15 @@
             },
             "dryRun": {
               "type": "boolean"
+            },
+            "users": {
+              "type": "string",
+              "enum": [
+                "local",
+                "source",
+                "exact"
+              ],
+              "description": "local keeps the copy's own accounts (default); source copies the source's users and user meta with their IDs, keeping the local administrator; exact copies them with no extra administrator, like WP Migrate."
             }
           }
         },
@@ -2424,6 +2433,15 @@
             },
             "dryRun": {
               "type": "boolean"
+            },
+            "users": {
+              "type": "string",
+              "enum": [
+                "local",
+                "source",
+                "exact"
+              ],
+              "description": "local keeps the copy's own accounts (default); source copies the source's users and user meta with their IDs, keeping the local administrator; exact copies them with no extra administrator, like WP Migrate."
             }
           }
         },
