@@ -38,7 +38,9 @@ The PHP plugins installed *into* WordPress sites moved here from the Zoer reposi
 - `wordpress-plugins/zoer-connect` is a Git submodule pinned to the public [Zoer Connect repository](https://github.com/ahzs645/zoer-connect). Run `git submodule update --init wordpress-plugins/zoer-connect` after cloning. Connector changes, tests (`make test`), builds (`make build`), release tags and the update feed belong in that repository; commit here only to move the pin. `branch = main` allows an explicit `git submodule update --remote`.
 - `wordpress-plugins/zoer-content-modules` is the standalone Content Modules plugin. Build and test it from its folder as its README describes (`php tests/package.php`, `node tests/upload.cjs`, `python3 build.py`, which writes `dist/zoer-content-modules-<version>.zip` plus a SHA-256 sidecar).
 
-Zoer Connect **0.5.2** migrates WordPress update checks and downloads to the public `zoer-connect` GitHub Releases. Its final compatibility bridge remains in `zoer-connect-releases` for older installations; future connectors and release jobs use the source repository directly. The submodule pin tracks the qualified bridge source.
+Zoer Connect **0.5.2** migrates WordPress update checks and downloads to the public `zoer-connect` GitHub Releases. Its final compatibility bridge remains in `zoer-connect-releases` for older installations; future connectors and release jobs use the source repository directly.
+
+The submodule pin tracks Zoer Connect **0.5.3**. It adds compact import responses, reports the source `siteurl` in `originalUrls` for subdirectory installs, and no longer stages a source-prefixed roles option as an orphan. 0.5.3 was released at the owner's direction without the live hosting/updater qualification that 0.5.1 and 0.5.2 received (see its `releases/0.5.3.md`).
 
 The Zoer Connect operating guide and the historical handoff are in [`docs/zoer-connect-operations.md`](docs/zoer-connect-operations.md) and [`docs/zoer-connect-handoff.md`](docs/zoer-connect-handoff.md). Agents editing an existing Zoer-managed DDEV site from outside Zoer use the [site-edit skill](.agents/skills/zoer-wordpress-site-edit/SKILL.md).
 
