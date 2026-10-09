@@ -40,7 +40,7 @@ The PHP plugins installed *into* WordPress sites moved here from the Zoer reposi
 
 Zoer Connect **0.5.2** migrates WordPress update checks and downloads to the public `zoer-connect` GitHub Releases. Its final compatibility bridge remains in `zoer-connect-releases` for older installations; future connectors and release jobs use the source repository directly.
 
-The submodule pin tracks Zoer Connect **0.5.3**. It adds compact import responses, reports the source `siteurl` in `originalUrls` for subdirectory installs, and no longer stages a source-prefixed roles option as an orphan. 0.5.3 was released at the owner's direction without the live hosting/updater qualification that 0.5.1 and 0.5.2 received (see its `releases/0.5.3.md`).
+The submodule pin tracks Zoer Connect **0.5.4 development** source: its request-protection MU file no longer breaks copies of a site made outside Zoer or the removal of the plugin folder (see its `releases/0.5.4.md`). The published release is **0.5.3**, which adds compact import responses, reports the source `siteurl` in `originalUrls` for subdirectory installs, and no longer stages a source-prefixed roles option as an orphan; it was released at the owner's direction without the live hosting/updater qualification that 0.5.1 and 0.5.2 received.
 
 The Zoer Connect operating guide and the historical handoff are in [`docs/zoer-connect-operations.md`](docs/zoer-connect-operations.md) and [`docs/zoer-connect-handoff.md`](docs/zoer-connect-handoff.md). Agents editing an existing Zoer-managed DDEV site from outside Zoer use the [site-edit skill](.agents/skills/zoer-wordpress-site-edit/SKILL.md).
 

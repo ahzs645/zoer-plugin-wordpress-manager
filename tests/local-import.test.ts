@@ -114,6 +114,7 @@ function source(prefix: string, schemas = SCHEMAS) {
       { option_id: 5, option_name: "active_plugins", option_value: 'a:1:{i:0;s:9:"clerk.php";}', autoload: "yes" },
       { option_id: 6, option_name: "widget_links", option_value: WIDGET, autoload: "yes" },
       { option_id: 7, option_name: "_transient_cache", option_value: "stale", autoload: "no" },
+      { option_id: 8, option_name: "zoer_connect_storage_dir", option_value: "/home/u921325972/.zoer-connect", autoload: "no" },
     ],
     posts: [
       { ID: 1, post_author: 2, post_content: 'Visit https://example.com/page, http://example.com, //example.com/i.png and {"u":"https:\\/\\/example.com\\/x"}', guid: "https://example.com/?p=1" },
@@ -182,6 +183,7 @@ describe("import-copy.php", () => {
     expect(option("blog_public")).toBe("0");
     expect(option("active_plugins")).toBe("a:0:{}");
     expect(option("_transient_cache")).toBeNull();
+    expect(option("zoer_connect_storage_dir")).toBeNull();
     expect(option("widget_links")).toBe(`a:1:{s:3:"url";${ser(`${LOCAL_URL}/a/b`)}}`);
     const post = db.query("SELECT post_content,guid FROM wp_posts WHERE ID=1").get() as { post_content: string; guid: string };
     expect(post.post_content).toBe(`Visit ${LOCAL_URL}/page, ${LOCAL_URL}, //example.com.ddev.site/i.png and {"u":"https:\\/\\/example.com.ddev.site\\/x"}`);

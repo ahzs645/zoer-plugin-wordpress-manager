@@ -71,7 +71,8 @@ $adminMeta=$keepLocalAdmin?$wpdb->get_results($wpdb->prepare("SELECT meta_key,me
 if($keepLocalAdmin&&!$adminUser)throw new RuntimeException('Local administrator missing.');
 $rules=[['mode'=>'map','pairs'=>Rules::urlPairs($plan['sourceUrl'],$plan['targetUrl'])]];
 // Source rows never imported; the local values of $keep are copied in below.
-$keep=['home','siteurl','admin_email','new_admin_email','cron','upload_path','upload_url_path','zoer_connect_connection','zoer_connect_profiles','active_plugins'];
+// Zoer Connect's storage path, quota and pending markers describe the source's server, not this copy.
+$keep=['home','siteurl','admin_email','new_admin_email','cron','upload_path','upload_url_path','zoer_connect_connection','zoer_connect_profiles','zoer_connect_storage_dir','zoer_connect_transfer_quota_bytes','zoer_connect_rewrite_flush_pending','zoer_connect_cache_purge_pending','active_plugins'];
 $skip=[...$keep,'blog_public'];
 $sourceRoles=$prefix.'user_roles';$localRoles=$wpdb->prefix.'user_roles';$copiedRoles=false;
 $cursor=\ZoerConnect\SnapshotStream::initial();$rows=0;$replaced=0;$userRows=0;$metaRows=0;$droppedMeta=0;
