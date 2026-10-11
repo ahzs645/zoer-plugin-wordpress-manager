@@ -2,7 +2,9 @@
 
 Independent source and releases for the `wordpress-manager` native plugin. This repository owns its interface and isolated workers. Zoer provides reviewed host services, shared controls and provider credential storage. The first extracted release is **0.5.0**; **0.5.1** adds the shared public type snapshot and reliable source resolution, preserving the existing plugin ID and site/account/backup/transfer state.
 
-## Repository plugin development (0.10.0)
+## Repository plugin development (0.10.1)
+
+Stable **0.10.1** publishes the repository development workflow as a normal GitHub Release. It upgrades both earlier stable installations and `0.10.1-dev` builds. See [release notes and installation](docs/releases/0.10.1.md).
 
 Clone/import any plugin source through Zoer's Repos page. Open **WordPress → Plugin development**, choose the repository, then **Inspect repository and prepare build** for a root plugin. Inspection reads its PHP header, manifest, nested npm packages, `.nvmrc` and package-manager declarations. It proposes a build and a `dist/<slug>` install folder; enabling builds explicitly runs the selected scripts on the attached development computer. The nested npm helper caches dependency installs, uses the declared pinned Node/npm pair when available, builds assets and stages a `.distignore` package. Custom commands/folders support other layouts.
 
