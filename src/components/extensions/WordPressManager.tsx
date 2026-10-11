@@ -4,6 +4,8 @@ import { wordpressKeys, wordpressQueries, activeWordPressDeployment } from "../.
 import { resourceQueries } from "../../lib/queries/resources";
 import { Select as Select } from "@zoer/plugin-ui/controls";
 import HostingerBrowserLogin from "./HostingerBrowserLogin";
+import WordPressRepositoryDevelopment from "./WordPressRepositoryDevelopment";
+import { canDevelopInstalledPlugin, type SiteRepositorySource } from "./repositoryPluginSelection";
 import { useResourceSelection } from "@zoer/plugin-ui/workspace";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -41,7 +43,7 @@ import {
   type WordPressPublishPlan,
   type WordPressSiteDetails,
 } from "../../lib/api";
-import { getApiBase } from "../../lib/api/_http";
+import { getApiBase, json } from "../../lib/api/_http";
 import { isDemoMode } from "@zoer/plugin-ui/workspace";
 import { Btn as Btn } from "@zoer/plugin-ui/controls";
 import { ActionMenu as ActionMenu } from "@zoer/plugin-ui/controls";
@@ -78,11 +80,12 @@ import { consolidateWordPressSites, readSeparatedSiteConnections, writeSeparated
 import { filterWordPressSiteGroups, groupWordPressSites, readSeparatedSitePairs, wordPressSiteCopies, wordPressSiteSource, writeSeparatedSitePairs } from "./wordpressSiteGroups";
 import { databaseKeys } from "../../lib/queries/databases";
 
-type ManagerTab = "overview" | "plugins" | "themes" | "updates" | "security" | "backups" | "deployments" | "history" | "connections";
+type ManagerTab = "development" | "overview" | "plugins" | "themes" | "updates" | "security" | "backups" | "deployments" | "history" | "connections";
 
 const tabs: Array<{ id: ManagerTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "plugins", label: "Plugins" },
+  { id: "development", label: "Plugin development" },
   { id: "themes", label: "Themes" },
   { id: "updates", label: "Updates & logs" },
   { id: "security", label: "Scan & report" },
@@ -138,7 +141,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const [providersOpen, setProvidersOpen] = useState(false);
   const [addSiteOpen, setAddSiteOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
-  const [tab, setTab] = useResourceSelection<ManagerTab>("tab", "overview", ["overview", "plugins", "themes", "updates", "security", "backups", "deployments", "history", "connections"]);
+  const [tab, setTab] = useResourceSelection<ManagerTab>("tab", "overview", ["development", "overview", "plugins", "themes", "updates", "security", "backups", "deployments", "history", "connections"]);
   const [busy, setBusy] = useState<string | null>(null);
   const lifecycleLock = useRef(false);
   const [error, setError] = useState<string | null>(null);
@@ -149,6 +152,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const [editName, setEditName] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [separatedPairs, setSeparatedPairs] = useState(() => readSeparatedSitePairs());
+  const [developingPlugin,setDevelopingPlugin]=useResourceSelection<string|null>("plugin",null);
   const [extensionQuery, setExtensionQuery] = useState("");
   const [extensionSlug, setExtensionSlug] = useState("");
   const [directoryResults, setDirectoryResults] = useState<Array<{ slug: string; name: string; description: string; imageUrl: string | null }>>([]);
@@ -187,7 +191,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const selectedSummary = identity.sites.find(site => site.id === identity.canonicalId(selectedId ?? "") && (siteScope === "all" || isLocalWordPress(site))) ?? null;
   const inspectSelected = Boolean(selectedSummary && (!isLocalWordPress(selectedSummary) || selectedSummary.status === "running"));
   // Logs use saved receipts; opening them does not need to run Site Health or inspect extensions.
-  const inspectDetails = inspectSelected && tab !== "updates" && tab !== "security";
+  const inspectDetails = inspectSelected && tab !== "development" && tab !== "updates" && tab !== "security";
   const detailSection = tab === "history" || tab === "updates" || tab === "security" ? "overview" : tab;
   const detailsQuery = useQuery({ ...wordpressQueries.site(selectedSummary?.id ?? "", detailSection), enabled: inspectDetails });
   const scopedSites = siteScope === "local" ? sites.filter(isLocalWordPress) : sites;
@@ -272,6 +276,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const selectSite = (site: WordPressManagedSite) => {
     if (site.id !== selectedId) setExtensionPlan(null);
     setSelectedId(site.id);
+    setDevelopingPlugin(null);
     setTab("overview");
   };
   const setPairSeparated = (sourceId: string, separated: boolean) => {
@@ -633,7 +638,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     <section className="flex min-h-0 flex-1 flex-col" aria-label="WordPress Sites manager">
       {/* Phones: the site list is a picker with the scope filter beside it. */}
       <div className="flex items-center gap-2 px-3 pt-3 lg:hidden">
-        <label className="min-w-0 flex-1"><span className="sr-only">Site</span><Select searchable aria-label="Select WordPress site" optionDetails={siteOptions(pickerSites, identity.aliases)} value={selectedSummary?.id || ""} onChange={e => { setExtensionPlan(null); setSelectedId(e.target.value); setTab("overview"); }} className={selectClass("compact")}><option value="" disabled>Select a site</option>{pickerSites.map(site => <option key={site.id} value={site.id}>{siteLabel(site)}</option>)}</Select></label>
+        <label className="min-w-0 flex-1"><span className="sr-only">Site</span><Select searchable aria-label="Select WordPress site" optionDetails={siteOptions(pickerSites, identity.aliases)} value={selectedSummary?.id || ""} onChange={e => { setExtensionPlan(null); setDevelopingPlugin(null); setSelectedId(e.target.value); setTab("overview"); }} className={selectClass("compact")}><option value="" disabled>Select a site</option>{pickerSites.map(site => <option key={site.id} value={site.id}>{siteLabel(site)}</option>)}</Select></label>
         {scopeSelect("w-32 shrink-0")}
       </div>
       <WordPressAddSite open={addSiteOpen} onOpenChange={setAddSiteOpen} existingUrls={sites.flatMap(site => [site.url, site.managedUrl, site.provider === "hostinger" && site.domain ? `https://${site.domain}` : null].filter((value): value is string => Boolean(value)))} onAdded={async id => { await load(true, true); setSelectedId(id); setTab("overview"); setNotice("Website connected."); }} />
@@ -731,10 +736,10 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
             {detailError && (isTransferFence(detailError)
               ? <div role="status" className="mb-3 text-sm text-status-warning">{TRANSFER_FENCE_NOTICE} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>
               : <div role="alert" className="mb-3 text-sm text-status-error">{detailError} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>)}
-            {tab === "history" ? <div className="min-w-0 space-y-8"><PluginTransferHistory sites={sites} canonicalId={identity.canonicalId} /></div> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
+            {tab === "development" ? <WordPressRepositoryDevelopment/> : tab === "history" ? <div className="min-w-0 space-y-8"><PluginTransferHistory sites={sites} canonicalId={identity.canonicalId} /></div> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
               <>
                 {tab === "overview" && <OverviewTab site={selected} connectSite={connectSite} details={selectedDetails} loading={detailLoading} onSetup={()=>selected && void openSite(selected,true)} onRestore={openBackupImport} />}
-                {tab === "plugins" && <ExtensionsTab kind="plugin" site={selected} connectSiteId={connectSite?.id} rows={selectedDetails?.plugins || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
+                {tab === "plugins" && <ExtensionsTab developingPlugin={developingPlugin} onDevelop={setDevelopingPlugin} kind="plugin" site={selected} connectSiteId={connectSite?.id} rows={selectedDetails?.plugins || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
                 {tab === "themes" && <ExtensionsTab kind="theme" site={selected} connectSiteId={connectSite?.id} rows={selectedDetails?.themes || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
                 {tab === "updates" && <WordPressUpdates key={selected?.id} site={selected} siteIds={selected ? [selected.id, ...connectionMembers.map(member => member.id)] : []} deployments={deployments} loading={deploymentsQuery.isFetching} error={deploymentsQuery.error?.message || deploymentRecords.error?.message} onRefresh={() => { void deploymentsQuery.refetch(); void deploymentRecords.refetch(); }} onExtensions={setTab} />}
                 {tab === "security" && selected && <WordPressSecurity key={selected.id} site={selected} onStart={() => void changeLifecycle(selected)} />}
@@ -825,6 +830,7 @@ function OverviewTab({ site, connectSite, details, loading, onSetup, onRestore }
   const health = details?.health || [];
   return <div className="space-y-4">
     {site.provider === "ddev" && <WordPressCoreUpdates key={site.id} site={site} />}
+    {site.provider === "ddev" && <a className="inline-flex min-h-11 items-center text-sm text-accent underline" href={`/#/plugins/wordpress-manager?tab=development&site=${encodeURIComponent(site.id)}`}>Develop a repository plugin on this site</a>}
     {site.provider === "hostinger" && <HostingerSiteTools key={site.id} site={site} />}
     {(site.provider === "hostinger" || site.provider === "zoer-connect") && <section className="rounded-lg border border-border-default p-4"><h4 className="text-sm font-medium text-text-heading">Local development copy</h4><p className="my-3 text-sm text-text-secondary">Download this website into a separate local WordPress site for testing and development.</p><WordPressConnect key={connectSite?.id ?? site.id} siteId={connectSite?.id ?? site.id} siteName={site.name} label="Make a local copy" localCopy onSetup={site.provider === "hostinger" ? onSetup : undefined} onRestore={onRestore} /></section>}
     <details><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-sm text-text-secondary">Site details</summary><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -843,20 +849,24 @@ function Info({ label, value }: { label: string; value: string }) {
   return <div className="rounded-md border border-border-muted bg-surface-primary/50 p-3"><div className="text-[12px] text-text-secondary">{label}</div><div className="mt-1 truncate text-[13px] font-medium capitalize text-text-primary">{value}</div></div>;
 }
 
-function ExtensionsTab({ kind, site, connectSiteId, rows, query, setQuery, slug, setSlug, directoryResults, busy, error, onSearch, onPlan }: { kind: WordPressExtensionKind; site: WordPressManagedSite | null; connectSiteId?: string; rows: WordPressInstalledExtension[]; query: string; setQuery: (value: string) => void; slug: string; setSlug: (value: string) => void; directoryResults: Array<{ slug: string; name: string; description: string; imageUrl: string | null }>; busy: string | null; error: string | null; onSearch: (kind: WordPressExtensionKind) => void; onPlan: (kind: WordPressExtensionKind, operation: WordPressExtensionOperation, slugs: string[]) => void }) {
+function ExtensionsTab({ developingPlugin=null, onDevelop, kind, site, connectSiteId, rows, query, setQuery, slug, setSlug, directoryResults, busy, error, onSearch, onPlan }: { developingPlugin?:string|null; onDevelop?:(slug:string|null)=>void; kind: WordPressExtensionKind; site: WordPressManagedSite | null; connectSiteId?: string; rows: WordPressInstalledExtension[]; query: string; setQuery: (value: string) => void; slug: string; setSlug: (value: string) => void; directoryResults: Array<{ slug: string; name: string; description: string; imageUrl: string | null }>; busy: string | null; error: string | null; onSearch: (kind: WordPressExtensionKind) => void; onPlan: (kind: WordPressExtensionKind, operation: WordPressExtensionOperation, slugs: string[]) => void }) {
   const [addOpen, setAddOpen] = useState(false);
   const [searched, setSearched] = useState(false);
+  const sources=useQuery({queryKey:[getApiBase(),"site-repository-development",site?.id],queryFn:()=>json<{repositories:SiteRepositorySource[]}>(`/wordpress-manager/sites/${encodeURIComponent(site!.id)}/repository-development`),enabled:kind==='plugin'&&site?.provider==='ddev'&&!isDemoMode(),refetchInterval:30000});
+  const sourceFor=(slug:string)=>sources.data?.repositories.find(source=>!!source.link&&source.link.siteId===site?.id&&source.link.slug===slug);
+  const developed=rows.find(row=>row.slug===developingPlugin&&canDevelopInstalledPlugin(site?.provider??'',kind,row.status,row.slug));
   const decode = (value: string) => { const el = document.createElement("textarea"); el.innerHTML = value; return el.value; };
   const filtered = rows.filter(row => `${row.name} ${row.slug}`.toLowerCase().includes(query.toLowerCase()));
   const updates = rows.filter(row => row.updateAvailable).map(row => row.slug);
   const title = (row: WordPressInstalledExtension) => row.name !== row.slug ? row.name : row.slug.split("-").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
   const plan = (operation: WordPressExtensionOperation, slugs: string[]) => { setAddOpen(false); onPlan(kind, operation, slugs); };
-  const actions = (row: WordPressInstalledExtension) => <div className="flex flex-wrap justify-end gap-1">{wordpressExtensionActions(kind, row.status, row.updateAvailable).map(op => <Btn key={op} size="sm" variant={op === "uninstall" ? "danger" : "secondary"} aria-label={`${wordpressExtensionActionLabel(op)} ${title(row)}`} disabled={busy !== null} onClick={() => plan(op, [row.slug])}>{wordpressExtensionActionLabel(op)}</Btn>)}</div>;
+  const actions = (row: WordPressInstalledExtension) => <div className="flex flex-wrap justify-end gap-1">{onDevelop&&canDevelopInstalledPlugin(site?.provider??"",kind,row.status,row.slug)&&<Btn size="sm" aria-label={`Development for ${title(row)}`} disabled={busy!==null} onClick={()=>onDevelop(row.slug)}>{sourceFor(row.slug)?"Development":"Develop from repository"}</Btn>}{wordpressExtensionActions(kind, row.status, row.updateAvailable).map(op => <Btn key={op} size="sm" variant={op === "uninstall" ? "danger" : "secondary"} aria-label={`${wordpressExtensionActionLabel(op)} ${title(row)}`} disabled={busy !== null} onClick={() => plan(op, [row.slug])}>{wordpressExtensionActionLabel(op)}</Btn>)}</div>;
   const allUnchecked = rows.length > 0 && rows.every(row => !row.securityCheckedAt && !row.vulnerabilities.length);
   const security = (row: WordPressInstalledExtension) => row.vulnerabilities.length ? `${row.vulnerabilities.length} known risks` : row.securityCheckedAt ? "No reported risks" : "Security not checked";
   if (!site) return <EmptyState icon={<Package className="h-7 w-7" />} title="Select a site" />;
   if (!site.capabilities.extensions) return <EmptyState icon={<Package className="h-7 w-7" />} title={`${kind === "plugin" ? "Plugin" : "Theme"} management unavailable`} description={site.limitation || undefined} />;
   return <div className="space-y-3">
+    {developed&&onDevelop&&<Modal title={`Development · ${title(developed)}`} onClose={()=>onDevelop(null)} footer={<Btn onClick={()=>onDevelop(null)}>Close development</Btn>}><WordPressRepositoryDevelopment key={`${site.id}:${developed.slug}`} targetPlugin={{siteId:site.id,slug:developed.slug}}/></Modal>}
     {kind === "plugin" && rows.some(row => row.slug === "zoer-connect" && row.status === "active") && <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-default p-3"><div><h4 className="text-sm font-medium">Zoer Connect</h4><p className="text-xs text-text-secondary">Paste the connection info generated in WordPress.</p></div><WordPressConnect key={connectSiteId ?? site.id} siteId={connectSiteId ?? site.id} siteName={site.name} /></section>}
     <div className="flex flex-wrap gap-2"><SearchInput className="min-w-0 flex-1 basis-44" value={query} onChange={setQuery} placeholder={`Filter installed ${kind}s…`} /><Btn variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => { setAddOpen(true); setSearched(false); setSlug(""); }}>Add {kind}</Btn>{updates.length > 0 && <Btn disabled={busy !== null} onClick={() => plan("update", updates)}>Review {updates.length} updates</Btn>}</div>
     {allUnchecked && <p className="text-xs text-text-secondary">Security: not checked.</p>}
@@ -868,8 +878,8 @@ function ExtensionsTab({ kind, site, connectSiteId, rows, query, setQuery, slug,
       {searched && busy !== `search:${kind}` && <div className="mt-4 space-y-3">{directoryResults.map(result => <article key={result.slug} className="rounded-lg border border-border-default p-3"><h3 className="text-sm font-medium">{decode(result.name)}</h3><p className="mt-1 text-xs text-text-muted">{result.slug}</p><p className="my-2 text-sm text-text-secondary">{decode(result.description)}</p><Btn disabled={busy !== null} onClick={() => plan("install", [result.slug])}>Review installation</Btn></article>)}{!directoryResults.length && !error && <p className="text-sm text-text-secondary">No results. Try another name.</p>}</div>}
       <details className="mt-5 border-t border-border-default pt-3"><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-sm text-text-secondary">Advanced: install by exact slug</summary><p className="my-2 text-xs text-text-secondary">Use a WordPress.org slug such as contact-form-7 in the search field above.</p><Btn disabled={!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug.trim()) || busy !== null} onClick={() => plan("install", [slug.trim()])}>Review slug installation</Btn></details>
     </Modal>}
-    <div className="space-y-2 md:hidden">{filtered.map(row => <article key={row.slug} className="rounded-lg border border-border-default p-3"><div className="flex items-start justify-between gap-2"><h4 className="min-w-0 break-words text-sm font-medium">{title(row)}</h4><Status status={row.status} /></div><p className="mt-1 text-xs text-text-secondary">Version {row.version}{row.updateAvailable ? ` → ${row.updateVersion || "latest"}` : ""}{!allUnchecked && ` · ${security(row)}`}</p><p className="mt-1 text-xs text-text-secondary">Auto-update: {wordpressExtensionAutoUpdateLabel(row.autoUpdate)}</p><div className="mt-3">{actions(row)}</div></article>)}</div>
-    <div className="hidden overflow-x-auto rounded-lg border border-border-default md:block"><table className="w-full text-left text-sm"><thead className="bg-surface-primary text-xs text-text-secondary"><tr><th className="p-3">{kind === "plugin" ? "Plugin" : "Theme"}</th><th className="p-3">Status</th><th className="p-3">Version</th><th className="p-3">Auto-update</th>{!allUnchecked && <th className="p-3">Security</th>}<th className="p-3">Actions</th></tr></thead><tbody>{filtered.map(row => <tr key={row.slug} className="border-t border-border-muted"><td className="p-3"><div className="font-medium">{title(row)}</div><div className="text-xs text-text-secondary">{row.slug}</div></td><td className="p-3"><Status status={row.status} /></td><td className="p-3 text-xs">{row.version}{row.updateAvailable && <div className="text-status-warning">→ {row.updateVersion || "latest"}</div>}</td><td className="p-3 text-xs text-text-secondary">{wordpressExtensionAutoUpdateLabel(row.autoUpdate)}</td>{!allUnchecked && <td className="p-3 text-xs text-text-secondary">{security(row)}{row.securitySource && <div className="mt-1">{row.securitySource}{row.securityCheckedAt ? ` · ${new Date(row.securityCheckedAt).toLocaleString()}` : ""}</div>}</td>}<td className="p-3">{actions(row)}</td></tr>)}</tbody></table></div>
+    <div className="space-y-2 md:hidden">{filtered.map(row => <article key={row.slug} className="rounded-lg border border-border-default p-3"><div className="flex items-start justify-between gap-2"><h4 className="min-w-0 break-words text-sm font-medium">{title(row)}</h4><Status status={row.status} /></div><p className="mt-1 text-xs text-text-secondary">Version {row.version}{row.updateAvailable ? ` → ${row.updateVersion || "latest"}` : ""}{!allUnchecked && ` · ${security(row)}`}</p><p className="mt-1 text-xs text-text-secondary">Auto-update: {wordpressExtensionAutoUpdateLabel(row.autoUpdate)}</p>{sourceFor(row.slug)&&<p className="mt-2 break-words text-xs text-accent">Repository: {sourceFor(row.slug)!.name}</p>}<div className="mt-3">{actions(row)}</div></article>)}</div>
+    <div className="hidden overflow-x-auto rounded-lg border border-border-default md:block"><table className="w-full text-left text-sm"><thead className="bg-surface-primary text-xs text-text-secondary"><tr><th className="p-3">{kind === "plugin" ? "Plugin" : "Theme"}</th><th className="p-3">Status</th><th className="p-3">Version</th><th className="p-3">Auto-update</th>{!allUnchecked && <th className="p-3">Security</th>}<th className="p-3">Actions</th></tr></thead><tbody>{filtered.map(row => <tr key={row.slug} className="border-t border-border-muted"><td className="p-3"><div className="font-medium">{title(row)}</div><div className="text-xs text-text-secondary">{row.slug}</div>{sourceFor(row.slug)&&<p className="mt-1 text-xs text-accent">Repository: {sourceFor(row.slug)!.name}</p>}</td><td className="p-3"><Status status={row.status} /></td><td className="p-3 text-xs">{row.version}{row.updateAvailable && <div className="text-status-warning">→ {row.updateVersion || "latest"}</div>}</td><td className="p-3 text-xs text-text-secondary">{wordpressExtensionAutoUpdateLabel(row.autoUpdate)}</td>{!allUnchecked && <td className="p-3 text-xs text-text-secondary">{security(row)}{row.securitySource && <div className="mt-1">{row.securitySource}{row.securityCheckedAt ? ` · ${new Date(row.securityCheckedAt).toLocaleString()}` : ""}</div>}</td>}<td className="p-3">{actions(row)}</td></tr>)}</tbody></table></div>
     {!filtered.length && <p className="py-6 text-center text-sm text-text-secondary">{query ? `No ${kind}s match “${query}”.` : `No installed ${kind}s reported.`}</p>}
   </div>;
 }

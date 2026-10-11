@@ -1,7 +1,7 @@
 {
   "id": "wordpress-manager",
   "name": "WordPress Manager",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "Independent WordPress workspace with Hostinger temporary-domain setup, safe imports, backups, transfers, update review and cache tools.",
   "author": "Zoer contributors",
   "type": "integration",
@@ -17,6 +17,7 @@
       "runtime:backups",
       "workspace:native",
       "workspace:wordpress",
+      "workspace:repositories",
       "workspace:filesets",
       "workspace:catalog",
       "runtime:files",

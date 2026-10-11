@@ -2,6 +2,16 @@
 
 Independent source and releases for the `wordpress-manager` native plugin. This repository owns its interface and isolated workers. Zoer provides reviewed host services, shared controls and provider credential storage. The first extracted release is **0.5.0**; **0.5.1** adds the shared public type snapshot and reliable source resolution, preserving the existing plugin ID and site/account/backup/transfer state.
 
+## Repository plugin development (0.10.0)
+
+Clone/import any plugin source through Zoer's Repos page. Open **WordPress → Plugin development**, choose the repository, then **Inspect repository and prepare build** for a root plugin. Inspection reads its PHP header, manifest, nested npm packages, `.nvmrc` and package-manager declarations. It proposes a build and a `dist/<slug>` install folder; enabling builds explicitly runs the selected scripts on the attached development computer. The nested npm helper caches dependency installs, uses the declared pinned Node/npm pair when available, builds assets and stages a `.distignore` package. Custom commands/folders support other layouts.
+
+Use **Create local WordPress site** or **Link site** for an existing local DDEV site, including a local copy of a live website. **Replace installed plugin** selects the existing folder and preserves activation when its code is updated. Review saved bytes, install and separately review activation for a new plugin. Edit through Repos Files/Chat/Terminal; build-on-save prepares changes, and **Review local update → Update local site** installs them. Build failures, stale reviews and changed site files block the update. Code rollback preserves current database content. Remote publishing remains the existing transfer workflow.
+
+**Start development computer** prepares PHP/Composer and automatic saved-file builds. Existing attached computers can use **Enable PHP/Composer**. See [the step-by-step workflow and troubleshooting](docs/repository-development.md). After importing/installing or replacing a plugin, its **Development** action lives on **local site → Plugins → that plugin**. The linked repository is displayed there; an unlinked installed plugin offers **Develop from repository**, with the site and folder fixed.
+
+The plugin owns the development interface and site linkage. The host supplies reusable `/repository-development` inventory, attached computer and build primitives under `workspace:repositories`; it does not grant Git provider credentials, Git publishing or arbitrary computer access. Existing repository/site links, job receipts and settings remain intact. Old Repos WordPress-development bookmarks open this plugin tab. No WordPress development tab remains in Repos.
+
 ## Features
 
 - Hostinger overview offers **Make a local copy**, including connector/Pull setup and the existing verified-download-to-DDEV workflow.
@@ -29,7 +39,7 @@ bun run release
 
 `dist/package` contains the manifest, workers, reviewed computer command resources (including the scanner runtime), and bundled `native/index.js` / `native/style.css`. `dist/release` contains a deterministic ZIP and digest descriptor. Push `v<manifest version>` to publish those assets through GitHub Actions. Optional signing uses the host's documented `ZOER_PLUGIN_SIGNING_KEY` and `ZOER_PLUGIN_KEY_ID`; private keys never belong in this repository. Run the exported CLI under **Bun**.
 
-Zoer can build a committed source through Repos → Plugin using `zoer-plugin.json`, or install the ZIP/GitHub release through Plugins. This plugin repository is public; its release artifacts are publicly readable. Review the added `workspace:native` and `workspace:wordpress` permissions. Use normal versioned upgrades/rollback, keeping `wordpress-manager` as the ID. The plugin negotiates WordPress host contract version 1; install the accompanying Zoer host changes first.
+Zoer can build a committed source through Repos → Plugin using `zoer-plugin.json`, or install the ZIP/GitHub release through Plugins. This plugin repository is public; its release artifacts are publicly readable. Review the added `workspace:native`, `workspace:wordpress` and repository-development `workspace:repositories` permissions. Use normal versioned upgrades/rollback, keeping `wordpress-manager` as the ID. The plugin negotiates WordPress host contract version 1; install the accompanying Zoer host changes first.
 
 ## WordPress-side plugins (`wordpress-plugins/`)
 
