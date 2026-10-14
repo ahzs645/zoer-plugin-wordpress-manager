@@ -46,3 +46,41 @@ WordPress link/review/apply/rollback lives under `/wordpress-manager/repositorie
 Maintained implementation: `src/components/extensions/WordPressRepositoryDevelopment.tsx`, `WordPressDevelopmentPanel.tsx`, `WordPressDevelopmentTools.tsx`. The Zoer host's [full operator guide](https://github.com/ahzs645/zoer/blob/main/docs/wordpress-repository-development.md), [runtime lessons](https://github.com/ahzs645/zoer/blob/main/docs/agent-development.md) and [qualification summaries](https://github.com/ahzs645/zoer/blob/main/docs/qualification/wordpress-repository-development/README.md) are maintained in its repository. Raw runtime receipts/screenshots remain in local output. Dated image tags and fixture state are evidence, not permanent deployment configuration.
 
 Use this repository's normal checks: `bun run typecheck`, `bun run test` (with its configured preload), `bun run build`, package validation and `bun run release`. Test host domain suites separately to avoid shared Bun mock leakage. Live verification should cover clone, tools/build, metadata-only linking, replacing an active installed plugin, failed-build refusal, saved edit/automatic rebuild, actual preview, code rollback and stopped/restarted database inventory. Use dedicated authorized fixtures; preserve unrelated sites and repository work.
+
+
+## Local audit lessons
+
+Repository imports and saved-file builds do not run the whole source test suite.
+Keep write/role/HTTP regressions in an explicitly guarded disposable WordPress,
+with mail captured, outbound requests blocked and owned fixtures removed. The
+LeagueFlow follow-up used both native handlers and real cookie/nonce/multipart
+HTTP tests; see [its reviewed source](https://github.com/ahzs645/leugueflow/pull/1).
+The installed local copy was updated through its plugin's Development review,
+with byte comparison and code rollback, while its real-record digest stayed equal.
+
+Confirm the intended site timezone before changing it. League times on this
+Intramurals copy mean Prince George/Vancouver local time (`America/Vancouver`).
+Keep stored wall-clock values intact, format them in the site zone, and verify
+calendar UTC exports separately; a summer 6:30 pm game exports as 01:30 UTC the
+next day. Changing a timezone is local configuration, not a source release.
+
+Start native browser diagnostics before navigation/actions, then read them after
+testing. Playwright Chromium captured a controlled console error and page error;
+empty diagnostics taken only after a page loaded do not establish an error-free
+page. The inspected Clearcote runtime did not capture application console events.
+Cold preparation has a bounded status handle, but Kubernetes capacity still
+controls readiness. Release owned temporary browsers after a check and preserve
+saved admin profiles. These host capabilities are documented in the
+[Zoer audit workflow](https://github.com/ahzs645/zoer/blob/fix/leagueflow-audit-followup/docs/leagueflow-audit-workflow.md).
+
+A disconnected GitHub provider cannot clone a private repository. Reconnect it
+through Repos for future private pulls/pushes; never copy account credentials into
+an agent to bypass that connection. A committed local Git bundle can be imported
+by an operator into a verified empty repository while preserving history. This
+operator pathway is not a dedicated local-import button in the interface.
+
+Keep theme repairs in their own maintained repository. The Intramurals theme now
+has [reviewed source and a canonical ZIP](https://github.com/ahzs645/unbc-intramurals-theme/pull/1).
+Use the site-edit skill's hash/recovery/readback workflow for local changes;
+Themes does not yet expose the plugin Development source-link interface. Physical
+phone/tablet acceptance and program dates/staff details require separate input.
