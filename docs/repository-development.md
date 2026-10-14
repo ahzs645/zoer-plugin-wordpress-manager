@@ -84,3 +84,10 @@ has [reviewed source and a canonical ZIP](https://github.com/ahzs645/unbc-intram
 Use the site-edit skill's hash/recovery/readback workflow for local changes;
 Themes does not yet expose the plugin Development source-link interface. Physical
 phone/tablet acceptance and program dates/staff details require separate input.
+
+For new local-site development browser sessions, prefer Zoer’s Playwright Chromium
+provider. Start diagnostics before navigation and verify actual screenshot pixel
+dimensions against the reported viewport. Keep saved authenticated profiles on
+their existing engine. CSS resize is not a physical device or WebKit/stock-Firefox
+check. The Intramurals audit verified native Playwright console/page-error markers
+and 390/320 menu rendering; other engines need their own workflow acceptance.
