@@ -91,3 +91,12 @@ dimensions against the reported viewport. Keep saved authenticated profiles on
 their existing engine. CSS resize is not a physical device or WebKit/stock-Firefox
 check. The Intramurals audit verified native Playwright console/page-error markers
 and 390/320 menu rendering; other engines need their own workflow acceptance.
+
+Zoer also exposes separate experimental Playwright Firefox and WebKit choices.
+Native checks verified known console/page errors and public Register/menu behavior
+in each engine; Firefox desktop screenshot capture remains a narrower unverified
+case. CSS viewport checks do not certify the installed Firefox/Safari apps or a
+physical phone. Use `chat_browser_prepare_status` with `wait_ms: 10000` for a cold
+start, then release the owned temporary session and read back its absence.
+Local `Never` runtime images require the deployment retention helper when node
+image garbage collection is active; the Zoer runbook records that operator step.
