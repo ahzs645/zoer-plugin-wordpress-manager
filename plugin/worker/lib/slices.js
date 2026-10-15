@@ -187,9 +187,12 @@ export async function runResumable(request, host, spec, clock = Date.now, { outp
     return await spec.step(state, input, ctx);
   } catch (error) {
     if (error?.code === PAUSED) return { paused: true, checkpoint: state };
+    if (error?.code === "network_deadline" && state) return ctx.continue(state, undefined, 0);
     if (error?.code === "endpoint_changed" && state) return ctx.needsUser(state, spec.changed ?? "This connection changed. Restore the original connection to continue.");
     if (error?.needsUser && state) return ctx.needsUser(state, error.message);
+    if (spec.recoverableInterruptions && state && error?.code === "fileset_quota") return ctx.needsUser(state, `Transfer storage limit reached. ${bounded(error.message)} Free space or adjust the storage allowance, then Resume; Cancel to choose fewer files.`);
     if (isTransient(error)) {
+      if (spec.recoverableInterruptions && state && (Number(context.attempt) || 0) + 1 > MAX_CONSECUTIVE_RETRIES) return ctx.needsUser(state, `The source is still unavailable. Saved progress is kept. Restore the connection and Resume, or Cancel. ${bounded(error.message, 200)}`);
       if ((Number(context.attempt) || 0) + 1 > MAX_CONSECUTIVE_RETRIES) await recordFailure(error);
       return {
         resumable: "retry",

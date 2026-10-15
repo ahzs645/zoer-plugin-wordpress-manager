@@ -749,17 +749,18 @@ describe("transfer.local-export", () => {
       lastError: "Invalid export selections.", errorCode: "database_query_failed", summary: "Local export: Database, themes, plugins, media", runId: "run-1" });
   });
 
-  test("a run that gives up after repeated transient failures leaves a failed history record", async () => {
+  test("a long source outage parks the download without deleting saved progress", async () => {
     const w = new FakeWorld();
     w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
     w.ddev.failOperation = { operation: "export.create.v1", message: "DDEV bridge request failed (503).", code: "database_query_failed", count: 99 };
-    let recordedAt = 0;
-    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { onSlice: (_e, slice) => { if (!recordedAt && w.catalog.records.has(`history:local-export:${PULL}`)) recordedAt = slice; } });
-    expect(result.status).toBe("failed");
+    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
+    expect(result.status).toBe("needs-user");
     expect(result.envelopes).toHaveLength(9);
-    // Only the slice whose retry Zoer refuses (the 9th) writes it.
-    expect(recordedAt).toBe(9);
-    expect(w.catalog.records.get(`history:local-export:${PULL}`)!.data).toMatchObject({ status: "failed", lastError: "DDEV bridge request failed (503).", errorCode: "database_query_failed" });
+    expect(result.reason).toContain("Saved progress is kept");
+    expect(w.catalog.records.has(`history:local-export:${PULL}`)).toBe(false);
+    w.ddev.failOperation = undefined;
+    const resumed = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { checkpoint: result.checkpoint });
+    expect(resumed.status).toBe("succeeded");
   });
 
   test("a bridge transport failure retries with the bridge's message and code", async () => {
@@ -1117,4 +1118,31 @@ describe("large pull completion and recovery", () => {
     expect(result.envelopes.filter((e: any) => e.progress?.phase === "sealing")).toHaveLength(3);
     expect(w.calls.filter(c => c.method === "fileset.seal").every(c => c.input.bounded === true)).toBe(true);
   });
+});
+
+test("a host network deadline yields the saved checkpoint without spending a retry", async () => {
+  const w = new FakeWorld();
+  w.addSite("hostinger-1", sampleSite("https://source.example"));
+  const serve = w.serve.bind(w);
+  let requests = 0;
+  w.serve = async (method: string, input: any, effect: string) => {
+    if (method === "network.fetch" && ++requests === 4) throw Object.assign(new Error("Fresh slice needed"), { name: "HostCallError", code: "network_deadline" });
+    return serve(method, input, effect);
+  };
+  const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL });
+  expect(result.status).toBe("succeeded");
+  expect(result.envelopes[0]).toMatchObject({ resumable: "continue", checkpoint: { remoteCreated: true } });
+  expect(result.envelopes.some((e: any) => e.resumable === "retry")).toBe(false);
+});
+
+test("storage exhaustion keeps the inbound checkpoint for Resume", async () => {
+  const w = new FakeWorld();
+  w.addSite("hostinger-1", sampleSite("https://source.example"));
+  w.services["transfer.download"] = () => { throw Object.assign(new Error("Transfer quota exceeded"), { name: "HostCallError", code: "fileset_quota" }); };
+  const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL });
+  expect(result.status).toBe("needs-user");
+  expect(result.checkpoint.phase).toBe("downloading");
+  expect(w.sets.sets.has(`fs_${PULL}`)).toBe(true);
+  delete w.services["transfer.download"];
+  expect((await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { checkpoint: result.checkpoint })).status).toBe("succeeded");
 });

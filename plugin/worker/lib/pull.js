@@ -170,7 +170,7 @@ export async function startPull(kind, input, ctx) {
 
 const progressOf = (state) => state.phase === "preparing"
   ? { phase: "preparing", ...(state.total ? { done: state.declared, total: state.total, unit: "files" } : {}), ...(preparationMessage(state.preparation) ? { message: preparationMessage(state.preparation) } : {}) }
-  : state.phase === "sealing" ? { phase: "sealing", done: state.verified ?? 0, total: state.total, unit: "files", message: "Verifying downloaded files" }
+  : state.phase === "sealing" ? { phase: "sealing", done: state.verified ?? 0, total: state.total, unit: "files", message: state.verifiedBytes !== undefined ? `Verifying downloaded files · ${state.verified ?? 0} / ${state.total} files` : "Verifying downloaded files", ...(state.verifiedBytes !== undefined ? { done: state.verifiedBytes, total: state.bytes, unit: "bytes" } : {}) }
     : { phase: state.phase, done: state.downloaded ?? 0, total: state.bytes, unit: "bytes" };
 
 /** "Remote export: 120 files (database)": the files the source has listed so far, then its phase. */
@@ -433,6 +433,7 @@ export async function stepPull(state, input, ctx) {
           if (result.set?.status === "sealed") break;
           if (!Number.isSafeInteger(result.verification?.done) || result.verification.done < 0 || result.verification.done > state.total) fail("File verification did not return progress.");
           state.verified = result.verification.done;
+          if (Number.isSafeInteger(result.verification.bytes) && result.verification.bytes >= 0 && result.verification.bytes <= state.bytes) state.verifiedBytes = result.verification.bytes;
           await ctx.progress(progressOf(state));
         }
       }
@@ -496,6 +497,7 @@ export async function failedPull(kind, state, input, ctx, error) {
 }
 
 export const pullSpec = (kind) => ({
+  recoverableInterruptions: true,
   start: (input, ctx) => startPull(kind, input, ctx),
   step: stepPull,
   cancel: cancelPull,
