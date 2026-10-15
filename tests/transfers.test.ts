@@ -1146,3 +1146,16 @@ test("storage exhaustion keeps the inbound checkpoint for Resume", async () => {
   delete w.services["transfer.download"];
   expect((await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { checkpoint: result.checkpoint })).status).toBe("succeeded");
 });
+
+test("creating a local copy retains its source checkpoint during a long outage", async () => {
+  const w = new FakeWorld();
+  w.addSite("hostinger-1", sampleSite("https://source.example"));
+  const lost = { pattern: /\/step$/, method: "POST", count: 99 };
+  w.loseResponses.push(lost);
+  const input = { siteId: "hostinger-1", copyId: COPY, name: "Outage recovery" };
+  const result = await w.run("copy.local", input);
+  expect(result.status).toBe("needs-user");
+  expect(result.reason).toContain("Saved progress is kept");
+  lost.count = 0;
+  expect((await w.run("copy.local", input, { checkpoint: result.checkpoint })).status).toBe("succeeded");
+});

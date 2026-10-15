@@ -402,5 +402,5 @@ export async function failedCopy(kind, state, input, ctx, error) {
     summary: kind === "restore" ? `Backup restore ${name}` : `${state?.replaceSiteId ?? input.replaceSiteId ? "Refreshed local copy" : "Local copy"} ${name}` }, error, ctx.now);
 }
 
-export const copySpec = { start: startCopy, step: stepCopy, cancel: cancelCopy, failed: (state, input, ctx, error) => failedCopy("copy", state, input, ctx, error), changed: "This connection changed. Cancel the local copy and start a new one." };
+export const copySpec = { recoverableInterruptions: true, start: startCopy, step: stepCopy, cancel: cancelCopy, failed: (state, input, ctx, error) => failedCopy("copy", state, input, ctx, error), changed: "This connection changed. Cancel the local copy and start a new one." };
 export const restoreSpec = { start: startRestore, step: stepCopy, failed: (state, input, ctx, error) => failedCopy("restore", state, input, ctx, error) };
