@@ -31,10 +31,13 @@ a Git commit or repository push is not required.
    problem category without exposing the matching credential. Fix portable code
    in the source, then export and compare again; it does not rewrite code silently.
 6. Clear **Dry run**, request the same reviewed selection and approve the ordinary
-   Zoer action. Staging stops for review before activation. After activation,
-   verify important pages and sign-in, session refresh and logout, then choose
-   **Finish**. Use **Roll back** if verification fails, retaining the recovery
-   record until the site is confirmed working.
+   Zoer action. Staging stops for review before activation. Review the staged
+   result, then choose **Approve and activate**. WordPress pauses visitors during
+   activation and the verification checkpoint, so an ordinary public preview
+   cannot load until you choose **Finish and reopen site**. Backups remain after
+   Finish. Check important pages, sign-in, session refresh and logout on the
+   reopened website. Use **Roll back** if verification fails, retaining the
+   recovery record until the site is confirmed working.
 
 The destination must support file comparison, staged review and late activation.
 The mode refuses older capabilities rather than weakening its review. Comparison

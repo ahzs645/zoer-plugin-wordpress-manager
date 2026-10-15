@@ -242,7 +242,7 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
       <p className="text-xs text-text-secondary">Push does not update WordPress core, the destination's user accounts or its Zoer Connect key. Zoer asks for approval before the push starts. {pushReviewMessage(importGate.options.review, importGate.options.fence)} Every real push pauses after activation until you choose Finish or Roll back.</p>
       <ConfirmDestination target={target} value={confirm} onChange={setConfirm} shared={shared} writers={writers} onWriters={setWriters} disabled={starting !== null} />
       {busy && <p className="text-xs text-status-warning">Another transfer is running on this site. Finish, roll back or cancel it below before starting another.</p>}
-      {comparing && !previewReady && <p className="text-xs text-text-secondary">Compare with this site first, or turn off “Compare first” to push everything in the download.</p>}
+      {comparing && !previewReady && <p className="text-xs text-text-secondary">{codeOnly ? "Compare with this site first. Code updates require a reviewed file selection." : "Compare with this site first, or turn off “Compare first” to push everything in the download."}</p>}
       <Btn variant="primary" className="w-full sm:w-auto" disabled={!ready} loading={starting === "push"} onClick={() => void startPush()}>
         {dryRun ? "Request dry run" : comparing ? `Request push of ${selected.size.toLocaleString()} item${selected.size === 1 ? "" : "s"}` : "Request push of everything"}
       </Btn>
