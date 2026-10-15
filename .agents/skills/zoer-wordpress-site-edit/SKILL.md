@@ -39,4 +39,6 @@ Theme, plugin, CSS, JS, templates, and patterns can be file edits. **Saved Guten
 
 For DDEV commands, Zoer exposes terminal sessions at `POST /api/computers/:siteId/terminal/sessions` (JSON `{}`), `POST /api/computers/:siteId/terminal/:sessionId/input` (`{ "input": "...\n" }`), and `GET /api/computers/:siteId/terminal/:sessionId/output`. Use WP-CLI only after locating the site's WordPress root. Treat database changes and extension management according to the deployment's current permission and backup workflow; do not use terminal commands to evade a guarded WordPress Manager action.
 
+The DDEV terminal already runs inside the web container. Use `wp ...` there; `ddev wp ...` is a host-side command and will fail in this terminal. Send one command, inspect its actual output, then continue. Native chat's bounded WP-CLI read tool is a separate surface: an individual post/meta or user-inventory read requires the user's site reference and does not authorize shell, eval, credential fields or another target.
+
 The current Zoer implementation defines these routes in `backend/src/routes/computers-files.ts`, `backend/src/routes/computers-terminal.ts`, and `backend/src/routes/wordpress-manager.ts`. Inspect them when a response or deployment version differs from this skill.
