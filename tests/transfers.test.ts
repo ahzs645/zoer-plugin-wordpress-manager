@@ -139,12 +139,13 @@ describe("export preparation pacing", () => {
     const clock = timed(source);
     const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { clock });
     expect(result.status).toBe("succeeded");
-    // Create, six polls until ready, the download and the seal: all in the first slice.
-    expect(result.envelopes).toHaveLength(1);
+    // Preparation, download, and verification are separate durable slices.
+    expect(result.envelopes).toHaveLength(3);
+    expect(result.envelopes.slice(0, 2).map((e: any) => e.checkpoint.phase)).toEqual(["downloading", "sealing"]);
     expect(steps(source)).toBe(6);
     expect(source.log.filter(l => l.method === "POST" && l.route === "/exports")).toHaveLength(1);
     // The polls report preparation progress inside the slice.
-    expect(w.calls.filter(c => c.method === "run.progress").map(c => c.input.progress.phase)).toEqual(Array(5).fill("preparing"));
+    expect(w.calls.filter(c => c.method === "run.progress").map(c => c.input.progress.phase)).toEqual([...Array(5).fill("preparing"), "downloading"]);
   });
 
   test("the slice yields when its budget runs out and the next slice keeps polling at once", async () => {
@@ -161,7 +162,7 @@ describe("export preparation pacing", () => {
     expect(clock()).toBeLessThan(start + 300_000 - 8_000);
     const rest = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { clock, checkpoint: envelope.checkpoint, step: 2 });
     expect(rest.status).toBe("succeeded");
-    expect(rest.envelopes).toHaveLength(1);
+    expect(rest.envelopes).toHaveLength(3);
     expect(steps(source)).toBe(80);
     // Created once; the later slice only polled.
     expect(source.log.filter(l => l.method === "POST" && l.route === "/exports")).toHaveLength(1);
@@ -236,7 +237,7 @@ describe("export preparation pacing", () => {
     const source = w.addSite("hostinger-1", sampleSite("https://source.example", { pagedExport: true, pageSize: 2, exportSteps: 4 }));
     const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { clock: timed(source) });
     expect(result.status).toBe("succeeded");
-    expect(result.envelopes).toHaveLength(1);
+    expect(result.envelopes).toHaveLength(3);
     // Four polls to ready, then a poll before each further page (the host engine's order).
     const routes = source.log.map(l => l.route.replace(/\?.*$/, "")).filter(r => r !== "/status" && !r.endsWith("/batch"));
     expect(routes).toEqual(["/exports/paged", ...Array(4).fill(`/exports/paged/${PULL}/step`), `/exports/paged/${PULL}/manifest`,
@@ -249,7 +250,7 @@ describe("export preparation pacing", () => {
     w.ddev.add("ddev-shop", "shop", content);
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { clock: timed(content) });
     expect(result.status).toBe("succeeded");
-    expect(result.envelopes).toHaveLength(1);
+    expect(result.envelopes).toHaveLength(3);
     expect(w.calls.filter(c => c.method === "runtime.invoke").map(c => c.input.operation)).toEqual(["runtime.inspect.v1", "export.create.v1", ...Array(4).fill("export.step.v1")]);
   });
 
@@ -259,9 +260,9 @@ describe("export preparation pacing", () => {
     const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" }, { clock: timed(source) });
     expect(result.status).toBe("succeeded");
     expect(steps(source)).toBe(6);
-    // Only the DDEV site start waits between slices; the pull never does.
-    expect(result.envelopes.filter((e: any) => String(e.progress?.phase).startsWith("pulling"))).toHaveLength(0);
-    expect(w.calls.filter(c => c.method === "run.progress").map(c => c.input.progress.phase)).toEqual(Array(5).fill("pulling: preparing"));
+    // The embedded pull checkpoints its phase boundaries too.
+    expect(result.envelopes.filter((e: any) => String(e.progress?.phase).startsWith("pulling"))).toHaveLength(2);
+    expect(w.calls.filter(c => c.method === "run.progress").map(c => c.input.progress.phase)).toEqual([...Array(5).fill("pulling: preparing"), "pulling: downloading"]);
   });
 });
 
@@ -1067,5 +1068,53 @@ describe("line protocol and response mapping", () => {
     expect(error).toMatchObject({ code: "network_response_limit" });
     expect(isTransient(error)).toBe(false);
     expect(error.message).toContain("The operation may have completed.");
+  });
+});
+
+describe("large pull completion and recovery", () => {
+  test("a fully downloaded set checkpoints before slow verification and recovers a sealed receipt", async () => {
+    const w = new FakeWorld();
+    const source = w.addSite("hostinger-1", sampleSite("https://source.example"));
+    const input = { siteId: "hostinger-1", pullId: PULL };
+    const first = await w.run("transfer.pull", input, { maxSlices: 2 });
+    expect(first.envelopes[1]).toMatchObject({ resumable: "continue", checkpoint: { phase: "sealing" }, progress: { phase: "sealing", unit: "files" } });
+    expect(w.calls.filter(c => c.method === "fileset.seal")).toHaveLength(0);
+    // The host completes verification, but the worker is lost before recording its result.
+    w.sets.seal({ setId: `fs_${PULL}` });
+    const previous = source.log.length;
+    const recovered = await w.run("transfer.pull", { ...input, recover: true }, { runId: "recovered" });
+    expect(recovered.status).toBe("succeeded");
+    expect(recovered.output).toMatchObject({ status: "ready", setId: `fs_${PULL}` });
+    expect(source.log.slice(previous).map(e => e.route)).toEqual(["/status"]);
+    expect(w.catalog.records.get(`pull:${PULL}`)?.data.status).toBe("ready");
+  });
+
+  test("recovery refuses different ownership or selection without removing the saved set", async () => {
+    const w = new FakeWorld();
+    w.addSite("hostinger-1", sampleSite("https://source.example"));
+    const input = { siteId: "hostinger-1", pullId: PULL };
+    await w.run("transfer.pull", input, { maxSlices: 2 });
+    w.sets.seal({ setId: `fs_${PULL}` });
+    const record = w.catalog.records.get(`pull:${PULL}`)!;
+    record.data.siteId = "other-site";
+    const refused = await w.run("transfer.pull", { ...input, recover: true });
+    expect(refused.status).toBe("failed");
+    expect(w.sets.get(`fs_${PULL}`).status).toBe("sealed");
+  });
+
+  test("bounded verification keeps yielding until the host reports sealed", async () => {
+    const w = new FakeWorld();
+    w.addSite("hostinger-1", sampleSite("https://source.example"));
+    const seal = w.sets.seal.bind(w.sets);
+    let calls = 0, now = Date.now();
+    w.sets.seal = (input: any) => {
+      now += 20_000;
+      return ++calls < 3 ? { set: w.sets.summary(w.sets.get(input.setId)), verification: { done: calls, total: 7 } } : seal(input);
+    };
+    const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL }, { clock: () => now, deadlineMs: 40_000 });
+    expect(result.status).toBe("succeeded");
+    expect(calls).toBe(3);
+    expect(result.envelopes.filter((e: any) => e.progress?.phase === "sealing")).toHaveLength(3);
+    expect(w.calls.filter(c => c.method === "fileset.seal").every(c => c.input.bounded === true)).toBe(true);
   });
 });

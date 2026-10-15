@@ -147,6 +147,20 @@ export async function startPull(kind, input, ctx) {
     state.sourceUrl = await localSiteAddress(host, input.siteId, resource);
     state.paged = false;
   }
+  if (input.recover === true) {
+    const record = await readRecord(host, `pull:${pullId}`);
+    const kept = record?.data;
+    if (!kept || kept.siteId !== state.siteId || kept.kind !== kind || kept.pullId !== pullId || input.dryRun === true ||
+        JSON.stringify(kept.options) !== JSON.stringify(options) || (kind === "pull" && kept.origin !== state.origin)) fail("Choose the original download and its unchanged connection to recover it.");
+    const set = await describeSet(host, state.setId);
+    if (!set || set.labels?.pullId !== pullId || set.labels?.siteId !== state.siteId || set.entryCount !== kept.fileCount || set.totalBytes !== kept.totalBytes) fail("The saved download is unavailable. Start a new pull.");
+    // A killed worker can leave a fully verified set. Finalize its receipt without touching the source.
+    if (set.status === "sealed") {
+      state.phase = "recording"; state.result = "ready";
+      state.total = kept.fileCount; state.bytes = kept.totalBytes; state.startedAt = kept.createdAt;
+    }
+    // Otherwise create() reuses the source's idempotent export; S3 reconciles its durable cursor.
+  }
   return state;
 }
 
@@ -156,7 +170,8 @@ export async function startPull(kind, input, ctx) {
 
 const progressOf = (state) => state.phase === "preparing"
   ? { phase: "preparing", ...(state.total ? { done: state.declared, total: state.total, unit: "files" } : {}), ...(preparationMessage(state.preparation) ? { message: preparationMessage(state.preparation) } : {}) }
-  : { phase: state.phase, done: state.downloaded ?? 0, total: state.bytes, unit: "bytes" };
+  : state.phase === "sealing" ? { phase: "sealing", done: state.verified ?? 0, total: state.total, unit: "files", message: "Verifying downloaded files" }
+    : { phase: state.phase, done: state.downloaded ?? 0, total: state.bytes, unit: "bytes" };
 
 /** "Remote export: 120 files (database)": the files the source has listed so far, then its phase. */
 export function preparationMessage(preparation) {
@@ -306,6 +321,7 @@ async function download(state, ctx, source) {
     }
     state.cursor = result.cursor;
     state.downloaded = (state.downloaded ?? 0) + (result.appendedBytes ?? 0);
+    await ctx.progress(progressOf(state));
     if (result.complete) return true;
     if (result.transient) throw new TransferError(result.transient.message || "The source is busy. Retrying shortly.", { transient: true, retryAfterMs: result.retryAfterMs });
     if (result.stopped) return false;
@@ -391,11 +407,14 @@ export async function stepPull(state, input, ctx) {
   const source = sourceOf(host, ctx.request, state);
   if (state.phase === "preparing") {
     // The slice ran out of time: continue at once (the host engine polls without a pause too).
-    if (!(await prepare(state, ctx, source))) return ctx.continue(state, progressOf(state), 0);
+    await prepare(state, ctx, source);
+    // Persist the manifest and phase before downloading; each expensive phase gets a fresh slice.
+    return ctx.continue(state, progressOf(state), 0);
   }
   if (state.phase === "downloading") {
     if (!(await download(state, ctx, source))) return ctx.continue(state, progressOf(state));
     state.phase = "sealing";
+    return ctx.continue(state, { phase: "sealing", done: 0, total: state.total, unit: "files", message: "Verifying downloaded files" }, 0);
   }
   if (state.phase === "sealing") {
     if (state.dryRun) {
@@ -405,7 +424,18 @@ export async function stepPull(state, input, ctx) {
       state.phase = "recording";
       state.result = "dry-run";
     } else {
-      try { await host.call("fileset.seal", { setId: state.setId }); }
+      try {
+        for (let batches = 0; ; batches++) {
+          // Host batches persist their own cursor. Keep time for one 20-second batch and the envelope.
+          if (batches > 0 && (ctx.timeLeft() <= 30_000 || batches >= 40)) return ctx.continue(state, progressOf(state), 0);
+          stopIfPaused(ctx);
+          const result = await host.call("fileset.seal", { setId: state.setId, bounded: true });
+          if (result.set?.status === "sealed") break;
+          if (!Number.isSafeInteger(result.verification?.done) || result.verification.done < 0 || result.verification.done > state.total) fail("File verification did not return progress.");
+          state.verified = result.verification.done;
+          await ctx.progress(progressOf(state));
+        }
+      }
       catch (error) {
         if (error?.code === "fileset_integrity") throw new TransferError("Downloaded file changed while it was verified. Resume to retry.", { needsUser: true, code: error.code });
         if (error?.code !== "fileset_sealed") throw error; // a replayed slice: already sealed

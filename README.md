@@ -39,6 +39,7 @@ released; see the [code publication workflow](docs/code-publication.md).
 - Core version checks, backup-before-update review and publishing preflight; plugin/theme search, install, activation, updates, removal and rollback safeguards.
 - Opt-in resumable large-database exports with source-pause acknowledgement and table/row/part progress (Zoer Connect 0.5.0 and the matching Zoer host required).
 - Pull, push, database filters, media/theme/plugin selection, serialized replacements, staged review, recovery, resumable progress, local copies and transfer history, all as this plugin's resumable actions (0.8.0).
+- Inbound transfers checkpoint before download and final verification. On hosts with bounded file-set verification, large downloads verify in batches with file progress. A timed-out Pull or local export offers **Recover download** using its original ID and saved selection; completed files are reused, and an expired source requires a new pull.
 - Existing isolated DDEV inventory, health, user, snapshot, backup and bounded WP-CLI actions.
 
 Provider capabilities remain visible. Hostinger acceptance must be followed by content verification; hPanel remains a recovery/manual import fallback when an accepted import does not replace the site's root. A stopped/unsupported runtime does not gain operations simply by installing this plugin.

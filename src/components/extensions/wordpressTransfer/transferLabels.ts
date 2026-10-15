@@ -12,6 +12,7 @@ const PHASES: Record<string, string> = {
   queued: "Queued",
   creating: "Creating the destination import",
   snapshotting: "Snapshotting the database",
+  sealing: "Verifying downloaded files",
   uploading: "Uploading files",
   reusing_artifacts: "Reusing previously uploaded files",
   checking_artifacts: "Checking uploaded files",

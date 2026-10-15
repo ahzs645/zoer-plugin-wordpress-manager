@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { describeRun, engineErrorMessage, importStateFromControls, isBusyError, isTransferFence, recentTransferRuns, needsUserKind, newHexId, progressView, runsOfSite, runTransferId, type ResumableSummary } from "./runState";
+import { recoverableDownload, describeRun, engineErrorMessage, importStateFromControls, isBusyError, isTransferFence, recentTransferRuns, needsUserKind, newHexId, progressView, runsOfSite, runTransferId, type ResumableSummary } from "./runState";
 
 const resumable = (patch: Partial<ResumableSummary> = {}): ResumableSummary => ({ state: "running", slices: 3, progress: null, nextStepAt: null, lastError: null, consecutiveFailures: 0, lockKey: "resumable:wordpress-manager:site-transfer:ep_1", ...patch });
 const run = (status: string, patch: Record<string, unknown> = {}) => ({ status, error: null, statusReason: null, output: null, ...patch });
@@ -135,4 +135,10 @@ test("Recent transfers keeps the five newest and pins failures of the last seven
 test("a refused push whose staged import was cleaned up says so", () => {
   const view = describeRun(run("succeeded", { output: { status: "failed", error: { message: "Refused." }, cancelledImport: true, cleanedUp: true } }), "push");
   expect(view.reason).toBe("Refused. The staged import was cancelled and its files removed from the site; nothing was activated.");
+});
+
+test("download recovery only replays timed-out inbound transfers with their original ID", () => {
+  const original = { runId: "failed", actionId: "transfer.pull", status: "failed", createdAt: "2026-10-15", error: "Integration action exceeded its timeout.", input: { siteId: "site", pullId: "a".repeat(32) } };
+  expect(recoverableDownload(original)).toMatchObject({ actionId: "transfer.pull", input: { ...original.input, recover: true } });
+  for (const patch of [{ actionId: "transfer.push" }, { status: "running" }, { error: "Permission denied" }, { input: { ...original.input, remove: true } }, { input: { ...original.input, dryRun: true } }, { input: { ...original.input, snapshotMode: "maintenance" } }]) expect(recoverableDownload({ ...original, ...patch })).toBeNull();
 });

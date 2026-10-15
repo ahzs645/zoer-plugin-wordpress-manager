@@ -2,11 +2,11 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Circle, Eraser, Loader2, Pause, Play, ShieldCheck, Undo2, X } from "lucide-react";
 import { Btn, StatusBadge, useDialogs } from "@zoer/plugin-ui/controls";
-import { cancelRun, controlImport, engineKeys, pauseRun, resumeRun, useEngineRun, useRecentRuns } from "../../../lib/queries/plugin-engine";
+import { cancelRun, controlImport, engineKeys, pauseRun, resumeRun, startEngineAction, useEngineRun, useRecentRuns } from "../../../lib/queries/plugin-engine";
 import { completedPushUrl } from "../publishGuidance";
 import { formatTransferBytes } from "../wordpressPullProgress";
 import { formatDuration } from "../wordpressTransfer/transferLabels";
-import { describeRun, ENGINE_ACTIONS, engineErrorMessage, importStateFromControls, runInput, type RecentRun, type RunButton } from "./runState";
+import { describeRun, ENGINE_ACTIONS, engineErrorMessage, importStateFromControls, runInput, recoverableDownload, type RecentRun, type RunButton } from "./runState";
 
 type Output = Record<string, unknown>;
 const num = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -168,7 +168,7 @@ function RunOutput({ output }: { output: Output }) {
  * `run.pause`/`run.resume`/`cancel`, and the import decisions (Approve, Finish, Roll back, Clean up)
  * through `transfer.push.control` followed by `run.resume` so the push continues.
  */
-export default function PluginRunCard({ recent, title, kind = "other", siteId, stages }: { recent: RecentRun; title: string; kind?: "push" | "replace" | "other"; siteId?: string; stages?: RunStage[] }) {
+export default function PluginRunCard({ recent, title, kind = "other", siteId, stages, allowRecovery = true }: { recent: RecentRun; title: string; kind?: "push" | "replace" | "other"; siteId?: string; stages?: RunStage[]; allowRecovery?: boolean }) {
   const dialogs = useDialogs();
   const client = useQueryClient();
   const detail = useEngineRun<Output>(recent.runId);
@@ -180,11 +180,25 @@ export default function PluginRunCard({ recent, title, kind = "other", siteId, s
   const later = importStateFromControls(controls.data ?? [], importId);
   const view = describeRun(run, kind, later);
   const target = typeof input.siteId === "string" ? input.siteId : siteId;
-  const [pending, setPending] = useState<RunButton | null>(null);
+  const [pending, setPending] = useState<RunButton | "recover" | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const recovery = allowRecovery ? recoverableDownload({ ...recent, status: run.status, error: run.error ?? recent.error }) : null;
   const started = Date.parse(recent.createdAt);
   const ended = Date.parse(recent.finishedAt ?? run.completedAt ?? "");
+
+  async function recover() {
+    if (!recovery || pending) return;
+    setPending("recover"); setError(""); setNotice("");
+    try {
+      await startEngineAction(recovery.actionId, recovery.input);
+      setNotice("Recovery started. Follow the new transfer above.");
+    } catch (caught) { setError(engineErrorMessage(caught)); }
+    finally {
+      setPending(null);
+      await client.invalidateQueries({ queryKey: engineKeys.all() });
+    }
+  }
 
   async function act(button: RunButton) {
     const confirm = CONFIRM[button]?.(kind);
@@ -245,6 +259,10 @@ export default function PluginRunCard({ recent, title, kind = "other", siteId, s
 
     {view.buttons.length > 0 && <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
       {view.buttons.map(button => <Btn key={button} size="sm" className="w-full sm:w-auto" variant={BUTTONS[button].variant} icon={BUTTONS[button].icon} disabled={pending !== null} loading={pending === button} onClick={() => void act(button)}>{BUTTONS[button].label}</Btn>)}
+    </div>}
+    {recovery && <div className="space-y-1">
+      <Btn size="sm" disabled={pending !== null} loading={pending === "recover"} onClick={() => void recover()}>Recover download</Btn>
+      <p className="text-xs text-text-secondary">Continues the saved download when available, including final verification.</p>
     </div>}
     {notice && <p role="status" className="break-words text-sm text-status-success">{notice}</p>}
     {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}

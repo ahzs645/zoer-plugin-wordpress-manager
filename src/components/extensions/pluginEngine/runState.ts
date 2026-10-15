@@ -238,3 +238,11 @@ export function recentTransferRuns<T extends Pick<RecentRun, "runId" | "status" 
   for (const run of finished) if (endedBadly(run) && now - Date.parse(run.finishedAt ?? run.createdAt) <= PIN_FAILED_MS) shown.add(run.runId);
   return finished.filter(run => shown.has(run.runId));
 }
+
+/** Retry a timed-out inbound transfer under the same ID; never replay a publish or cleanup. */
+export function recoverableDownload(run: RecentRun): { actionId: "transfer.pull" | "transfer.local-export"; input: Record<string, unknown> } | null {
+  if (run.status !== "failed" || !/exceeded its timeout/i.test(run.error ?? "") || (run.actionId !== ENGINE_ACTIONS.pull && run.actionId !== ENGINE_ACTIONS.localExport)) return null;
+  const input = runInput(run);
+  if (input.remove || input.releaseSource || input.dryRun || input.snapshotMode || typeof input.siteId !== "string" || typeof input.pullId !== "string" || !/^[a-f0-9]{32}$/.test(input.pullId)) return null;
+  return { actionId: run.actionId as "transfer.pull" | "transfer.local-export", input: { ...input, recover: true } };
+}

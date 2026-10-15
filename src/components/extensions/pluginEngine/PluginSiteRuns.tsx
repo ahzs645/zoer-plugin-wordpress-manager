@@ -26,7 +26,7 @@ export default function PluginSiteRuns({ siteId, compact = false }: { siteId: st
   const recent = recentTransferRuns(siteRuns);
   const pinned = recent.filter(endedBadly).length;
   if (compact && !siteRuns.length) return null;
-  const card = (run: RecentRun) => <PluginRunCard key={run.runId} recent={run} siteId={siteId} title={runTitle(run)} kind={run.actionId === ENGINE_ACTIONS.push ? "push" : run.actionId === ENGINE_ACTIONS.replace ? "replace" : "other"} />;
+  const card = (run: RecentRun) => <PluginRunCard allowRecovery={!siteRuns.some(other => other.runId !== run.runId && other.createdAt > run.createdAt && runInput(other).pullId === runInput(run).pullId)} key={run.runId} recent={run} siteId={siteId} title={runTitle(run)} kind={run.actionId === ENGINE_ACTIONS.push ? "push" : run.actionId === ENGINE_ACTIONS.replace ? "replace" : "other"} />;
   return <section className="min-w-0 space-y-2" aria-label="Transfers of this site">
     <h4 className="text-sm font-semibold text-text-heading">Transfers</h4>
     {runs.isLoading && <p className="text-sm text-text-secondary">Loading transfers…</p>}

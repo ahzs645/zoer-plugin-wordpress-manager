@@ -1907,6 +1907,9 @@
             },
             "remove": {
               "type": "boolean"
+            },
+            "recover": {
+              "type": "boolean"
             }
           }
         },
@@ -1990,6 +1993,9 @@
               "type": "boolean"
             },
             "releaseSource": {
+              "type": "boolean"
+            },
+            "recover": {
               "type": "boolean"
             }
           }
