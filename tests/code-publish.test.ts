@@ -39,6 +39,28 @@ describe("portable code publication", () => {
     for (const file of ["database.sql", "wp-config.php", "wp-content/uploads/a.jpg", "wp-content/mu-plugins/local.php", "wp-content/plugins/auth/auth.php", "wp-content/plugins/example/.env", "wp-content/plugins/example/node_modules/a.js", "wp-content/plugins/example/backups/site.sql.gz", "wp-content/plugins/example/../auth/a.php"]) expect(codePathReason(file, p)).not.toBeNull();
   });
 
+  test("single-resource presets reach export validation without requiring the excluded resource", () => {
+    for (const kind of ["themes", "plugins"] as const) {
+      const excluded = kind === "themes" ? "plugins" : "themes";
+      const draft = defaultExportOptions();
+      draft.resources[excluded] = false;
+      draft[kind] = { mode: "selected", items: ["example"] };
+      const code = codeExportOptions(draft);
+      const pull = pullOptionsFrom(code);
+      const profile = pull.profile as Record<string, unknown>;
+      expect(codeExportIssue(pull)).toBeNull();
+      expect(pull.database).toBe(false);
+      expect(profile[kind]).toBe(true);
+      expect(profile[excluded]).toBe(false);
+      expect(profile[kind + "Items"]).toEqual(["example"]);
+      expect(profile[excluded + "Mode"]).toBeUndefined();
+      expect(codePathReason(`wp-content/${excluded}/example/file.php`, pull.profile)).not.toBeNull();
+      // Enabling an empty resource must still fail instead of broadening the export.
+      expect(() => pullOptionsFrom(codeExportOptions({ ...draft, [kind]: { mode: "selected", items: [] } }))).toThrow("Choose at least one");
+      expect(draft.resources.database).toBe(true);
+    }
+  });
+
   test("content checks never echo credentials and ignore the destination hostname", () => {
     const source = { url: "https://local.example", originalUrls: ["http://example.ddev.site"], abspath: "/var/www/html" };
     expect(codeContentIssue('home_url("/portal/")', source, "https://live.example")).toBeNull();

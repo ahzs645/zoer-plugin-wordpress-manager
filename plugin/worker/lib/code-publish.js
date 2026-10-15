@@ -3,9 +3,13 @@ export const CODE_EXCLUDES = ["**/.DS_Store", "**/__MACOSX/", "**/.git/", "**/.d
 
 /** Start with explicit extension choices; never infer that every installed plugin is publishable. */
 export function codeExportOptions(options) {
-  const selected = value => ({ mode: "selected", items: value?.mode === "selected" ? [...value.items] : [] });
+  // Disabled resources still pass through shared export validation. Give them a neutral
+  // selection; their false resource flag keeps them out of the actual export profile.
+  const selected = (value, enabled) => enabled
+    ? { mode: "selected", items: value?.mode === "selected" ? [...value.items] : [] }
+    : { mode: "all", items: [] };
   return { ...options, resources: { database: false, themes: options.resources.themes, plugins: options.resources.plugins, media: false, muplugins: false, core: false },
-    themes: selected(options.themes), plugins: selected(options.plugins), excludes: [...new Set([...options.excludes, ...CODE_EXCLUDES])] };
+    themes: selected(options.themes, options.resources.themes), plugins: selected(options.plugins, options.resources.plugins), excludes: [...new Set([...options.excludes, ...CODE_EXCLUDES])] };
 }
 
 /** A code publication requires a source exported without data or environment resources. */
