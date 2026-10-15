@@ -16,6 +16,7 @@ import { connectionWarnings } from "../wordpressTransfer/transferLabels";
 import type { DraftUpdate, TransferDraft } from "../wordpressTransfer/draft";
 import { guidedPushSources, pushReviewMessage } from "../publishGuidance";
 import PluginRunCard from "./PluginRunCard";
+import PluginPulls from "./PluginPulls";
 import PreviewSelection from "./PreviewSelection";
 import { defaultSelection, MAX_SELECTED_PATHS, parsePullRecord, previewExpired, previewFiles, pushSources, type PullRecord } from "./records";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
@@ -90,6 +91,7 @@ function LocalExportSource({ destinationSiteId, draft, update, guidedSourceId, c
       </>}
       {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
       {siteRuns.map(run => <PluginRunCard key={run.runId} recent={run} title="Local export" />)}
+      {site && <PluginPulls siteId={siteId} siteName={site.name} />}
     </div>
   </details>;
 }

@@ -16,7 +16,10 @@ a Git commit or repository push is not required.
    unselected when their existing live code should remain unchanged.
 3. Choose **Prepare local export**. When ready, choose that verified export as
    the source. A previous export containing database or media cannot be used in
-   code mode; prepare a new export instead.
+   code mode; prepare a new export instead. If the source export limit is reached,
+   choose **Release source staging** beside a completed local export in the same
+   panel. This removes only its temporary bridge copy, after checking the Zoer
+   download is sealed. The verified download and its catalog record stay usable.
 4. Choose **Compare with this site**. Review new/changed paths and clear anything
    that should remain live. Files missing from the source are not deleted.
    Hidden development files, dependencies under `node_modules`, database files,

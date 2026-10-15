@@ -30,6 +30,7 @@ export interface PullRecord {
   totalBytes: number;
   createdAt: string;
   finishedAt?: string;
+  sourceReleasedAt?: string;
   engine: string;
 }
 
@@ -50,6 +51,7 @@ export function parsePullRecord(record: Raw): PullRecord | null {
     ...(num(data.skippedCount) !== undefined ? { skippedCount: num(data.skippedCount) } : {}),
     fileCount: num(data.fileCount) ?? 0, totalBytes: num(data.totalBytes) ?? 0, createdAt,
     ...(str(data.finishedAt) ? { finishedAt: str(data.finishedAt) } : {}),
+    ...(str(data.sourceReleasedAt) ? { sourceReleasedAt: str(data.sourceReleasedAt) } : {}),
     engine: str(data.engine) ?? "plugin",
   };
 }

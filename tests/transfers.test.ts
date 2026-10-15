@@ -313,6 +313,37 @@ describe("deleting a pull", () => {
     expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 })).status).toBe("succeeded");
   });
 
+  test("releasing local source staging frees a slot without deleting the verified download", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site", { singleExport: true }));
+    await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
+    const before = structuredClone(w.sets.get(`fs_${PULL}`));
+    const released = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, releaseSource: true });
+    expect((released as any).output).toMatchObject({ status: "source-released", setId: `fs_${PULL}` });
+    expect(w.sets.get(`fs_${PULL}`)).toEqual(before);
+    expect(w.catalog.records.get(`pull:${PULL}`)!.data).toMatchObject({ status: "ready", setId: `fs_${PULL}`, sourceReleasedAt: expect.any(String) });
+    expect(w.calls.some(call => call.method === "fileset.delete")).toBe(false);
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, releaseSource: true })).status).toBe("succeeded");
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 })).status).toBe("succeeded");
+  });
+
+  test("source release refuses wrong site, remote exports and unsealed downloads without cancelling anything", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
+    const before = w.ddev.invocations.length;
+    expect((await w.run("transfer.local-export", { siteId: "ddev-other", pullId: PULL, releaseSource: true })).status).toBe("failed");
+    const record = w.catalog.records.get(`pull:${PULL}`)!;
+    record.data.kind = "pull";
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, releaseSource: true })).status).toBe("failed");
+    record.data.kind = "local-export";
+    w.sets.get(`fs_${PULL}`).status = "open";
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, releaseSource: true })).status).toBe("failed");
+    expect(w.ddev.invocations.length).toBe(before);
+    expect(w.catalog.records.get(`pull:${PULL}`)!.data.status).toBe("ready");
+    expect(w.sets.sets.has(`fs_${PULL}`)).toBe(true);
+  });
+
   test("a running transfer is not deleted", async () => {
     const w = new FakeWorld();
     w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 3 }));

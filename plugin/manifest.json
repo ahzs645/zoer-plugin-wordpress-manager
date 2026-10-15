@@ -1988,6 +1988,9 @@
             },
             "remove": {
               "type": "boolean"
+            },
+            "releaseSource": {
+              "type": "boolean"
             }
           }
         },
