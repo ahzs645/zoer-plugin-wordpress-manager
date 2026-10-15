@@ -65,7 +65,7 @@ export function databaseSummary(value) {
     .map(c => ({ from: c.from, to: c.to, tables: count(c.tables) }));
   return { tables: count(value.tables), rows: count(value.rows), replacements: count(value.replacements),
     users: { mode: ["source", "exact"].includes(users.mode) ? users.mode : "local", copied: count(users.copied), meta: count(users.meta), droppedMeta: count(users.droppedMeta), roles: users.roles === "source" ? "source" : "local", loginChanged: users.loginChanged === true },
-    collations };
+    collations, ...(value.optionsPreserved === true ? { optionsPreserved: true, designPostsPreserved: count(value.designPostsPreserved) } : {}) };
 }
 
 function validName(value, max) {
@@ -83,6 +83,13 @@ export async function startCopy(input, ctx) {
   const copyId = input.copyId ?? runHex(request);
   if (!HEX32.test(copyId)) fail("A valid copy request ID is required.");
   const state = { v: 1, kind: "copy", copyId, siteId: input.siteId, phase: "pulling", dryRun: input.dryRun === true, users: userMode(input.users), fileOffset: 0, startedAt: new Date(now()).toISOString() };
+  if (input.scope !== undefined && !["complete", "database"].includes(input.scope)) fail("Choose a complete or database-only refresh.");
+  if (input.keepLocalDesign !== undefined && typeof input.keepLocalDesign !== "boolean") fail("Choose whether to keep local pages and blocks.");
+  if (input.scope === "database") {
+    if (!input.replaceSiteId) fail("Database-only refresh requires an existing linked local copy.");
+    state.scope = "database";
+    state.keepLocalDesign = input.keepLocalDesign === true;
+  } else if (input.keepLocalDesign === true) fail("Keeping local pages and blocks requires a database-only refresh.");
   if (input.replaceSiteId !== undefined && input.replaceSiteId !== null) {
     if (typeof input.replaceSiteId !== "string" || !input.replaceSiteId.startsWith("ddev-")) fail("Choose a local DDEV copy to refresh.");
     if (state.dryRun) fail("A dry run creates its own scratch site; refresh an existing copy without a dry run.");
@@ -104,7 +111,9 @@ export async function startCopy(input, ctx) {
     state.setId = input.pullSetId;
     state.phase = "checking";
   } else {
-    state.pull = await pullSpec("pull").start({ siteId: input.siteId, pullId: copyId, exportOptions: defaultExportOptions() }, ctx);
+    const exportOptions = defaultExportOptions();
+    if (state.scope === "database") for (const key of Object.keys(exportOptions.resources)) exportOptions.resources[key] = key === "database";
+    state.pull = await pullSpec("pull").start({ siteId: input.siteId, pullId: copyId, exportOptions }, ctx);
     state.pullOwned = true;
   }
   return state;
@@ -132,10 +141,13 @@ async function checkCopySource(state, ctx) {
   const database = pull.options?.database;
   if (database && typeof database === "object" && Array.isArray(database.tables)) fail("Create a Pull with every database table before creating a local copy.");
   const profile = pull.options?.profile ?? {};
-  if (!pull.source || !database || !["themes", "plugins", "media"].every(k => profile[k] === true) || !hasOnlyMacMetadataExclusions(profile.excludes ?? []) || profile.core || profile.muplugins) {
+  if (state.scope === "database") {
+    if (!pull.source || !database || ["themes", "plugins", "media", "core", "muplugins"].some(k => profile[k]) || (typeof database === "object" && database.postTypes)) fail("Choose a database-only Pull with all post types for this refresh.");
+  } else if (!pull.source || !database || !["themes", "plugins", "media"].every(k => profile[k] === true) || !hasOnlyMacMetadataExclusions(profile.excludes ?? []) || profile.core || profile.muplugins) {
     fail("Create a complete database, themes, plugins and media Pull before creating a local copy. Only Mac metadata exclusions (**/.DS_Store and **/__MACOSX/) are supported.");
   }
   const entries = await listEntries(host, state.setId);
+  if (state.scope === "database" && (entries.length !== 1 || entries[0].path !== "database.sql")) fail("Database-only refresh cannot place source files on the local site.");
   let dbIndex = -1;
   for (const [index, f] of entries.entries()) {
     if (f.path === "database.sql") { dbIndex = index; continue; }
@@ -310,7 +322,9 @@ export async function stepCopy(state, input, ctx) {
       let created;
       try { created = await runtime(host, "backup.create.v1", state.targetId, { name: `before-copy-${state.copyId.slice(0, 8)}` }); }
       catch { throw new TransferError("Could not take a recovery backup of the local copy. Nothing was replaced."); }
-      state.backup = String(created?.backup?.id ?? created?.id ?? "created").slice(0, 200);
+      const backupId = created?.manifest?.id ?? created?.backup?.id ?? created?.id;
+      if (typeof backupId !== "string" || !backupId || backupId.length > 200 || /[\r\n]/.test(backupId)) fail("The recovery backup did not return its ID. Nothing was replaced.");
+      state.backup = backupId;
     }
     state.phase = "prepare";
   }
@@ -331,16 +345,16 @@ export async function stepCopy(state, input, ctx) {
   }
   if (state.phase === "database") {
     if (ctx.timeLeft() < 60_000) return ctx.continue(state, progressOf(state));
-    const imported = await execCommand(host, state.targetId, "wordpress.copy.database", { id: state.copyId, prefix: state.prefix, sourceUrl: state.sourceUrl, targetUrl: state.targetUrl, databaseIndex: String(state.dbIndex), databaseSha256: state.dbSha256, users: state.users ?? "local" });
+    const imported = await execCommand(host, state.targetId, "wordpress.copy.database", { id: state.copyId, prefix: state.prefix, sourceUrl: state.sourceUrl, targetUrl: state.targetUrl, databaseIndex: String(state.dbIndex), databaseSha256: state.dbSha256, users: state.users ?? "local", ...(state.scope === "database" ? { scope: "database", keepLocalDesign: state.keepLocalDesign === true } : {}) });
     state.database = databaseSummary(imported?.summary);
-    state.phase = "files";
+    state.phase = state.scope === "database" ? "finish" : "files";
   }
   if (state.phase === "files") {
     if (!(await placeFiles(state, ctx))) return ctx.continue(state, progressOf(state, { done: state.fileOffset, total: state.fileCount, unit: "files" }));
     state.phase = "finish";
   }
   if (state.phase === "finish") {
-    await execCommand(host, state.targetId, "wordpress.copy.finish", { id: state.copyId, targetUrl: state.targetUrl, updateDb: state.kind === "restore" });
+    await execCommand(host, state.targetId, "wordpress.copy.finish", { id: state.copyId, targetUrl: state.targetUrl, updateDb: state.kind === "restore", ...(state.scope === "database" ? { scope: "database" } : {}) });
     state.phase = state.dryRun ? "archive" : "recording";
   }
   if (state.phase === "archive") {
@@ -357,11 +371,12 @@ export async function stepCopy(state, input, ctx) {
   const status = state.dryRun ? "dry-run" : "complete";
   const copied = state.database && state.database.users.mode !== "local" && state.database.users.copied !== null ? ` with ${state.database.users.copied.toLocaleString("en-US")} source users` : "";
   const records = [historyRecord({ kind: state.kind === "restore" ? "restore" : "local-copy", id: state.copyId, siteId: state.targetId, siteName: state.siteName, ...(state.siteId ? { sourceSiteId: state.siteId } : {}), status, startedAt: state.startedAt, finishedAt,
-    summary: state.dryRun ? `Dry run verified a scratch copy (${state.siteName})${copied}; it was moved to the trash.` : `${state.kind === "restore" ? "Backup restored" : "Local copy"} ready at ${state.targetUrl}${copied}`, runId: ctx.request.run?.id })];
+    summary: state.dryRun ? `Dry run verified a scratch copy (${state.siteName})${copied}; it was moved to the trash.` : state.scope === "database" ? `Local database refreshed at ${state.targetUrl}${copied}; code and settings retained.` : `${state.kind === "restore" ? "Backup restored" : "Local copy"} ready at ${state.targetUrl}${copied}`, runId: ctx.request.run?.id })];
   if (!state.dryRun) {
     records.push({ id: `local-copy:${state.copyId}`, kind: "local-copy", title: state.siteName, data: { v: 1, copyId: state.copyId, kind: state.kind, sourceSiteId: state.siteId ?? `backup:${state.copyId}`, pullId: state.pullId ?? null, setId: state.setId,
       targetId: state.targetId, targetUrl: state.targetUrl, name: state.siteName, siteName: state.siteName, phase: "complete", users: state.users ?? "local", ...(state.database ? { database: state.database } : {}),
       ...(state.replaceSiteId ? { replaceSiteId: state.replaceSiteId, backup: state.backup } : {}), ...(state.warnings ? { warnings: state.warnings } : {}),
+      ...(state.scope === "database" ? { scope: state.scope, keepLocalDesign: state.keepLocalDesign === true } : {}),
       createdAt: state.startedAt, finishedAt, engine: "plugin" } });
     if (state.siteId) records.push({ id: `site-link:${state.targetId}`, kind: "site-link", title: state.siteName, data: { v: 1, targetSiteId: state.targetId, sourceSiteId: state.siteId, copyId: state.copyId, createdAt: finishedAt } });
   }

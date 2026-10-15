@@ -93,9 +93,9 @@ const WIDGET = `a:1:{s:3:"url";${ser("https://example.com/a/b")}}`;
 const LOCAL_URL = "https://example.com.ddev.site";
 
 /** A fresh DDEV-like local site: one administrator, its own options and empty content tables. */
-function localSite(path: string) {
+function localSite(path: string, schemas = SCHEMAS) {
   const db = new Database(path);
-  for (const [suffix, schema] of Object.entries(SCHEMAS)) if (suffix !== "clerk_links") db.run(`CREATE TABLE wp_${suffix} ${schema.replace(/\) ENGINE=InnoDB$/, ")")}`);
+  for (const [suffix, schema] of Object.entries(schemas)) if (suffix !== "clerk_links") db.run(`CREATE TABLE wp_${suffix} ${schema.replace(/\) ENGINE=InnoDB$/, ")")}`);
   db.run("INSERT INTO wp_users VALUES (1,'admin','$local','admin','admin@example.com','')");
   db.run(`INSERT INTO wp_usermeta (user_id,meta_key,meta_value) VALUES (1,'wp_capabilities',?),(1,'wp_user_level','10'),(1,'session_tokens','local-session'),(1,'nickname','admin')`, [ADMIN_CAPS]);
   const options = [["home", LOCAL_URL], ["siteurl", LOCAL_URL], ["admin_email", "local@example.test"], ["wp_user_roles", LOCAL_ROLES], ["blog_public", "1"], ["active_plugins", "a:0:{}"], ["cron", "a:0:{}"]];
@@ -146,15 +146,15 @@ let lastStage = "";
  * Runs import-copy.php in a stage named after its copy ID, as wordpress.copy.database does, optionally
  * with other source schemas and the collations of another local server.
  */
-function importCopy(dbPath: string, prefix: string, users?: "local" | "source" | "exact", options: { schemas?: Record<string, string>; collations?: string[]; edit?: (sql: string) => string } = {}) {
+function importCopy(dbPath: string, prefix: string, users?: "local" | "source" | "exact", options: { schemas?: Record<string, string>; collations?: string[]; edit?: (sql: string) => string; data?: string; scope?: "database"; keepLocalDesign?: boolean } = {}) {
   const id = createHash("md5").update(`copy-${runs++}`).digest("hex");
   const stage = join(temp, "stage", id);
   mkdirSync(stage, { recursive: true });
   lastStage = stage;
   for (const name of ["SnapshotStream.php", "SerializedReplacement.php", "Replacement.php", "LocalCopyRules.php", "import-copy.php"]) copyFileSync(join(BUNDLE, name), join(stage, name));
-  const data = (options.edit ?? (sql => sql))(source(prefix, options.schemas));
+  const data = (options.edit ?? (sql => sql))(options.data ?? source(prefix, options.schemas));
   writeFileSync(join(stage, "0"), data);
-  writeFileSync(join(stage, "plan.json"), JSON.stringify({ id, prefix, sourceUrl: "https://example.com", targetUrl: LOCAL_URL, databaseIndex: 0, databaseSha256: createHash("sha256").update(data).digest("hex"), ...(users ? { users } : {}) }));
+  writeFileSync(join(stage, "plan.json"), JSON.stringify({ id, prefix, sourceUrl: "https://example.com", targetUrl: LOCAL_URL, databaseIndex: 0, databaseSha256: createHash("sha256").update(data).digest("hex"), ...(users ? { users } : {}), ...(options.scope ? { scope: options.scope, keepLocalDesign: options.keepLocalDesign ?? false } : {}) }));
   const out = php(`define('ABSPATH','/var/www/html/');require ${JSON.stringify(resolve("tests/fakes/wpdb.php"))};$wpdb=new FakeWpdb(${JSON.stringify(dbPath)},'wp_'${options.collations ? `,json_decode(${JSON.stringify(JSON.stringify(options.collations))})` : ""});require ${JSON.stringify(join(stage, "import-copy.php"))};`);
   expect(out).toContain("DATABASE_READY");
   return JSON.parse(readFileSync(join(stage, "database-complete.json"), "utf8"));
@@ -335,5 +335,57 @@ describe("import-copy.php", () => {
 
   test("an unknown user mode is refused", () => {
     expect(() => importCopy(join(temp, "bad.sqlite"), "wp_", "everyone" as "source")).toThrow();
+  });
+});
+
+describe("database-only development refresh", () => {
+  const schemas = { ...SCHEMAS,
+    posts: "(`ID` INTEGER PRIMARY KEY, `post_author` INTEGER, `post_content` TEXT, `guid` TEXT, `post_type` TEXT, `post_name` TEXT, `post_parent` INTEGER) ENGINE=InnoDB",
+    postmeta: "(`meta_id` INTEGER PRIMARY KEY, `post_id` INTEGER, `meta_key` TEXT, `meta_value` TEXT) ENGINE=InnoDB",
+  };
+  const data = (type = "page") => snapshot("src_", {
+    options: [{ option_id: 1, option_name: "active_plugins", option_value: "source", autoload: "yes" }],
+    posts: [
+      { ID: 1, post_author: 2, post_content: "source home", guid: "https://example.com/?p=1", post_type: type, post_name: "home", post_parent: 0 },
+      { ID: 7, post_author: 2, post_content: "new live match", guid: "https://example.com/?p=7", post_type: "lf_match", post_name: "match", post_parent: 0 },
+    ],
+    postmeta: [{ meta_id: 1, post_id: 1, meta_key: "design", meta_value: "source" }, { meta_id: 9, post_id: 7, meta_key: "match", meta_value: "live" }],
+  }, schemas);
+  function seeded(label: string) {
+    const path = join(temp, label + ".sqlite"); localSite(path, schemas);
+    const db = new Database(path);
+    db.run("INSERT INTO wp_posts VALUES (1,1,'<!-- wp:paragraph --><p>Local design</p><!-- /wp:paragraph -->','local','page','home',0)");
+    db.run("INSERT INTO wp_postmeta VALUES (1,1,'design','local'),(2,1,'_edit_lock','stale-lock')");
+    db.run("INSERT INTO wp_options (option_name,option_value,autoload) VALUES ('clerk_development_secret','local-only','no'),('timezone_string','America/Vancouver','yes')");
+    db.close(); return path;
+  }
+  test("keeps every local setting and selected design content while taking new live records", () => {
+    const path = seeded("database-design");
+    const before = new Database(path); const settings = before.query("SELECT * FROM wp_options ORDER BY option_id").all(); before.close();
+    expect(importCopy(path, "src_", undefined, { data: data(), scope: "database", keepLocalDesign: true })).toMatchObject({ optionsPreserved: true, designPostsPreserved: 1 });
+    const db = new Database(path);
+    expect(db.query("SELECT * FROM wp_options ORDER BY option_id").all()).toEqual(settings);
+    expect(db.query("SELECT post_content FROM wp_posts WHERE ID=1").get()).toEqual({ post_content: "<!-- wp:paragraph --><p>Local design</p><!-- /wp:paragraph -->" });
+    expect(db.query("SELECT post_content FROM wp_posts WHERE ID=7").get()).toEqual({ post_content: "new live match" });
+    expect(db.query("SELECT meta_value FROM wp_postmeta WHERE post_id=1").all()).toEqual([{ meta_value: "local" }]);
+    expect(db.query("SELECT meta_value FROM wp_postmeta WHERE post_id=7").all()).toEqual([{ meta_value: "live" }]); db.close();
+  });
+  test("a page ID used by a different source post type refuses cutover", () => {
+    const path = seeded("database-collision");
+    expect(() => importCopy(path, "src_", undefined, { data: data("lf_team"), scope: "database", keepLocalDesign: true })).toThrow("identities differ");
+    const db = new Database(path);
+    expect(db.query("SELECT post_type FROM wp_posts WHERE ID=1").get()).toEqual({ post_type: "page" });
+    expect(db.query("SELECT ID FROM wp_posts WHERE ID=7").get()).toBeNull(); db.close();
+  });
+  test("without design preservation, uses source page content while retaining local settings", () => {
+    const path = seeded("database-source-design");
+    expect(importCopy(path, "src_", undefined, { data: data(), scope: "database" })).toMatchObject({ optionsPreserved: true, designPostsPreserved: 0 });
+    const db = new Database(path); expect(db.query("SELECT post_content FROM wp_posts WHERE ID=1").get()).toEqual({ post_content: "source home" }); db.close();
+  });
+  test("local media missing from the source stops preservation before cutover", () => {
+    const path = seeded("database-media-collision");
+    const db = new Database(path); db.run("INSERT INTO wp_posts VALUES (8,1,'','local-image','attachment','local-image',0)"); db.close();
+    expect(() => importCopy(path, "src_", undefined, { data: data(), scope: "database", keepLocalDesign: true })).toThrow("media identities differ");
+    const after = new Database(path); expect(after.query("SELECT ID FROM wp_posts WHERE ID=8").get()).toEqual({ ID: 8 }); after.close();
   });
 });

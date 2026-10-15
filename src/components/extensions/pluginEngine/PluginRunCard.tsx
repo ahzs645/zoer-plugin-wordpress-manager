@@ -52,7 +52,7 @@ export function localCopyStages(input: Record<string, unknown>): RunStage[] {
     ...(input.replaceSiteId ? [{ label: "Recovery backup", phases: ["recovery backup"] }] : []),
     { label: "Stage verified files", phases: ["preparing", "staging files"] },
     { label: copiesUsers(input) ? "Import database and users" : "Import database", phases: ["importing database"] },
-    { label: "Place files", phases: ["placing files"] },
+    ...(input.scope === "database" ? [] : [{ label: "Place files", phases: ["placing files"] }]),
     { label: "Verify the local site", phases: ["verifying", "archiving dry-run site", "finishing"] },
   ];
 }

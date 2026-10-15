@@ -604,6 +604,35 @@ describe("copy.local", () => {
     expect(w.ddev.sites.get(targetId)!.backups).toBe(1);
   });
 
+  test("database refresh backs up, downloads only SQL and never places source code files", async () => {
+    const { w, source } = world();
+    const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    const targetId = (first as any).output.targetId;
+    const site = w.ddev.sites.get(targetId)!;
+    site.files.set("wp-content/plugins/development/plugin.php", Buffer.from("local development"));
+    const before = [...site.files].map(([p, b]) => [p, sha(b)]);
+    const calls = w.ddev.commands.length;
+    const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, replaceSiteId: targetId, scope: "database", keepLocalDesign: true, users: "source" });
+    expect(result.status).toBe("succeeded");
+    expect([...site.files].map(([p, b]) => [p, sha(b)])).toEqual(before);
+    expect(w.ddev.commands.slice(calls).map(c => c.command)).toEqual(["wordpress.copy.prepare", "wordpress.copy.database", "wordpress.copy.finish"]);
+    expect(w.ddev.commands.slice(calls).find(c => c.command === "wordpress.copy.database")!.plan).toMatchObject({ scope: "database", keepLocalDesign: true, users: "source" });
+    expect(source.exports.get(PULL2)!.files.map(f => f.path)).toEqual(["database.sql"]);
+    expect(w.catalog.records.get(`local-copy:${PULL2}`)!.data).toMatchObject({ scope: "database", keepLocalDesign: true, replaceSiteId: targetId, backup: "backup-1" });
+    expect(site.backups).toBe(1);
+  });
+
+  test("database refresh rejects new sites and complete pulls before a local write", async () => {
+    const { w } = world();
+    expect((await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop", scope: "database" }) as any).error.message).toContain("existing linked local copy");
+    expect(w.ddev.sites.size).toBe(0);
+    const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    const count = w.ddev.commands.length;
+    const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, replaceSiteId: (first as any).output.targetId, scope: "database", pullSetId: `fs_${COPY}` });
+    expect((result as any).error.message).toContain("database-only Pull");
+    expect(w.ddev.commands.length).toBe(count);
+  });
+
   test("a failed command parks the copy with its message; resume continues the same destination", async () => {
     const { w } = world();
     w.ddev.failCommand = { command: "wordpress.copy.finish", message: "Local website verification failed.", count: 1 };

@@ -2344,6 +2344,15 @@
               "type": "string",
               "pattern": "^ddev-[a-z0-9-]+$"
             },
+            "scope": {
+              "type": "string",
+              "enum": ["complete", "database"],
+              "description": "database refreshes only an existing linked local copy, keeping its files and complete local options table."
+            },
+            "keepLocalDesign": {
+              "type": "boolean",
+              "description": "For database-only refresh, retain matching local pages, block templates, navigation, styles and reusable blocks with their metadata; refuse changed identities."
+            },
             "dryRun": {
               "type": "boolean"
             },

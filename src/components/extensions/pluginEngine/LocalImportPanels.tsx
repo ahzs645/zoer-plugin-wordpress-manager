@@ -50,14 +50,14 @@ function Choice({ name, value, checked, onChange, disabled, title, description }
  * each with a one-line summary. Only the user accounts are a choice; the other panels show the
  * rules the reviewed import scripts always apply.
  */
-export default function LocalImportPanels({ id, kind, users, onUsers, sourceUrl, disabled = false }: {
-  id: string; kind: LocalImportKind; users: LocalUserMode; onUsers: (value: LocalUserMode) => void; sourceUrl?: string | null; disabled?: boolean;
+export default function LocalImportPanels({ id, kind, users, onUsers, sourceUrl, disabled = false, databaseOnly = false }: {
+  id: string; kind: LocalImportKind; users: LocalUserMode; onUsers: (value: LocalUserMode) => void; sourceUrl?: string | null; disabled?: boolean; databaseOnly?: boolean;
 }) {
   const files = FILES[kind];
   const rules = localUrlRules(sourceUrl);
   const from = kind === "copy" ? "source site" : "backup";
   return <div className="min-w-0 space-y-2">
-    <TransferPanel title="Database" summary={usersSummary(users)} defaultOpen>
+    <TransferPanel title="Database" summary={databaseOnly ? `${usersSummary(users).replace("All tables", "Other tables")} · local settings kept` : usersSummary(users)} defaultOpen>
       <fieldset className="min-w-0 space-y-2" disabled={disabled}>
         <legend className="mb-1 text-xs font-medium text-text-secondary">User accounts</legend>
         <Choice name={`local-users-${id}`} value="local" checked={users === "local"} onChange={onUsers} title="Keep only the local administrator"
@@ -67,9 +67,9 @@ export default function LocalImportPanels({ id, kind, users, onUsers, sourceUrl,
         <Choice name={`local-users-${id}`} value="exact" checked={users === "exact"} onChange={onUsers} title={`Replace with the ${from}'s users exactly`}
           description={`Like WP Migrate: the copy has exactly the ${from}'s accounts and no extra local administrator, so you sign in with the ${from}'s logins.`} />
       </fieldset>
-      {users === "source" && <p className="text-xs text-text-secondary">The local administrator is added beside the copied accounts (with a new ID or login if the {from} already uses its own). Capability keys and roles move to this site's table prefix. Zoer's Admin button keeps working.</p>}
+      {users === "source" && <p className="text-xs text-text-secondary">The local administrator is added beside the copied accounts (with a new ID or login if the {from} already uses its own). Capability keys move to this site's table prefix. {databaseOnly ? "Local role definitions are retained." : "Source role definitions are copied."} Zoer's Admin button keeps working.</p>}
       {users === "exact" && <p className="text-xs text-text-secondary">Zoer's Admin button then signs in as the {from}'s “admin” account, or as its only administrator. If neither exists, the import stops before anything is replaced and asks you to keep the local administrator. Capability keys and roles move to this site's table prefix; sessions and application passwords are removed.</p>}
-      <p className="text-xs text-text-secondary">Always: every table with the {from}'s prefix is imported into staged tables and swapped in at once. Transients are dropped; this site's address, admin e-mail and scheduled tasks are kept.</p>
+      <p className="text-xs text-text-secondary">{databaseOnly ? "The options table stays local. Other selected tables are staged and swapped in at once; the account choice above controls user tables." : `Always: every table with the ${from}'s prefix is imported into staged tables and swapped in at once. Transients are dropped; this site's address, admin e-mail and scheduled tasks are kept.`}</p>
     </TransferPanel>
     <TransferPanel title="Find & Replace" summary={`${rules.length} automatic URL rules · ${kind === "copy" ? "source" : "backup"} address → local address`}>
       <div className="min-w-0 rounded-md border border-border-muted text-xs" role="table" aria-label="Automatic URL rules">
@@ -82,16 +82,18 @@ export default function LocalImportPanels({ id, kind, users, onUsers, sourceUrl,
       </div>
       <p className="text-xs text-text-secondary">Applied in one pass, longest match first, including inside serialized and JSON data, so a replaced address is never rewritten twice. {kind === "copy" ? "" : "The backup's address is read from its database. "}Post GUIDs are left unchanged.</p>
     </TransferPanel>
-    <TransferPanel title="Files" summary={files.summary}>
+    <TransferPanel title="Files" summary={databaseOnly ? "Local files kept — no files copied" : files.summary}>
+      {databaseOnly ? <p className="text-xs text-text-secondary">Theme, plugin and media files are unchanged. New source uploads need a separate media transfer.</p> : <>
       <p className="text-xs text-text-secondary"><span className="font-medium text-text-primary">Included:</span> {files.included}</p>
       <p className="text-xs text-text-secondary"><span className="font-medium text-text-primary">Left out:</span> {files.omitted}</p>
+      </>}
     </TransferPanel>
-    <TransferPanel title="After the import" summary="Plugins inactive · mail and outgoing HTTP blocked · search engines discouraged">
+    <TransferPanel title="After the import" summary={databaseOnly ? "Active plugins kept · local outbound guard retained" : "Plugins inactive · mail and outgoing HTTP blocked · search engines discouraged"}>
       <ul className="list-disc space-y-1 pl-5 text-xs text-text-secondary">
-        <li>Every plugin starts inactive, so payment, mail and integration jobs cannot run on their own. Activate what you need.</li>
+        <li>{databaseOnly ? "Current plugin activation and theme selection are retained." : "Every plugin starts inactive, so payment, mail and integration jobs cannot run on their own. Activate what you need."}</li>
         <li>Outgoing e-mail and HTTP requests stay blocked and WordPress cron is disabled on the local site.</li>
-        <li>“Discourage search engines” is turned on, because the local site has its own reachable address.</li>
-        <li>Permalinks are rebuilt with the {kind === "copy" ? "copied" : "restored"} theme loaded, then the site must answer over HTTPS before the {kind === "copy" ? "copy" : "restore"} is marked ready.</li>
+        <li>{databaseOnly ? "The local search-engine setting and permalink rules are retained." : "“Discourage search engines” is turned on, because the local site has its own reachable address."}</li>
+        <li>{databaseOnly ? "The site must answer over HTTPS before the refresh is marked ready." : `Permalinks are rebuilt with the ${kind === "copy" ? "copied" : "restored"} theme loaded, then the site must answer over HTTPS before the ${kind === "copy" ? "copy" : "restore"} is marked ready.`}</li>
       </ul>
     </TransferPanel>
   </div>;
