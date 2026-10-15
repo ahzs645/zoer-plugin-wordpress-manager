@@ -688,7 +688,7 @@ describe("transfer.local-export", () => {
       profile: { name: "Zoer remote pull", excludes: [], themes: true, plugins: true, media: true, muplugins: false, core: false } });
     expect((result as any).output.source).toEqual({ url: "https://shop.wp.example", prefix: "wp_" });
     // The host engine's `database: true` is what the schema refuses.
-    expect(schemaIssues(EXPORT_CREATE_INPUT_SCHEMA, { ...args, database: true })).toEqual(["/database must be object"]);
+    expect(schemaIssues(EXPORT_CREATE_INPUT_SCHEMA, { ...args, database: true })).not.toEqual([]);
   });
 
   test("database filters reach the bridge as filters", async () => {
@@ -755,15 +755,19 @@ describe("transfer.local-export", () => {
     expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 })).status).toBe("succeeded");
   });
 
-  test("an export without the database is refused before anything starts", async () => {
+  test("a files-only local export never includes SQL and forwards database false", async () => {
     const w = new FakeWorld();
     w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
     const options = defaultExportOptions();
     options.resources.database = false;
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, exportOptions: options });
-    expect((result as any).error.message).toBe("Local exports include the database on this Zoer release. Select the database and start the export again.");
-    expect(w.ddev.invocations.some(i => i.operation === "export.create.v1")).toBe(false);
-    expect(w.catalog.records.get(`history:local-export:${PULL}`)!.data).toMatchObject({ status: "failed", lastError: "Local exports include the database on this Zoer release. Select the database and start the export again.", summary: "Local export: Themes, plugins, media" });
+    expect(result.status).toBe("succeeded");
+    const args=w.ddev.invocations.find(i=>i.operation==="export.create.v1")!.args;
+    expect(args.database).toBe(false);
+    expect(schemaIssues(EXPORT_CREATE_INPUT_SCHEMA,args)).toEqual([]);
+    expect((result as any).output).toMatchObject({status:"ready",fileCount:6});
+    expect(w.catalog.records.get(`pull:${PULL}`)!.data.options.database).toBe(false);
+    expect(w.sets.sets.get(`fs_${PULL}`)!.entries.some(file=>file.path==="database.sql")).toBe(false);
   });
 });
 

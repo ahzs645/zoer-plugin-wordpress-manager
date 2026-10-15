@@ -5,6 +5,9 @@ const input = lines[Symbol.asyncIterator]();
 const first = await input.next();
 if (first.done) throw new Error("Zoer runner request was missing.");
 const request = JSON.parse(first.value);
+if (request.resumable?.cancelling) {
+  process.stdout.write(JSON.stringify({ protocolVersion: "1", runId: request.run.id, ok: true, output: { resumable: "done", output: { cancelled: true } } }), () => process.exit(0));
+} else {
 const grant = request.grants.runtimes?.find((entry) => entry.alias === "wordpress_site");
 if (!grant?.ticket) throw new Error("WordPress runtime access was not granted.");
 const operation = ({
@@ -26,4 +29,6 @@ const reply = JSON.parse(replyLine.value);
 if (reply.kind !== "host-response" || reply.requestId !== requestId || !reply.ok) throw new Error(reply.error?.message || "Runtime call failed.");
 const raw = reply.result?.output ?? reply.result?.stdout ?? reply.result?.resourceId ?? reply.result?.ok ?? reply.result;
 const summary = typeof raw === "string" ? raw.slice(0, 12000) : JSON.stringify(raw).slice(0, 12000);
-process.stdout.write(JSON.stringify({ protocolVersion: "1", runId: request.run.id, ok: true, output: { ok: true, summary: summary || `${request.action.id} completed.` } }), () => process.exit(0));
+const output = { ok: true, summary: summary || `${request.action.id} completed.` };
+process.stdout.write(JSON.stringify({ protocolVersion: "1", runId: request.run.id, ok: true, output: request.resumable ? { resumable: "done", output } : output }), () => process.exit(0));
+}

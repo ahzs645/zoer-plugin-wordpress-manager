@@ -19,6 +19,7 @@ import PluginRunCard from "./PluginRunCard";
 import PreviewSelection from "./PreviewSelection";
 import { defaultSelection, MAX_SELECTED_PATHS, parsePullRecord, previewExpired, previewFiles, pushSources, type PullRecord } from "./records";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
+import { codeExportIssue, codeExportOptions, codePathReason } from "../../../../plugin/worker/lib/code-publish.js";
 
 const PREVIEW_TTL_MS = 60 * 60_000;
 const EXPORT_ACTIONS = [ENGINE_ACTIONS.localExport] as const;
@@ -34,7 +35,7 @@ function useNow(intervalMs: number) {
 }
 
 /** `transfer.local-export` of a running local DDEV site. */
-function LocalExportSource({ destinationSiteId, draft, update, guidedSourceId }: { guidedSourceId?: string; destinationSiteId: string; draft: TransferDraft; update: DraftUpdate }) {
+function LocalExportSource({ destinationSiteId, draft, update, guidedSourceId, codeOnly }: { guidedSourceId?: string; destinationSiteId: string; draft: TransferDraft; update: DraftUpdate; codeOnly: boolean }) {
   const client = useQueryClient();
   const sites = useQuery(wordpressQueries.sites()).data ?? [];
   const choices = sites.filter(site => site.provider === "ddev" && site.id !== destinationSiteId && (!guidedSourceId || site.id === guidedSourceId));
@@ -46,7 +47,8 @@ function LocalExportSource({ destinationSiteId, draft, update, guidedSourceId }:
   const active = siteRuns.some(run => !isTerminalStatus(run.status));
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
-  const options = exportOptionsForAction("push", draft.exportOptions);
+  const rawOptions = exportOptionsForAction("push", draft.exportOptions);
+  const options = codeOnly ? codeExportOptions(rawOptions) : rawOptions;
   const gate = applyExportCapabilities(options, undefined, true);
   const errors = exportOptionsErrors(gate.options);
   const seen = useRef(new Set<string>());
@@ -76,8 +78,12 @@ function LocalExportSource({ destinationSiteId, draft, update, guidedSourceId }:
       {guidedSourceId && !site && <p role="alert" className="text-status-warning">The selected local source is no longer available. Close this dialog and choose a current local site.</p>}
       {!choices.length && <p className="text-xs text-text-secondary">No local DDEV sites. Create or start one in WordPress Manager first.</p>}
       {site && <>
-        <DatabasePanel exportOptions={options} onExport={next => update(d => ({ ...d, exportOptions: next }))} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} localSource />
-        <FilesPanel action="push" options={options} onChange={next => update(d => ({ ...d, exportOptions: next }))} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} localSource />
+        {diagnostics.error && <div role="alert" className="space-y-2 text-xs text-status-error">
+          <p>Could not read the local theme/plugin inventory: {engineErrorMessage(diagnostics.error)}</p>
+          <Btn size="sm" disabled={diagnostics.isFetching} onClick={() => void diagnostics.refetch()}>Retry local inventory</Btn>
+        </div>}
+        {!codeOnly && <DatabasePanel exportOptions={options} onExport={next => update(d => ({ ...d, exportOptions: next }))} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} localSource />}
+        <FilesPanel action="push" options={options} onChange={next => update(d => ({ ...d, exportOptions: codeOnly ? codeExportOptions(next) : next }))} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} localSource codeOnly={codeOnly} defaultOpen={codeOnly} />
         {errors.map(message => <p key={message} className="text-xs text-status-error">{message}</p>)}
         <Btn variant="primary" className="w-full sm:w-auto" disabled={starting || active || errors.length > 0 || site.status !== "running"} loading={starting} onClick={() => void start()}>Prepare local export</Btn>
         {active && <p className="text-xs text-text-secondary">An export of this site is running.</p>}
@@ -118,6 +124,7 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
   const [writers, setWriters] = useState(false);
   const [starting, setStarting] = useState<"preview" | "push" | null>(null);
   const [error, setError] = useState("");
+  const [codeOnly, setCodeOnly] = useState(!!guidedSourceId);
   const now = useNow(30_000);
 
   const previewRun = useEngineRun<{ complete?: boolean; total?: number }>(preview?.runId);
@@ -128,20 +135,28 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
   useEffect(() => {
     if (!preview || !pages.data || initialized.current === preview.previewId) return;
     initialized.current = preview.previewId;
-    setSelected(new Set(defaultSelection(pages.data)));
-  }, [preview, pages.data]);
+    setSelected(new Set(defaultSelection(pages.data.filter(file => !codeOnly || !codePathReason(file.path, chosen?.options?.profile)))));
+  }, [preview, pages.data, codeOnly, chosen]);
   const previewCreated = Date.parse(previewRun.data?.createdAt ?? "");
   const expired = !!preview && Number.isFinite(previewCreated) && previewExpired({ expiresAt: new Date(previewCreated + PREVIEW_TTL_MS).toISOString() }, now);
   const previewReady = !!preview && preview.setId === setId && previewDone && !!pages.data && !expired;
 
-  const importGate = applyImportCapabilities(draft.importOptions, caps);
-  const importErrors = importOptionsErrors(draft.importOptions);
+  const requestedOptions = codeOnly ? { ...draft.importOptions, review: true, fence: "activation" as const, keepActivePlugins: true, keepActiveTheme: true,
+    createTables: false, replaceGuids: false, replacements: { automatic: false, variants: false, paths: false, custom: [] } } : draft.importOptions;
+  const importGate = applyImportCapabilities(requestedOptions, caps);
+  const importErrors = importOptionsErrors(requestedOptions);
+  const codeIssue = codeOnly && chosen ? codeExportIssue(chosen.options) : null;
+  const codeCapabilities = !codeOnly || (canCompare && caps?.reviewPause === true && caps?.lateFence === true);
+  const comparedFiles = pages.data?.map(file => {
+    const reason = codeOnly ? codePathReason(file.path, chosen?.options?.profile) : null;
+    return reason ? { ...file, state: "blocked" as const, reason } : file;
+  });
   const sourceUrl = chosen?.source?.url || chosen?.origin || null;
   const warnings = connectionWarnings(destination, { sourcePrefix: chosen?.source?.prefix ?? null }).filter(w => w.code === "prefix_mismatch" || w.code === "mixed_case_tables");
   const partialUnsupported = !!chosen && pullHasTableSubset(chosen.options) && !hasCapability(caps, "databaseFilters") && !hasCapability(caps, "createTables");
-  const comparing = compare && canCompare;
+  const comparing = (codeOnly || compare) && canCompare;
   const selectionOk = !comparing || (previewReady && selected.size > 0 && selected.size <= MAX_SELECTED_PATHS);
-  const ready = enabled && !!chosen && !busy && !partialUnsupported && selectionOk && destinationConfirmed(target, confirm) && writers && !importErrors.length && starting === null;
+  const ready = enabled && !!chosen && !busy && !partialUnsupported && !codeIssue && codeCapabilities && selectionOk && destinationConfirmed(target, confirm) && writers && !importErrors.length && starting === null;
 
   function choose(next: string) { setSetId(next); setPreview(null); setSelected(new Set()); setError(""); }
   async function startPreview() {
@@ -160,7 +175,7 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
     setStarting("push"); setError("");
     try {
       await startEngineAction(ENGINE_ACTIONS.push, {
-        siteId, setId: chosen.setId, importId: newHexId(), confirmTarget: confirm.trim(), importOptions: importGate.options,
+        siteId, setId: chosen.setId, importId: newHexId(), confirmTarget: confirm.trim(), importOptions: importGate.options, ...(codeOnly ? { codeOnly: true } : {}),
         ...(comparing && preview ? { previewId: preview.previewId, selectedPaths: [...selected] } : {}),
         ...(shared ? { replacementAccepted: true } : { wordpressOnlyWriters: true }),
         sourceSiteId: chosen.siteId, ...(dryRun ? { dryRun: true } : {}),
@@ -173,6 +188,17 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
 
   if (!enabled) return <p className="text-sm text-text-secondary">Push requires an import-capable Zoer Connect with Push permission enabled in WordPress → Tools → Zoer Connect.</p>;
   return <div className="min-w-0 space-y-5">
+    <label className="block text-sm"><span className={fieldLabelClass}>Publish mode</span>
+      <Select aria-label="Publish mode" className={selectClass("default", "w-full")} value={codeOnly ? "code" : "custom"} onChange={event => { setCodeOnly(event.target.value === "code"); choose(""); }} disabled={starting !== null}>
+        <option value="code">Code updates — keep live data</option>
+        <option value="custom">Custom transfer</option>
+      </Select>
+    </label>
+    {codeOnly && <div className="space-y-2 text-xs text-text-secondary">
+      <p>Choose only the themes and plugins to update. The destination keeps its database, uploads, login settings, must-use plugins and server configuration. Unselected plugins keep their current code.</p>
+      <p>Saved pages, block templates and styles are database content and stay unchanged. Updated code can run its own migrations; test sign-in and important pages before finishing.</p>
+      {!codeCapabilities && <p role="alert" className="text-status-warning">Update Zoer Connect on the destination to support file comparison, staged review and late activation.</p>}
+    </div>}
     <Step n={1} title="Choose the source">
       {guidedSourceId && <p className="text-sm text-text-secondary">Local source: <strong>{siteName(guidedSourceId)}</strong>. Prepare a fresh export below, then choose it from this source’s verified exports.</p>}
       <label className="block min-w-0 text-sm"><span className={fieldLabelClass}>Verified download or local export</span>
@@ -183,23 +209,24 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
       </label>
       {records.isLoading && <p className="text-xs text-text-secondary">Loading downloads…</p>}
       {records.data && !sources.length && <p className="text-xs text-text-secondary">{guidedSourceId ? "No verified exports of this local source yet. Prepare one below." : "No verified downloads of other sites yet. Pull another connected site, or export a local site below."}</p>}
-      <LocalExportSource destinationSiteId={siteId} guidedSourceId={guidedSourceId} draft={draft} update={update} />
+      <LocalExportSource destinationSiteId={siteId} guidedSourceId={guidedSourceId} draft={draft} update={update} codeOnly={codeOnly} />
+      {codeIssue && <p role="alert" className="text-xs text-status-warning">{codeIssue}</p>}
       {partialUnsupported && <p className="text-xs text-status-warning">This download contains only some tables. {REQUIRES_040} to import a partial database.</p>}
     </Step>
 
     {chosen && <Step n={2} title="What to push">
-      <CheckboxField label="Compare first and choose files" description={canCompare ? "Compares the download with this site. New and changed files start selected; files absent from the download are kept. Comparisons expire after one hour." : "Update Zoer Connect on this site to compare files before pushing. Without it, Push sends everything in the download."} checked={compare && canCompare} disabled={!canCompare} onChange={value => { setCompare(value); setError(""); }} />
+      <CheckboxField label="Compare first and choose files" description={canCompare ? "Compares the download with this site. New and changed files start selected; files absent from the download are kept. Comparisons expire after one hour." : "Update Zoer Connect on this site to compare files before pushing. Without it, Push sends everything in the download."} checked={(codeOnly || compare) && canCompare} disabled={!canCompare || codeOnly} onChange={value => { setCompare(value); setError(""); }} />
       {comparing && <div className="min-w-0 space-y-3 rounded-lg border border-border-default p-3">
         <Btn className="w-full sm:w-auto" disabled={starting !== null || busy || (!!preview && !previewRun.data) || (!!previewRun.data && !isTerminalStatus(previewRun.data.status))} loading={starting === "preview"} onClick={() => void startPreview()}>{preview ? "Compare again" : "Compare with this site"}</Btn>
         {preview && previewRun.data && !previewDone && <PluginRunCard recent={{ runId: preview.runId, actionId: ENGINE_ACTIONS.preview, status: previewRun.data.status, createdAt: previewRun.data.createdAt ?? new Date().toISOString(), input: { siteId, previewId: preview.previewId } }} title="Comparison" />}
         {previewDone && pages.isLoading && <p className="text-xs text-text-secondary">Loading the comparison…</p>}
         {pages.error && <p role="alert" className="text-sm text-status-error">Could not load the comparison: {engineErrorMessage(pages.error)}</p>}
         {expired && <p role="alert" className="text-sm text-status-warning">This comparison expired. Compare again before pushing a selection.</p>}
-        {previewReady && pages.data && <PreviewSelection files={pages.data} selected={selected} onChange={setSelected} disabled={starting !== null} />}
+        {previewReady && comparedFiles && <PreviewSelection files={comparedFiles} selected={selected} onChange={setSelected} disabled={starting !== null} />}
       </div>}
     </Step>}
 
-    {chosen && <Step n={3} title="Options">
+    {chosen && !codeOnly && <Step n={3} title="Options">
       {warnings.map(w => <p key={w.code} className="text-xs text-status-warning">{w.message}</p>)}
       <DatabasePanel importOptions={draft.importOptions} onImport={options => update(d => ({ ...d, importOptions: options }))} destinationCaps={caps} />
       <ReplacePanel options={draft.importOptions} onChange={options => update(d => ({ ...d, importOptions: options }))} caps={caps} sourceUrl={sourceUrl} destinationUrl={target} sourcePath={chosen.source?.abspath} destinationPath={destination?.wordpress?.abspath} />
@@ -208,7 +235,7 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
       {importErrors.map(message => <p key={message} className="text-xs text-status-error">{message}</p>)}
     </Step>}
 
-    {chosen && <Step n={4} title="Confirm">
+    {chosen && <Step n={codeOnly ? 3 : 4} title="Confirm">
       <CheckboxField label="Dry run" description="Plans the import against the destination and stops. Nothing is uploaded or activated." checked={dryRun} onChange={onDryRun} />
       <p className="text-xs text-text-secondary">Push does not update WordPress core, the destination's user accounts or its Zoer Connect key. Zoer asks for approval before the push starts. {pushReviewMessage(importGate.options.review, importGate.options.fence)} Every real push pauses after activation until you choose Finish or Roll back.</p>
       <ConfirmDestination target={target} value={confirm} onChange={setConfirm} shared={shared} writers={writers} onWriters={setWriters} disabled={starting !== null} />

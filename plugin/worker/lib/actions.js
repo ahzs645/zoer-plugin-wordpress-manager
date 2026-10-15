@@ -20,6 +20,8 @@ export const RESUMABLE_ACTIONS = {
  * them equal). Zoer counts all worker stdout, host calls included, against it.
  */
 export const OUTPUT_LIMITS = {
+  "site.test": 2097152,
+  "wpcli.read": 262144,
   "transfer.pull": 4194304,
   "transfer.local-export": 4194304,
   "transfer.preview": 4194304,

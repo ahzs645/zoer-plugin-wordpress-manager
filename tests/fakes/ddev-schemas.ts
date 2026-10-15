@@ -14,7 +14,7 @@ export const EXPORT_CREATE_INPUT_SCHEMA = {
     clientId: { type: "string", pattern: EXPORT_ID },
     sourceUrl: { type: "string", minLength: 8, maxLength: 2048, pattern: "^https?://[^\\s]+$" },
     profile: { type: "object" },
-    database: { type: "object" },
+    database: { anyOf: [{ type: "object" }, { const: false }] },
   },
 };
 export const EXPORT_STEP_INPUT_SCHEMA = {
@@ -44,6 +44,8 @@ const matches = (type: string, value: unknown) => type === "number" ? typeof val
 /** The subset of JSON Schema these schemas use; issues read like Zoer's (`/database must be object`). */
 export function schemaIssues(schema: any, value: unknown, path = ""): string[] {
   const at = path || "/";
+  if (schema.anyOf && !schema.anyOf.some((child:any)=>schemaIssues(child,value,path).length===0)) return [`${at} must match anyOf`];
+  if (Object.hasOwn(schema,"const") && value !== schema.const) return [`${at} must equal constant`];
   if (schema.type && !(Array.isArray(schema.type) ? schema.type : [schema.type]).some((type: string) => matches(type, value))) return [`${at} must be ${[schema.type].flat().join(" or ")}`];
   const issues: string[] = [];
   if (typeof value === "string") {

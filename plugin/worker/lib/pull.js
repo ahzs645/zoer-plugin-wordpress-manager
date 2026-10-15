@@ -78,13 +78,11 @@ export const FULL_DATABASE_FILTERS = Object.freeze({ postTypes: null, excludeRev
  * `export.create.v1` args: the body the host engine's local-export route sends to the bridge
  * (`requestLocalExport` in Zoer `backend/src/wordpress-local-export.ts`: id, sourceUrl, profile,
  * database), shaped for the operation's input schema (`EXPORT_CREATE_INPUT_SCHEMA` in Zoer
- * `backend/src/connectors/ddev.ts`), which takes `database` only as an object.
+ * `backend/src/connectors/ddev.ts`): filters are an object, false omits SQL.
  */
 export function localExportArgs(state, body) {
-  if (!body.database) fail(LOCAL_EXPORT_NEEDS_DATABASE);
   return { clientId: body.clientId, ...(state.sourceUrl ? { sourceUrl: state.sourceUrl } : {}), profile: body.profile, database: body.database === true ? { ...FULL_DATABASE_FILTERS } : body.database };
 }
-const LOCAL_EXPORT_NEEDS_DATABASE = "Local exports include the database on this Zoer release. Select the database and start the export again.";
 
 const sourceOf = (host, request, state) => state.kind === "local-export" ? localSource(host, state) : remoteSource(host, request, state);
 
@@ -145,8 +143,6 @@ export async function startPull(kind, input, ctx) {
   } else {
     const { resource } = await host.call("runtime.invoke", { alias: RUNTIME_ALIAS, operation: "runtime.inspect.v1", resourceId: input.siteId, args: {} });
     if (resource?.status !== "running") fail("Choose a running managed DDEV source.");
-    // The operation schema has no "no database" form (database must be an object).
-    if (!options.database) fail(LOCAL_EXPORT_NEEDS_DATABASE);
     state.sourceUrl = await localSiteAddress(host, input.siteId, resource);
     state.paged = false;
   }

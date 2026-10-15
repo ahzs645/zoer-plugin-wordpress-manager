@@ -7,25 +7,25 @@ import { fieldLabelClass, selectClass, textareaClass } from "@zoer/plugin-ui/con
 import { filesSummary } from "./transferLabels";
 import { ItemPicker, OptionToggle, TransferPanel, Unavailable, type PickerItem } from "./TransferPanel";
 
-function ModePicker({ kind, mode, onChange, items, disabled, loading }: { kind: "themes" | "plugins"; mode: ResourceMode; onChange: (mode: ResourceMode) => void; items: PickerItem[]; disabled: boolean; loading?: boolean }) {
+function ModePicker({ kind, mode, onChange, items, disabled, loading, codeOnly }: { kind: "themes" | "plugins"; mode: ResourceMode; onChange: (mode: ResourceMode) => void; items: PickerItem[]; disabled: boolean; loading?: boolean; codeOnly?: boolean }) {
   const [query, setQuery] = useState("");
   const noun = kind === "themes" ? "theme" : "plugin";
   return <div className="min-w-0 space-y-2">
-    <label className="block text-sm"><span className={fieldLabelClass}>{kind === "themes" ? "Themes" : "Plugins"}</span>
+    {!codeOnly && <label className="block text-sm"><span className={fieldLabelClass}>{kind === "themes" ? "Themes" : "Plugins"}</span>
       <Select aria-label={`${kind === "themes" ? "Themes" : "Plugins"} to transfer`} disabled={disabled} className={selectClass("default", "w-full")} value={mode.mode} onChange={event => onChange({ mode: event.target.value as ResourceMode["mode"], items: mode.items })}>
         <option value="all">All {kind}</option>
         <option value="active">Active {kind} only</option>
         <option value="selected">Only selected {kind}</option>
         <option value="except">All except selected {kind}</option>
       </Select>
-    </label>
+    </label>}
     {(mode.mode === "selected" || mode.mode === "except") && <ItemPicker label={kind === "themes" ? "Themes" : "Plugins"} items={items} selected={mode.items} onChange={values => onChange({ ...mode, items: values })} disabled={disabled} emptyText={loading ? `Loading ${kind}…` : `No ${noun} inventory reported.`} query={query} onQuery={setQuery} />}
   </div>;
 }
 
-export default function FilesPanel({ action, options, onChange, diagnostics, diagnosticsLoading, sourceCaps, localSource = false, defaultOpen = false }: {
+export default function FilesPanel({ action, options, onChange, diagnostics, diagnosticsLoading, sourceCaps, localSource = false, defaultOpen = false, codeOnly = false }: {
   action: TransferAction; options: ExportOptions; onChange: (options: ExportOptions) => void;
-  diagnostics?: WordPressDiagnostics | null; diagnosticsLoading?: boolean; sourceCaps?: ZoerConnectCapabilities; localSource?: boolean; defaultOpen?: boolean;
+  diagnostics?: WordPressDiagnostics | null; diagnosticsLoading?: boolean; sourceCaps?: ZoerConnectCapabilities; localSource?: boolean; defaultOpen?: boolean; codeOnly?: boolean;
 }) {
   const [excludeText, setExcludeText] = useState(options.excludes.join("\n"));
   useEffect(() => { if (parseExcludes(excludeText).join("\n") !== options.excludes.join("\n")) setExcludeText(options.excludes.join("\n")); }, [options.excludes]);
@@ -40,11 +40,11 @@ export default function FilesPanel({ action, options, onChange, diagnostics, dia
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
       <OptionToggle label="Themes" checked={r.themes} onChange={value => setResource("themes", value)} />
       <OptionToggle label="Plugins" checked={r.plugins} onChange={value => setResource("plugins", value)} />
-      <OptionToggle label="Media uploads" checked={r.media} onChange={value => setResource("media", value)} />
+      {!codeOnly && <OptionToggle label="Media uploads" checked={r.media} onChange={value => setResource("media", value)} />}
     </div>
     <Unavailable reason={(r.themes || r.plugins) ? modes : null} />
-    {r.themes && <ModePicker kind="themes" mode={options.themes} onChange={mode => onChange({ ...options, themes: mode })} items={themes} disabled={!!modes} loading={diagnosticsLoading} />}
-    {r.plugins && <ModePicker kind="plugins" mode={options.plugins} onChange={mode => onChange({ ...options, plugins: mode })} items={plugins} disabled={!!modes} loading={diagnosticsLoading} />}
+    {r.themes && <ModePicker kind="themes" mode={options.themes} onChange={mode => onChange({ ...options, themes: mode })} items={themes} disabled={!!modes} loading={diagnosticsLoading} codeOnly={codeOnly} />}
+    {r.plugins && <ModePicker kind="plugins" mode={options.plugins} onChange={mode => onChange({ ...options, plugins: mode })} items={plugins} disabled={!!modes} loading={diagnosticsLoading} codeOnly={codeOnly} />}
     {r.media && <div className="min-w-0 space-y-2">
       <label className="block text-sm"><span className={fieldLabelClass}>Media</span>
         <Select aria-label="Media to transfer" disabled={!!since} className={selectClass("default", "w-full")} value={options.media.mode} onChange={event => onChange({ ...options, media: event.target.value === "since" ? { mode: "since", since: options.media.since ?? "" } : { mode: event.target.value as "all" | "since-last" } })}>
