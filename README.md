@@ -16,6 +16,21 @@ The plugin owns the development interface and site linkage. The host supplies re
 
 ## Features
 
+Development source adds a **database-only refresh** for an existing linked DDEV
+copy, preserving its files, local settings and optionally matching saved pages and
+blocks. It takes a recovery backup and refuses design identity collisions. This
+is not part of published 0.10.1 until a new package is installed. See the
+[live-to-local refresh and code release workflow](docs/live-to-local-refresh.md).
+
+Development source also adds **Code updates — keep live data** to the existing
+Publish local changes interface. Select explicit themes/plugins, export and
+compare their files, then publish through staged review. The worker refuses
+database/media/environment resources and checks selected code for source URLs,
+source paths and known credential patterns before creating an import. It keeps
+unselected authentication integrations and destination settings. Saved block
+content requires a separate content update. This is a development feature until
+released; see the [code publication workflow](docs/code-publication.md).
+
 - Hostinger overview offers **Make a local copy**, including connector/Pull setup and the existing verified-download-to-DDEV workflow.
 - DDEV, Playground, Hostinger and Zoer Connect site inventory, previews and administrator handoffs.
 - Local WordPress creation, start/stop, rename and recoverable removal.

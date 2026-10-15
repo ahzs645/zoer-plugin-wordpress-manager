@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Copy, Download, Trash2 } from "lucide-react";
 import { Btn, useDialogs } from "@zoer/plugin-ui/controls";
-import { deletePull, downloadFileSet, engineKeys, useCatalogKind } from "../../../lib/queries/plugin-engine";
+import { deletePull, downloadFileSet, releaseLocalExportSource, engineKeys, useCatalogKind } from "../../../lib/queries/plugin-engine";
 import { pullContents } from "../../../lib/wordpress-transfer/options";
 import { formatTransferBytes } from "../wordpressPullProgress";
 import { engineErrorMessage } from "./runState";
@@ -29,6 +29,15 @@ export default function PluginPulls({ siteId, siteName, onLocalCopy }: { siteId:
       await downloadFileSet(part === "database" ? { setId: pull.setId, path: "database.sql" } : { setId: pull.setId, format: "tar.gz" },
         `${fileBase}-${pull.createdAt.slice(0, 10)}${part === "database" ? ".sql" : ".tar.gz"}`);
     } catch (caught) { setError(engineErrorMessage(caught, "Download failed.")); }
+    finally { setBusy(null); }
+  }
+  async function releaseSource(pull: PullRecord) {
+    setBusy(`${pull.pullId}:release`); setError(""); setNotice("");
+    try {
+      await releaseLocalExportSource(pull);
+      setNotice("Temporary source staging released. The verified download remains available for publishing and downloading.");
+      await client.invalidateQueries({ queryKey: engineKeys.catalog("pull") });
+    } catch (caught) { setError(engineErrorMessage(caught, "The source staging could not be released.")); }
     finally { setBusy(null); }
   }
   async function remove(pull: PullRecord) {
@@ -62,10 +71,12 @@ export default function PluginPulls({ siteId, siteName, onLocalCopy }: { siteId:
           {ready && pullHasDatabase(pull) && <Btn size="sm" className="w-full sm:w-auto" icon={<Download className="h-4 w-4" />} loading={busy === `${pull.pullId}:database`} disabled={busy !== null} onClick={() => void download(pull, "database")}>Database (.sql)</Btn>}
           {ready && <Btn size="sm" className="w-full sm:w-auto" icon={<Download className="h-4 w-4" />} loading={busy === `${pull.pullId}:archive`} disabled={busy !== null} onClick={() => void download(pull, "archive")}>Archive (.tar.gz)</Btn>}
           {ready && onLocalCopy && pull.kind === "pull" && <Btn size="sm" className="w-full sm:w-auto" icon={<Copy className="h-4 w-4" />} disabled={busy !== null} onClick={() => onLocalCopy(pull)}>Make a local copy</Btn>}
+          {ready && pull.kind === "local-export" && !pull.sourceReleasedAt && <Btn size="sm" className="w-full sm:w-auto" loading={busy === `${pull.pullId}:release`} disabled={busy !== null} onClick={() => void releaseSource(pull)}>Release source staging</Btn>}
           {pull.status !== "downloading" && <Btn size="sm" className="w-full sm:w-auto" variant="ghost" icon={<Trash2 className="h-4 w-4" />} loading={deleting} disabled={busy !== null} onClick={() => void remove(pull)}>Delete</Btn>}
         </div>
       </li>;
     })}</ul>
+    {pulls.some(pull => isReadyPull(pull) && pull.kind === "local-export" && !pull.sourceReleasedAt) && <p className="text-xs text-text-secondary">Release source staging to free a local export slot. Its verified download stays in Zoer; website files and database are unchanged.</p>}
     {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
     {notice && <p role="status" className="break-words text-sm text-status-warning">{notice}</p>}
   </section>;

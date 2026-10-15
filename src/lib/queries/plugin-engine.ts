@@ -117,6 +117,14 @@ export async function deletePull(pull: { pullId: string; siteId: string; kind: "
   throw new Error(run.error || (run.status === "cancelled" ? "The delete was declined or cancelled." : "The download could not be deleted."));
 }
 
+/** Release disposable bridge staging while preserving the verified file set and download record. */
+export async function releaseLocalExportSource(pull: { pullId: string; siteId: string }) {
+  const runId = await startEngineAction("transfer.local-export", { siteId: pull.siteId, pullId: pull.pullId, releaseSource: true });
+  const run = await waitForRun<{ status?: string; error?: { message?: string } }>(runId, { timeoutMs: 10 * 60_000 });
+  if (run.status === "succeeded" && run.output?.status === "source-released") return;
+  throw new Error(run.output?.error?.message || run.error || "The source staging could not be released.");
+}
+
 /** One run, polled every two seconds until it is terminal. */
 export function useEngineRun<T = unknown>(id: string | null | undefined) {
   return useQuery({ queryKey: engineKeys.run(id ?? ""), enabled: !!id, retry: false, queryFn: () => getRun<T>(id!),

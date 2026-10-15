@@ -128,7 +128,7 @@ export class FakeDdev {
       case "runtime.inspect.v1": { const s = this.site(input.resourceId); if (s.status === "starting" && ++s.inspections > 1) s.status = "running"; return { resource: { id: s.id, name: s.name, status: s.status, connectorId: "ddev", state: s.state } }; }
       case "runtime.create.v1": { const id = `ddev-${String(args.name).toLowerCase().replace(/[^a-z0-9-]+/g, "-")}`; this.add(id, args.name, undefined, "starting"); return { resource: { id, name: args.name, status: "starting", connectorId: "ddev", ownerPluginId: "wordpress-manager" } }; }
       case "runtime.archive.v1": { const s = this.site(input.resourceId); s.state = "archived"; return { archived: true, archivedAt: "2026-10-04T00:00:00Z", scheduledPurgeAt: "2026-10-11T00:00:00Z", recovery: "" }; }
-      case "backup.create.v1": { const s = this.site(input.resourceId); s.backups++; return { backup: { id: `backup-${s.backups}` } }; }
+      case "backup.create.v1": { const s = this.site(input.resourceId); s.backups++; return { manifest: { id: `backup-${s.backups}` } }; }
       case "export.create.v1": {
         // Zoer's driver sends the site's DDEV router address when no sourceUrl is given; the
         // bridge refuses it (a port), and Zoer reports the driver's plain Error under this code.

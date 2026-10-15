@@ -27,7 +27,9 @@ zoer_main(function (): void {
     if (!str_contains(zoer_wp(['user', 'get', $admin, '--field=roles'], $fail, 120), 'administrator')) throw new ZoerCommandError('The local administrator account is missing after the import.');
     if (($plan['updateDb'] ?? false) === true) zoer_wp(['core', 'update-db'], $fail, 600);
     // Load the restored theme's custom post types before rebuilding permalinks.
-    zoer_wp(['rewrite', 'flush', '--hard'], $fail, 300, ['--skip-plugins', '--skip-packages']);
+    // A database refresh retains the destination's complete options table and its existing
+    // plugin routes. Flushing with plugins skipped would erase their rewrite rules.
+    if (($plan['scope'] ?? 'complete') !== 'database') zoer_wp(['rewrite', 'flush', '--hard'], $fail, 300, ['--skip-plugins', '--skip-packages']);
     @unlink($stage . '/pending');
     $path = ($url['path'] ?? '') === '' ? '/' : $url['path'];
     [$code, $status] = zoer_run(['curl', '-sk', '-H', 'X-Forwarded-Proto: https', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '20', '--resolve', $url['host'] . ':443:127.0.0.1', 'https://' . $url['host'] . $path], 30);

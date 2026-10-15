@@ -18,6 +18,7 @@ test("local copy and restore runs show their stages, with a recovery backup only
   expect(stageIndex(fresh, "staging files")).toBe(3);
   expect(stageIndex(restoreStages({}), "preparing backup")).toBe(3);
   expect(stageIndex(fresh, "something else")).toBe(-1);
+  expect(localCopyStages({ replaceSiteId: "ddev-shop", scope: "database" }).map(stage => stage.label)).not.toContain("Place files");
 });
 
 test("the importer summary reads as short facts", () => {

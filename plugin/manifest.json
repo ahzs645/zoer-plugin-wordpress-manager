@@ -1,7 +1,7 @@
 {
   "id": "wordpress-manager",
   "name": "WordPress Manager",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "Independent WordPress workspace with Hostinger temporary-domain setup, safe imports, backups, transfers, update review and cache tools.",
   "author": "Zoer contributors",
   "type": "integration",
@@ -945,7 +945,16 @@
           "maxOutputBytes": 2097152,
           "maxNetworkRequests": 2
         },
-        "idempotent": true
+        "idempotent": true,
+        "resumable": {
+          "stepTimeoutMs": 60000,
+          "maxSteps": 1,
+          "maxRunHours": 1,
+          "lock": {
+            "input": "endpointId",
+            "group": "endpoint-read"
+          }
+        }
       },
       {
         "id": "hostinger.check",
@@ -1829,7 +1838,16 @@
           "maxMemoryMb": 128,
           "maxOutputBytes": 262144
         },
-        "idempotent": true
+        "idempotent": true,
+        "resumable": {
+          "stepTimeoutMs": 120000,
+          "maxSteps": 1,
+          "maxRunHours": 1,
+          "lock": {
+            "input": "siteId",
+            "group": "site-transfer"
+          }
+        }
       },
       {
         "id": "transfer.pull",
@@ -1969,6 +1987,9 @@
               "type": "boolean"
             },
             "remove": {
+              "type": "boolean"
+            },
+            "releaseSource": {
               "type": "boolean"
             }
           }
@@ -2114,6 +2135,10 @@
             },
             "dryRun": {
               "type": "boolean"
+            },
+            "codeOnly": {
+              "type": "boolean",
+              "description": "Require an explicit code-only source, completed comparison, and review before activation. Database, media and environment files are refused."
             }
           }
         },
@@ -2343,6 +2368,18 @@
             "replaceSiteId": {
               "type": "string",
               "pattern": "^ddev-[a-z0-9-]+$"
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "complete",
+                "database"
+              ],
+              "description": "database refreshes only an existing linked local copy, keeping its files and complete local options table."
+            },
+            "keepLocalDesign": {
+              "type": "boolean",
+              "description": "For database-only refresh, retain matching local pages, block templates, navigation, styles and reusable blocks with their metadata; refuse changed identities."
             },
             "dryRun": {
               "type": "boolean"

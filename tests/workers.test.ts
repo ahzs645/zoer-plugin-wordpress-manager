@@ -18,6 +18,26 @@ async function runWorker(file: string, request: any, reply: Reply) {
 }
 const runtime=(actionId:string,input:any={})=>({action:{id:actionId},input,grants:{runtimes:[{alias:"wordpress_site",ticket:"t0"}]}});
 
+test("bounded inventory reads complete one durable slice and cancellation makes no host call",async()=>{
+ const resumable={step:1,checkpoint:null,attempt:0,deadlineAt:new Date(Date.now()+120_000).toISOString()};
+ const request={...runtime("wpcli.read",{siteId:"ddev-shop",args:["plugin","list","--format=json"]}),resumable};
+ const read=await runWorker("runtime-action.js",request,()=>({ok:true,result:{stdout:'[{"name":"shop"}]'}}));
+ expect(read.code).toBe(0);
+ expect(read.calls).toHaveLength(1);
+ expect(read.calls[0].input).toMatchObject({operation:"wordpress.wp-cli.read.v1",resourceId:"ddev-shop",args:{args:request.input.args}});
+ expect(read.output.output).toEqual({resumable:"done",output:{ok:true,summary:'[{"name":"shop"}]'}});
+ const cancelled=await runWorker("runtime-action.js",{...request,resumable:{...resumable,cancelling:true}},()=>{throw new Error("No host call expected");});
+ expect(cancelled.calls).toEqual([]);
+ expect(cancelled.output.output).toEqual({resumable:"done",output:{cancelled:true}});
+ const origin="https://shop.example";
+ const grants={network:{ticket:"n0",endpoints:[{alias:"site",endpoints:[{id:"ep_1",origin,generation:"g1"}]}]}};
+ const status=await runWorker("connections.js",{action:{id:"site.test"},input:{endpointId:"ep_1"},grants,resumable},()=>({ok:true,result:{status:200,bodyBase64:Buffer.from(JSON.stringify({target:origin,version:"0.5.3",capabilities:{connectionKey:true}})).toString("base64")}}));
+ expect(status.output.output).toMatchObject({resumable:"done",output:{ok:true,version:"0.5.3"}});
+ const stopped=await runWorker("connections.js",{action:{id:"site.test"},input:{endpointId:"ep_1"},grants,resumable:{...resumable,cancelling:true}},()=>{throw new Error("No host call expected");});
+ expect(stopped.calls).toEqual([]);
+ expect(stopped.output.output).toEqual({resumable:"done",output:{cancelled:true}});
+});
+
 test("site lifecycle worker maps actions onto S9 operations and rotates tickets",async()=>{
  let n=0;const ok=(result:any)=>({ok:true,result,nextTicket:`t${++n}`});
  const create=await runWorker("site-lifecycle.js",runtime("site.create",{name:"Shop"}),()=>ok({resource:{id:"ddev-shop",name:"Shop"}}));

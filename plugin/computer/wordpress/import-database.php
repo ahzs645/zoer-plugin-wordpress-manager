@@ -15,13 +15,16 @@ zoer_main(function (): void {
     }
     $users = $plan['users'] ?? 'local';
     if (!in_array($users, ['local', 'source', 'exact'], true)) throw new ZoerCommandError('The database import plan is invalid.');
+    $scope = $plan['scope'] ?? 'complete';
+    if (!in_array($scope, ['complete', 'database'], true) || !is_bool($plan['keepLocalDesign'] ?? false)) throw new ZoerCommandError('The database import plan is invalid.');
     foreach (['SnapshotStream.php', 'SerializedReplacement.php', 'Replacement.php', 'LocalCopyRules.php', 'import-copy.php'] as $name) {
         $bytes = file_get_contents(__DIR__ . '/' . $name);
         if ($bytes === false) throw new ZoerCommandError('The import scripts are missing from the plugin package.');
         zoer_write($stage . '/' . $name, $bytes);
     }
     zoer_write($stage . '/plan.json', json_encode(['id' => $plan['id'], 'prefix' => $plan['prefix'], 'sourceUrl' => $plan['sourceUrl'], 'targetUrl' => $plan['targetUrl'],
-        'databaseIndex' => ctype_digit($source) ? (int)$source : $source, 'databaseSha256' => $plan['databaseSha256'], 'users' => $users], JSON_UNESCAPED_SLASHES));
+        'databaseIndex' => ctype_digit($source) ? (int)$source : $source, 'databaseSha256' => $plan['databaseSha256'], 'users' => $users,
+        'scope' => $scope, 'keepLocalDesign' => $scope === 'database' && ($plan['keepLocalDesign'] ?? false)], JSON_UNESCAPED_SLASHES));
     $out = zoer_wp(['eval-file', $stage . '/import-copy.php'], 'Local copy operation failed. The partial destination and private staging are retained for inspection or retry.', 1800);
     if (!str_contains($out, 'DATABASE_READY')) throw new ZoerCommandError('The local database import did not finish.');
     // The importer's summary (tables, rows, replacements, users) for the run output and catalog.

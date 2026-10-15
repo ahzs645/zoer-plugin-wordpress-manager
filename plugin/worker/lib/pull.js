@@ -78,13 +78,11 @@ export const FULL_DATABASE_FILTERS = Object.freeze({ postTypes: null, excludeRev
  * `export.create.v1` args: the body the host engine's local-export route sends to the bridge
  * (`requestLocalExport` in Zoer `backend/src/wordpress-local-export.ts`: id, sourceUrl, profile,
  * database), shaped for the operation's input schema (`EXPORT_CREATE_INPUT_SCHEMA` in Zoer
- * `backend/src/connectors/ddev.ts`), which takes `database` only as an object.
+ * `backend/src/connectors/ddev.ts`): filters are an object, false omits SQL.
  */
 export function localExportArgs(state, body) {
-  if (!body.database) fail(LOCAL_EXPORT_NEEDS_DATABASE);
   return { clientId: body.clientId, ...(state.sourceUrl ? { sourceUrl: state.sourceUrl } : {}), profile: body.profile, database: body.database === true ? { ...FULL_DATABASE_FILTERS } : body.database };
 }
-const LOCAL_EXPORT_NEEDS_DATABASE = "Local exports include the database on this Zoer release. Select the database and start the export again.";
 
 const sourceOf = (host, request, state) => state.kind === "local-export" ? localSource(host, state) : remoteSource(host, request, state);
 
@@ -117,6 +115,7 @@ async function lastMediaDate(host, siteId) {
 export async function startPull(kind, input, ctx) {
   const { host, request } = ctx;
   if (typeof input.siteId !== "string" || !input.siteId) fail("Choose a site.");
+  if (input.releaseSource === true) return startSourceRelease(kind, input, ctx);
   if (input.remove === true) return startRemoval(kind, input, ctx);
   const pullId = input.pullId ?? runHex(request);
   if (!HEX32.test(pullId)) fail("A valid transfer request ID is required.");
@@ -145,8 +144,6 @@ export async function startPull(kind, input, ctx) {
   } else {
     const { resource } = await host.call("runtime.invoke", { alias: RUNTIME_ALIAS, operation: "runtime.inspect.v1", resourceId: input.siteId, args: {} });
     if (resource?.status !== "running") fail("Choose a running managed DDEV source.");
-    // The operation schema has no "no database" form (database must be an object).
-    if (!options.database) fail(LOCAL_EXPORT_NEEDS_DATABASE);
     state.sourceUrl = await localSiteAddress(host, input.siteId, resource);
     state.paged = false;
   }
@@ -322,6 +319,27 @@ async function download(state, ctx, source) {
 // site accepts the next one ("Cancel an existing export before starting another.").
 // ---------------------------------------------------------------------------------------------
 
+/** Release only a verified local export's disposable bridge staging. The sealed download stays. */
+async function startSourceRelease(kind, input, ctx) {
+  if (kind !== "local-export" || input.remove === true || !HEX32.test(input.pullId ?? "")) fail("Choose a verified local export.");
+  const record = await readRecord(ctx.host, `pull:${input.pullId}`);
+  const data = record?.data;
+  if (!data || data.kind !== kind || data.siteId !== input.siteId || data.status !== "ready" || !data.setId) fail("Choose a verified local export of this site.");
+  const set = await describeSet(ctx.host, data.setId);
+  if (set?.status !== "sealed") fail("Keep a verified download before releasing its source staging.");
+  return { v: 1, kind, siteId: input.siteId, pullId: input.pullId, setId: data.setId, phase: "releasing-source" };
+}
+
+async function stepSourceRelease(state, ctx) {
+  // Revalidate on replay and just before cancellation; never remove the file set or its record.
+  await startSourceRelease(state.kind, state, ctx);
+  const remote = await removeRemoteExport(state, ctx);
+  if (!remote.removed) fail(remote.error || "The local source staging could not be released.");
+  const record = await readRecord(ctx.host, `pull:${state.pullId}`);
+  await commitRecords(ctx.host, [{ ...record, data: { ...record.data, sourceReleasedAt: new Date(ctx.now()).toISOString() } }]);
+  return ctx.done({ pullId: state.pullId, status: "source-released", setId: state.setId, summary: "Temporary source staging released; the verified download is still available." }, { phase: "done" });
+}
+
 async function startRemoval(kind, input, ctx) {
   const { host } = ctx;
   if (!HEX32.test(input.pullId ?? "")) fail("A valid transfer request ID is required.");
@@ -368,6 +386,7 @@ async function stepRemoval(state, ctx) {
 
 export async function stepPull(state, input, ctx) {
   const { host } = ctx;
+  if (state.phase === "releasing-source") return stepSourceRelease(state, ctx);
   if (state.phase === "removing") return stepRemoval(state, ctx);
   const source = sourceOf(host, ctx.request, state);
   if (state.phase === "preparing") {
@@ -410,7 +429,7 @@ export async function stepPull(state, input, ctx) {
 
 /** Cleanup slice after a cancel: the remote export and the local partial set go, like the host engine's cancel. */
 export async function cancelPull(state, input, ctx) {
-  if (!state) return;
+  if (!state || state.phase === "releasing-source") return;
   const { host } = ctx;
   if (state.phase !== "recording") await deleteSet(host, state.setId).catch(() => {});
   if (state.remoteCreated) await sourceOf(host, ctx.request, state).remove(state.pullId).catch(() => {});
@@ -436,7 +455,7 @@ async function cleanUpFailedPull(state, ctx, error) {
 }
 
 export async function failedPull(kind, state, input, ctx, error) {
-  if (input.remove === true || state?.phase === "removing") return; // a delete is not a transfer
+  if (input.releaseSource === true || state?.phase === "releasing-source" || input.remove === true || state?.phase === "removing") return; // a delete is not a transfer
   if (state) await cleanUpFailedPull(state, ctx, error);
   const startedAt = state?.startedAt ?? new Date(ctx.now()).toISOString();
   const options = state?.options ?? (() => { try { return pullOptionsFrom(input.exportOptions); } catch { return null; } })();

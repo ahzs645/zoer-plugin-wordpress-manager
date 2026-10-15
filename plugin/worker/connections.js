@@ -28,7 +28,8 @@ async function fetchThroughHost(url, auth) {
   try { body = JSON.parse(Buffer.from(response.result.bodyBase64 || "", "base64").toString("utf8")); } catch { /* not JSON */ }
   return { status: response.result.status, body };
 }
-const done = (output) => process.stdout.write(JSON.stringify({ protocolVersion: "1", runId: request.run.id, ok: true, output }), () => process.exit(0));
+// A bounded read uses the site's durable lock instead of reserving the whole dispatcher.
+const done = (output) => process.stdout.write(JSON.stringify({ protocolVersion: "1", runId: request.run.id, ok: true, output: request.resumable ? { resumable: "done", output } : output }), () => process.exit(0));
 const trim = (value) => String(value).replace(/\/+$/, "");
 
 /** The checks Zoer applied to a pasted connection (target, version, connection key). */
@@ -61,7 +62,8 @@ function diagnosticsResult(answer) {
   return { ok: true, summary: `Diagnostics read · ${tables} table${tables === 1 ? "" : "s"}.`, diagnostics };
 }
 
-if (request.action.id === "site.test") {
+if (request.resumable?.cancelling) done({ cancelled: true });
+else if (request.action.id === "site.test") {
   const endpoint = (network.endpoints ?? []).flatMap((entry) => entry.alias === "site" ? entry.endpoints : []).find((entry) => entry.id === request.input.endpointId);
   const auth = endpoint && { type: "endpoint", endpointId: endpoint.id, generation: endpoint.generation };
   if (!endpoint) done({ ok: false, summary: "This site's connection was removed. Add the site again." });

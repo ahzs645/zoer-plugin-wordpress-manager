@@ -33,6 +33,8 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   const [mode, setMode] = useState<"new" | "refresh">("new");
   const [name, setName] = useState(siteName ? `${siteName} local`.slice(0, 60) : "");
   const [replaceSiteId, setReplaceSiteId] = useState("");
+  const [scope, setScope] = useState<"database" | "complete">("database");
+  const [keepLocalDesign, setKeepLocalDesign] = useState(true);
   const [dryRun, setDryRun] = useState(false);
   const [users, setUsers] = useState<LocalUserMode>("local");
   const [starting, setStarting] = useState(false);
@@ -60,6 +62,7 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
       await startEngineAction(ENGINE_ACTIONS.copy, {
         siteId, copyId: newHexId(),
         ...(refresh ? { replaceSiteId } : { name: name.trim() }),
+        ...(refresh ? { scope, ...(scope === "database" ? { keepLocalDesign } : {}) } : {}),
         ...(pull?.setId ? { pullSetId: pull.setId } : {}),
         ...(dryRun && !refresh ? { dryRun: true } : {}),
         ...(users !== "local" ? { users } : {}),
@@ -71,7 +74,7 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
 
   return <section className="min-w-0 space-y-3 rounded-lg border border-border-default p-3" aria-label="Local copies">
     <h3 className="font-medium">Local copy</h3>
-    <p className="text-xs text-text-secondary">Creates or refreshes a separate DDEV site from {pull ? `the download of ${new Date(pull.createdAt).toLocaleString()}` : "a new complete pull of this site"}. Plugins start inactive; scheduled tasks and outgoing mail/HTTP requests stay disabled. You can close this dialog while it runs.</p>
+    <p className="text-xs text-text-secondary">Creates or refreshes a separate DDEV site from {pull ? `the download of ${new Date(pull.createdAt).toLocaleString()}` : "a new pull of this site"}. Local mail and external requests stay blocked. You can close this dialog while it runs.</p>
     {pull && onClearPull && <Btn size="sm" variant="ghost" onClick={onClearPull}>Pull again instead</Btn>}
     {!available && <p role="status" className="text-sm text-status-warning">{connectors.isLoading ? "Checking local WordPress availability…" : ddev?.unavailableReason || "DDEV is unavailable. Complete server setup before creating a local copy."}</p>}
     <form onSubmit={start} className="min-w-0 space-y-3">
@@ -83,7 +86,7 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
         </label>
         <label className={`flex min-h-11 items-start gap-2.5 rounded-md border border-border-default px-3 py-2.5 text-[13px] ${candidates.length ? "" : "opacity-60"}`}>
           <input type="radio" name={`plugin-copy-mode-${siteId}`} className={`${radioClass} mt-0.5`} checked={refresh} disabled={!candidates.length} onChange={() => setMode("refresh")} />
-          <span><span className="block text-text-primary">Refresh an earlier local copy</span><span className="block text-[12px] text-text-muted">{candidates.length ? "Replaces its files and database. Its local administrator account is kept." : "No local copy of this site yet."}</span></span>
+          <span><span className="block text-text-primary">Refresh an earlier local copy</span><span className="block text-[12px] text-text-muted">{candidates.length ? "Choose database only to keep development code and local settings." : "No local copy of this site yet."}</span></span>
         </label>
       </fieldset>
       {refresh
@@ -94,7 +97,19 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
           </Select>
         </label>
         : <label className="block"><span className={fieldLabelClass}>Local site name</span><input className={controlClass("default", "text-base sm:text-[14px]")} value={name} maxLength={60} onChange={event => setName(event.target.value)} required disabled={starting || !available} /></label>}
-      <LocalImportPanels id={siteId} kind="copy" users={users} onUsers={setUsers} sourceUrl={sourceUrl} disabled={starting || !available} />
+      <LocalImportPanels id={siteId} kind="copy" users={users} onUsers={setUsers} sourceUrl={sourceUrl} databaseOnly={refresh && scope === "database"} disabled={starting || !available} />
+      {refresh && <div className="space-y-3">
+        <label className="block"><span className={fieldLabelClass}>Refresh contents</span>
+          <Select aria-label="Refresh contents" className={selectClass("default", "w-full")} value={scope} onChange={event => setScope(event.target.value as "database" | "complete")} disabled={starting || !available}>
+            <option value="database">Database only — keep development code and settings</option>
+            <option value="complete">Complete site — replace files and database</option>
+          </Select>
+        </label>
+        {scope === "database" ? <>
+          <p className="text-xs text-text-secondary">Replaces league records and other database tables. Keeps local settings, credentials, active plugins, theme and site address. Requires a database-only download.</p>
+          <CheckboxField label="Keep local pages and block content" description="Retains matching local pages, templates, navigation and styles. New or conflicting local page identities stop the refresh for review." checked={keepLocalDesign} onChange={setKeepLocalDesign} disabled={starting || !available} />
+        </> : <p className="text-xs text-status-warning">Replaces local theme and plugin files and saved content. Plugins start inactive.</p>}
+      </div>}
       {refresh && <p className="text-xs text-text-secondary">{users === "source" ? "The refresh replaces the copy's accounts with the source's; its local administrator is kept and marked so later refreshes find it."
         : users === "exact" ? "The refresh replaces the copy's accounts with exactly the source's, including its local administrator." : "The copy keeps the accounts it has now."}</p>}
       <CheckboxField label="Dry run" description={refresh ? "Not available when refreshing an existing copy." : "Builds a scratch site named zoer-dryrun-…, verifies the import and archives the scratch site. Your sites are unchanged."} checked={dryRun && !refresh} onChange={setDryRun} disabled={refresh || starting} />

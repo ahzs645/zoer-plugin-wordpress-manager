@@ -313,6 +313,37 @@ describe("deleting a pull", () => {
     expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 })).status).toBe("succeeded");
   });
 
+  test("releasing local source staging frees a slot without deleting the verified download", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site", { singleExport: true }));
+    await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
+    const before = structuredClone(w.sets.get(`fs_${PULL}`));
+    const released = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, releaseSource: true });
+    expect((released as any).output).toMatchObject({ status: "source-released", setId: `fs_${PULL}` });
+    expect(w.sets.get(`fs_${PULL}`)).toEqual(before);
+    expect(w.catalog.records.get(`pull:${PULL}`)!.data).toMatchObject({ status: "ready", setId: `fs_${PULL}`, sourceReleasedAt: expect.any(String) });
+    expect(w.calls.some(call => call.method === "fileset.delete")).toBe(false);
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, releaseSource: true })).status).toBe("succeeded");
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 })).status).toBe("succeeded");
+  });
+
+  test("source release refuses wrong site, remote exports and unsealed downloads without cancelling anything", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL });
+    const before = w.ddev.invocations.length;
+    expect((await w.run("transfer.local-export", { siteId: "ddev-other", pullId: PULL, releaseSource: true })).status).toBe("failed");
+    const record = w.catalog.records.get(`pull:${PULL}`)!;
+    record.data.kind = "pull";
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, releaseSource: true })).status).toBe("failed");
+    record.data.kind = "local-export";
+    w.sets.get(`fs_${PULL}`).status = "open";
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, releaseSource: true })).status).toBe("failed");
+    expect(w.ddev.invocations.length).toBe(before);
+    expect(w.catalog.records.get(`pull:${PULL}`)!.data.status).toBe("ready");
+    expect(w.sets.sets.has(`fs_${PULL}`)).toBe(true);
+  });
+
   test("a running transfer is not deleted", async () => {
     const w = new FakeWorld();
     w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 3 }));
@@ -604,6 +635,35 @@ describe("copy.local", () => {
     expect(w.ddev.sites.get(targetId)!.backups).toBe(1);
   });
 
+  test("database refresh backs up, downloads only SQL and never places source code files", async () => {
+    const { w, source } = world();
+    const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    const targetId = (first as any).output.targetId;
+    const site = w.ddev.sites.get(targetId)!;
+    site.files.set("wp-content/plugins/development/plugin.php", Buffer.from("local development"));
+    const before = [...site.files].map(([p, b]) => [p, sha(b)]);
+    const calls = w.ddev.commands.length;
+    const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, replaceSiteId: targetId, scope: "database", keepLocalDesign: true, users: "source" });
+    expect(result.status).toBe("succeeded");
+    expect([...site.files].map(([p, b]) => [p, sha(b)])).toEqual(before);
+    expect(w.ddev.commands.slice(calls).map(c => c.command)).toEqual(["wordpress.copy.prepare", "wordpress.copy.database", "wordpress.copy.finish"]);
+    expect(w.ddev.commands.slice(calls).find(c => c.command === "wordpress.copy.database")!.plan).toMatchObject({ scope: "database", keepLocalDesign: true, users: "source" });
+    expect(source.exports.get(PULL2)!.files.map(f => f.path)).toEqual(["database.sql"]);
+    expect(w.catalog.records.get(`local-copy:${PULL2}`)!.data).toMatchObject({ scope: "database", keepLocalDesign: true, replaceSiteId: targetId, backup: "backup-1" });
+    expect(site.backups).toBe(1);
+  });
+
+  test("database refresh rejects new sites and complete pulls before a local write", async () => {
+    const { w } = world();
+    expect((await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop", scope: "database" }) as any).error.message).toContain("existing linked local copy");
+    expect(w.ddev.sites.size).toBe(0);
+    const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    const count = w.ddev.commands.length;
+    const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, replaceSiteId: (first as any).output.targetId, scope: "database", pullSetId: `fs_${COPY}` });
+    expect((result as any).error.message).toContain("database-only Pull");
+    expect(w.ddev.commands.length).toBe(count);
+  });
+
   test("a failed command parks the copy with its message; resume continues the same destination", async () => {
     const { w } = world();
     w.ddev.failCommand = { command: "wordpress.copy.finish", message: "Local website verification failed.", count: 1 };
@@ -659,7 +719,7 @@ describe("transfer.local-export", () => {
       profile: { name: "Zoer remote pull", excludes: [], themes: true, plugins: true, media: true, muplugins: false, core: false } });
     expect((result as any).output.source).toEqual({ url: "https://shop.wp.example", prefix: "wp_" });
     // The host engine's `database: true` is what the schema refuses.
-    expect(schemaIssues(EXPORT_CREATE_INPUT_SCHEMA, { ...args, database: true })).toEqual(["/database must be object"]);
+    expect(schemaIssues(EXPORT_CREATE_INPUT_SCHEMA, { ...args, database: true })).not.toEqual([]);
   });
 
   test("database filters reach the bridge as filters", async () => {
@@ -726,15 +786,19 @@ describe("transfer.local-export", () => {
     expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 })).status).toBe("succeeded");
   });
 
-  test("an export without the database is refused before anything starts", async () => {
+  test("a files-only local export never includes SQL and forwards database false", async () => {
     const w = new FakeWorld();
     w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
     const options = defaultExportOptions();
     options.resources.database = false;
     const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, exportOptions: options });
-    expect((result as any).error.message).toBe("Local exports include the database on this Zoer release. Select the database and start the export again.");
-    expect(w.ddev.invocations.some(i => i.operation === "export.create.v1")).toBe(false);
-    expect(w.catalog.records.get(`history:local-export:${PULL}`)!.data).toMatchObject({ status: "failed", lastError: "Local exports include the database on this Zoer release. Select the database and start the export again.", summary: "Local export: Themes, plugins, media" });
+    expect(result.status).toBe("succeeded");
+    const args=w.ddev.invocations.find(i=>i.operation==="export.create.v1")!.args;
+    expect(args.database).toBe(false);
+    expect(schemaIssues(EXPORT_CREATE_INPUT_SCHEMA,args)).toEqual([]);
+    expect((result as any).output).toMatchObject({status:"ready",fileCount:6});
+    expect(w.catalog.records.get(`pull:${PULL}`)!.data.options.database).toBe(false);
+    expect(w.sets.sets.get(`fs_${PULL}`)!.entries.some(file=>file.path==="database.sql")).toBe(false);
   });
 });
 

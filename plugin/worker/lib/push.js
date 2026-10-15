@@ -10,6 +10,7 @@ import { HEX32, pullOfSet, runHex } from "./pull.js";
 import { connectRefusal, normalizeConnectUrl, NOT_ACCEPTED } from "./files.js";
 import { fail, isTransient, OUTPUT_RESERVE, stopIfPaused, TransferError } from "./slices.js";
 import { connectClient, parseStatus, siteEndpoint } from "./zoer-connect.js";
+import { codeContentIssue, codeExportIssue, codePathReason } from "./code-publish.js";
 
 const PREVIEW_BATCH = 20;
 const PREVIEW_PAGE = 400;
@@ -147,6 +148,11 @@ export async function startPush(kind, input, ctx) {
   if (input.wordpressOnlyWriters !== true && input.replacementAccepted !== true) fail(kind === "replace" ? "Confirm the destination replacement policy." : "Choose a different source and confirm the destination replacement policy.");
   checkTarget(input, endpoint);
   const state = { v: 1, kind, siteId: input.siteId, importId, generation: endpoint.generation, phase: "creating", dryRun: input.dryRun === true, startedAt: new Date(now()).toISOString() };
+  if (input.codeOnly !== undefined && typeof input.codeOnly !== "boolean") fail("Choose a valid publishing mode.");
+  if (input.codeOnly === true) {
+    if (kind !== "push" || !input.previewId) fail("Code updates require a completed file comparison.");
+    state.codeOnly = true;
+  }
   if (kind === "replace") {
     state.options = validateImportOptions(input.importOptions, { requireCustom: true });
     state.tables = validateTableSuffixes(input.tables) ?? null;
@@ -174,6 +180,12 @@ async function buildManifest(state, input, status, ctx) {
     return { manifest: { kind: "replace", id: state.importId, target: status.target, ...policy(status, input), options: replaceOptionsToPlugin(state.options, caps, state.tables ?? undefined) }, order: [], caps, warnings: [] };
   }
   const { pull } = await pullOfSet(host, state.setId);
+  if (state.codeOnly) {
+    const issue = codeExportIssue(pull.options);
+    if (issue) fail(issue);
+    if (caps.selectivePush !== true || caps.reviewPause !== true || caps.lateFence !== true || !state.previewId) fail("Code updates require file comparison, staged review and late activation on the destination.");
+    if (state.options.review !== true || state.options.fence !== "activation") fail("Code updates require review before activation.");
+  }
   const entries = await listEntries(host, state.setId, { includeBlocks: true });
   let selected = entries.map((entry, index) => ({ ...entry, index }));
   let reviewed = null;
@@ -191,6 +203,10 @@ async function buildManifest(state, input, status, ctx) {
   }
   // Files Zoer Connect refuses would fail the whole import; they stay out of it, reported up front.
   const skipped = [];
+  if (state.codeOnly) for (const file of selected) {
+    const reason = codePathReason(file.path, pull.options.profile);
+    if (reason) fail(`Code updates exclude ${file.path}: ${reason}.`);
+  }
   selected = selected.filter(f => { const reason = f.path === "database.sql" ? null : connectRefusal(f.path); if (reason) skipped.push({ path: f.path, reason }); return !reason; });
   const database = pull.options?.database;
   const partialDatabase = selected.some(f => f.path === "database.sql") && !!database && typeof database === "object" && Array.isArray(database.tables);
@@ -214,7 +230,33 @@ async function buildManifest(state, input, status, ctx) {
     resources: reviewed ? { ...pullProfile(pull.options.profile), plugins: false, themes: false } : pullProfile(pull.options.profile),
     ...(pluginOptions ? { options: pluginOptions } : {}), ...(pluginOptions?.replacements?.paths && abspath ? { sourcePath: abspath } : {}),
   };
-  return { manifest, order: ordered.map(f => f.index), caps, warnings, skipped, sourceTables: Array.isArray(pull.source?.tables) ? pull.source.tables : null, totalBytes: ordered.reduce((sum, f) => sum + f.bytes, 0) };
+  return { manifest, order: ordered.map(f => f.index), caps, warnings, skipped, source: pull.source, sourceTables: Array.isArray(pull.source?.tables) ? pull.source.tables : null, totalBytes: ordered.reduce((sum, f) => sum + f.bytes, 0) };
+}
+
+/** Bounded, resumable reads of sealed source bytes before any destination import is created. */
+async function checkCodeContent(state, built, digest, ctx) {
+  if (state.codeCheckDigest && state.codeCheckDigest !== digest) fail("The reviewed code plan changed during preflight. Compare again.");
+  state.codeCheckDigest = digest;
+  const files = built.manifest.files;
+  let reads = 0;
+  for (; (state.codeCursor ?? 0) < files.length; state.codeCursor = (state.codeCursor ?? 0) + 1, state.codeOffset = 0) {
+    const file = files[state.codeCursor ?? 0];
+    if (!/\.(?:php|js|mjs|cjs|css|html?|json|svg|twig|ya?ml|ini)$/i.test(file.path) || !file.bytes) continue;
+    while ((state.codeOffset ?? 0) < file.bytes) {
+      if (reads >= 40 || ctx.timeLeft() < 5_000) return false;
+      stopIfPaused(ctx);
+      // Overlap protects matches crossing a chunk boundary; no source text enters the checkpoint.
+      const offset = Math.max(0, (state.codeOffset ?? 0) - 512);
+      const { dataBase64 } = await ctx.host.call("fileset.read", { setId: state.setId, path: file.path, offset, maxBytes: 65536 });
+      const bytes = Buffer.from(dataBase64, "base64");
+      if (offset + bytes.length <= (state.codeOffset ?? 0)) fail(`The code preflight could not read ${file.path}.`);
+      const issue = codeContentIssue(bytes.toString("utf8"), built.source, built.manifest.target);
+      if (issue) fail(`Code preflight stopped at ${file.path}: ${issue}.`);
+      state.codeOffset = offset + bytes.length;
+      reads++;
+    }
+  }
+  return true;
 }
 
 /**
@@ -371,6 +413,9 @@ export async function stepPush(state, input, ctx) {
     const manifestOutput = Buffer.byteLength(body) * 4 / 3 + 4096;
     if (manifestOutput > ctx.outputLimit - OUTPUT_RESERVE - 64 * 1024) fail("The import manifest is too large for one request from this worker. Compare first and push a smaller selection.");
     const digest = createHash("sha256").update(body).digest("hex");
+    if (state.codeOnly && state.phase === "creating" && !(await checkCodeContent(state, built, digest, ctx))) {
+      return ctx.continue(state, { phase: "checking code", message: `Checking code files ${state.codeCursor ?? 0} of ${built.manifest.files.length} before publication.` });
+    }
     if (state.phase === "creating") {
       state.totalBytes = built.totalBytes ?? 0;
       state.fileCount = built.order.length;
@@ -380,7 +425,7 @@ export async function stepPush(state, input, ctx) {
         const missingTables = await missingDestinationTables(built, client);
         if (missingTables.length) built.warnings.push(`The destination has no ${missingTables.length === 1 ? "table" : "tables"} for ${missingTables.slice(0, 10).join(", ")}${missingTables.length > 10 ? ", …" : ""}. Turn on “Create missing tables”, or Zoer Connect will refuse the import.`);
         return ctx.done({ importId: state.importId, kind: state.kind, status: "dry-run", phase: "planned",
-          plan: { target: status.target, files: built.manifest.files?.length ?? 0, database: !!built.manifest.database, bytes: state.totalBytes, batchUpload: built.caps.batchUpload === true && built.order.length > 0,
+          plan: { target: status.target, ...(state.codeOnly ? { codeOnly: true } : {}), files: built.manifest.files?.length ?? 0, database: !!built.manifest.database, bytes: state.totalBytes, batchUpload: built.caps.batchUpload === true && built.order.length > 0,
             options: built.manifest.options ?? null, resources: built.manifest.resources ?? null, warnings: built.warnings, ...(built.skipped?.length ? { skipped: skippedSummary(built.skipped, 50) } : {}),
             ...(missingTables.length ? { missingTables: missingTables.slice(0, 100) } : {}) },
           summary: `Dry run: ${state.fileCount} artifacts (${state.totalBytes.toLocaleString("en-US")} bytes) would be sent to ${status.target}. Nothing was changed.` });

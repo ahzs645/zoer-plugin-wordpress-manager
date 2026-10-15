@@ -19,6 +19,8 @@ if(is_file($root.'/database-complete.json')){echo "DATABASE_READY\n";return;}
 global $wpdb;
 $prefix=$plan['prefix'];if(!preg_match('/^[A-Za-z0-9_]{1,48}$/D',$prefix))throw new RuntimeException('Invalid source prefix.');
 $mode=$plan['users']??'local';if(!in_array($mode,['local','source','exact'],true))throw new RuntimeException('Invalid user mode.');
+$scope=$plan['scope']??'complete';if(!in_array($scope,['complete','database'],true)||!is_bool($plan['keepLocalDesign']??false))throw new RuntimeException('Invalid refresh scope.');
+$databaseOnly=$scope==='database';$keepDesign=$databaseOnly&&($plan['keepLocalDesign']??false);
 $copyUsers=$mode!=='local';$keepLocalAdmin=$mode==='source';
 $source=$root.'/'.$plan['databaseIndex'];
 if(hash_file('sha256',$source)!==$plan['databaseSha256'])throw new RuntimeException('Database digest mismatch.');
@@ -42,6 +44,8 @@ while(!$cursor['done']){
  foreach($batch['records'] as $record){
   $table=$record['table'];if(!str_starts_with($table,$prefix))throw new RuntimeException('Out-of-scope source table.');
   $suffix=substr($table,strlen($prefix));if(!preg_match('/^[A-Za-z0-9_]{1,48}$/D',$suffix))throw new RuntimeException('Invalid table suffix.');
+  // The local options table owns integration credentials, activation, theme, timezone and routes.
+  if($databaseOnly&&$suffix==='options')continue;
   if(!$copyUsers&&in_array($suffix,['users','usermeta'],true))continue;
   $schema=\ZoerConnect\SnapshotStream::schema($record['schema'],$table);
   if(!$validSchema($schema))throw new RuntimeException('Unsupported source schema.');
@@ -53,7 +57,7 @@ while(!$cursor['done']){
   $schemas[$table]=$record['schema'];
  }
 }
-if(!isset($tables[$prefix.'options'],$tables[$prefix.'posts']))throw new RuntimeException('Core WordPress tables missing.');
+if(!isset($tables[$prefix.'posts'])||(!$databaseOnly&&!isset($tables[$prefix.'options'])))throw new RuntimeException('Core WordPress tables missing.');
 if($copyUsers&&!isset($tables[$prefix.'users'],$tables[$prefix.'usermeta']))throw new RuntimeException('The source has no user tables to copy.');
 file_put_contents($journal,json_encode($tables,JSON_THROW_ON_ERROR));
 foreach($tables as $t){$query('DROP TABLE IF EXISTS `'.$t['stage'].'`');$query('CREATE TABLE `'.$t['stage'].'` '.$t['schema']);}
@@ -126,6 +130,7 @@ if($copyUsers){
  if($problem!==null){fwrite(STDERR,'ZOER_ERROR: '.$problem."\n");exit(1);}
  if($mode==='exact')$localAdmin=$signIn;
 }
+if(!$databaseOnly){
 $options=$tables[$prefix.'options']['stage'];
 foreach($copiedRoles?$keep:[...$keep,$localRoles] as $key){
  $row=$wpdb->get_row($wpdb->prepare("SELECT option_name,option_value,autoload FROM `{$wpdb->options}` WHERE option_name=%s",$key),ARRAY_A);
@@ -135,7 +140,39 @@ foreach($copiedRoles?$keep:[...$keep,$localRoles] as $key){
 $wpdb->replace($options,['option_name'=>'active_plugins','option_value'=>'a:0:{}','autoload'=>'yes']);
 // The copy has a reachable address of its own: ask search engines not to index it.
 $wpdb->replace($options,['option_name'=>'blog_public','option_value'=>'0','autoload'=>'yes']);
-$summary=['tables'=>count($tables),'rows'=>$rows,'replacements'=>$replaced,'users'=>['mode'=>$mode,'copied'=>$userRows,'meta'=>$metaRows,'droppedMeta'=>$droppedMeta,'roles'=>$copiedRoles?'source':'local','loginChanged'=>$loginChanged],'localAdministrator'=>$localAdmin,'collations'=>array_values($collations)];
+}
+$designKept=0;
+if($keepDesign){
+ if(!isset($tables[$prefix.'postmeta']))throw new RuntimeException('The source is missing post metadata needed to preserve local pages.');
+ $posts=$wpdb->prefix.'posts';$meta=$wpdb->prefix.'postmeta';$stagePosts=$tables[$prefix.'posts']['stage'];$stageMeta=$tables[$prefix.'postmeta']['stage'];
+ $types="'page','wp_template','wp_template_part','wp_navigation','wp_global_styles','wp_block'";
+ // Refuse identity collisions: a new local page must be reconciled explicitly, never placed
+ // over a newer source team, player or match that happens to have the same numeric ID.
+ $ids=$wpdb->get_col("SELECT ID FROM `$posts` WHERE post_type IN ($types) ORDER BY ID");
+ if(count($ids)>10000)throw new RuntimeException('Too many local pages to preserve in one refresh.');
+ $columns=array_flip($wpdb->get_col("SHOW COLUMNS FROM `$stagePosts`"));
+ // Saved blocks can refer to local media IDs. Refuse missing/colliding attachments rather than
+ // letting an image block resolve to a new source team or match with that ID.
+ foreach($wpdb->get_results("SELECT ID,post_name FROM `$posts` WHERE post_type='attachment'",ARRAY_A) as $attachment){
+  $remote=$wpdb->get_row($wpdb->prepare("SELECT post_type,post_name FROM `$stagePosts` WHERE ID=%d",(int)$attachment['ID']),ARRAY_A);
+  if(!$remote||$remote['post_type']!=='attachment'||$remote['post_name']!==$attachment['post_name'])throw new RuntimeException('Local media identities differ from the source. Reconcile them before keeping local blocks.');
+ }
+ foreach($ids as $id){
+  $local=$wpdb->get_row($wpdb->prepare("SELECT * FROM `$posts` WHERE ID=%d",(int)$id),ARRAY_A);
+  $remote=$wpdb->get_row($wpdb->prepare("SELECT * FROM `$stagePosts` WHERE ID=%d",(int)$id),ARRAY_A);
+  if(!$local||!$remote)throw new RuntimeException('A local page or block is missing from the source. Reconcile it before refreshing.');
+  foreach(['post_type','post_name','post_parent'] as $key)if(($local[$key]??null)!==($remote[$key]??null))throw new RuntimeException('Local page or block identities differ from the source. Reconcile them before refreshing.');
+  $kept=array_intersect_key($local,$columns);$kept['post_author']=$remote['post_author'];$kept['guid']=$remote['guid'];
+  if($wpdb->replace($stagePosts,$kept)===false)throw new RuntimeException('Could not preserve local page content.');
+  $query('DELETE FROM `'.$stageMeta.'` WHERE post_id='.(int)$id);
+  foreach($wpdb->get_results($wpdb->prepare("SELECT post_id,meta_key,meta_value FROM `$meta` WHERE post_id=%d",(int)$id),ARRAY_A) as $m){
+   if(in_array($m['meta_key'],['_edit_lock','_edit_last'],true))continue;
+   if($wpdb->insert($stageMeta,$m)===false)throw new RuntimeException('Could not preserve local page metadata.');
+  }
+  $designKept++;
+ }
+}
+$summary=['tables'=>count($tables),'rows'=>$rows,'replacements'=>$replaced,'users'=>['mode'=>$mode,'copied'=>$userRows,'meta'=>$metaRows,'droppedMeta'=>$droppedMeta,'roles'=>$copiedRoles?'source':'local','loginChanged'=>$loginChanged],'localAdministrator'=>$localAdmin,'collations'=>array_values($collations),'optionsPreserved'=>$databaseOnly,'designPostsPreserved'=>$designKept];
 file_put_contents($summaryFile,json_encode($summary,JSON_THROW_ON_ERROR));
 $renames=[];foreach($tables as $t){if($t['hadOld'])$renames[]='`'.$t['target'].'` TO `'.$t['backup'].'`';$renames[]='`'.$t['stage'].'` TO `'.$t['target'].'`';}
 $query('RENAME TABLE '.implode(',',$renames));
