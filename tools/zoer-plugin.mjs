@@ -7088,6 +7088,9 @@ var BROWSER_PROVIDERS = [
   { id: "browserbase", label: "Browserbase", transport: "cdp", experimental: false },
   { id: "steel", label: "Steel", transport: "cdp", experimental: false },
   { id: "cloak", label: "CloakBrowser", transport: "cdp", experimental: false },
+  { id: "playwright", label: "Playwright Chromium", transport: "native", experimental: false },
+  { id: "playwright-firefox", label: "Playwright Firefox", transport: "native", experimental: true },
+  { id: "playwright-webkit", label: "Playwright WebKit", transport: "native", experimental: true },
   { id: "patchright", label: "Patchright", transport: "native", experimental: true },
   { id: "camoufox", label: "Camoufox", transport: "native", experimental: true },
   { id: "clearcote", label: "Clearcote", transport: "native", experimental: true }
@@ -7996,7 +7999,7 @@ function validateEndpointRequirements(manifest) {
   for (const entry of value) {
     if (!isPlainObject(entry))
       return "every required endpoint must be an object";
-    const extra = unknownKey(entry, ["alias", "purpose", "multiple", "pathPrefix", "keyHeader", "keyPattern", "maxBodyBytes", "probe", "routes"]);
+    const extra = unknownKey(entry, ["alias", "purpose", "multiple", "pathPrefix", "keyHeader", "keyPattern", "maxBodyBytes", "probe", "routes", "publicProbe"]);
     if (extra)
       return `required endpoint has unsupported field ${extra}`;
     if (typeof entry.alias !== "string" || !MANIFEST_ALIAS.test(entry.alias))
@@ -8038,6 +8041,15 @@ function validateEndpointRequirements(manifest) {
         return `${prefix} route ${String(route.path)} methods must be distinct GET, HEAD, POST, PUT, PATCH or DELETE`;
       if (!EFFECTS.includes(route.effect))
         return `${prefix} route ${String(route.path)} has an invalid effect`;
+    }
+    if (entry.publicProbe !== undefined) {
+      if (!isPlainObject(entry.publicProbe))
+        return `${prefix} publicProbe must be an object`;
+      const probeExtra = unknownKey(entry.publicProbe, ["purpose"]);
+      if (probeExtra)
+        return `${prefix} publicProbe has unsupported field ${probeExtra}`;
+      if (!isBoundedText(entry.publicProbe.purpose, 240))
+        return `${prefix} publicProbe requires a purpose of at most 240 characters`;
     }
     const probeMatch = typeof entry.probe === "string" && !entry.probe.includes("?") ? matchEndpointRequest({ pathPrefix: entry.pathPrefix, routes: entry.routes }, `${entry.pathPrefix}${entry.probe}`, "GET") : null;
     if (!probeMatch?.ok || probeMatch.route.effect !== "read")

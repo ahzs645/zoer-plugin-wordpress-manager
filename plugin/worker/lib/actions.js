@@ -3,6 +3,7 @@ import { copySpec, restoreSpec } from "./copy.js";
 import { pullSpec } from "./pull.js";
 import { controlSpec, previewSpec, pushSpec } from "./push.js";
 import { runResumable } from "./slices.js";
+import { purgeSpec, verifySpec } from "./verify.js";
 
 export const RESUMABLE_ACTIONS = {
   "transfer.pull": pullSpec("pull"),
@@ -13,6 +14,8 @@ export const RESUMABLE_ACTIONS = {
   "transfer.push.control": controlSpec,
   "copy.local": copySpec,
   "backup.restore-local": restoreSpec,
+  "publication.verify": verifySpec,
+  "publication.purge": purgeSpec,
 };
 
 /**
@@ -30,6 +33,8 @@ export const OUTPUT_LIMITS = {
   "copy.local": 4194304,
   "backup.restore-local": 4194304,
   "transfer.push.control": 1048576,
+  "publication.verify": 4194304,
+  "publication.purge": 262144,
 };
 
 /** Runs one slice (resumable actions) or one action; returns the runner output. */

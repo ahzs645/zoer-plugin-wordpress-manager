@@ -50,6 +50,8 @@ export const ENGINE_ACTIONS = {
   control: "transfer.push.control",
   copy: "copy.local",
   restore: "backup.restore-local",
+  verify: "publication.verify",
+  purge: "publication.purge",
 } as const;
 export type EngineActionId = typeof ENGINE_ACTIONS[keyof typeof ENGINE_ACTIONS];
 

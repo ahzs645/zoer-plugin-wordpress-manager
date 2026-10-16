@@ -1,7 +1,7 @@
 {
   "id": "wordpress-manager",
   "name": "WordPress Manager",
-  "version": "0.10.3",
+  "version": "0.11.0",
   "description": "Independent WordPress workspace with Hostinger temporary-domain setup, safe imports, backups, transfers, update review and cache tools.",
   "author": "Zoer contributors",
   "type": "integration",
@@ -141,8 +141,25 @@
               "POST"
             ],
             "effect": "external_write"
+          },
+          {
+            "path": "publication",
+            "methods": [
+              "GET"
+            ],
+            "effect": "read"
+          },
+          {
+            "path": "cache/purge",
+            "methods": [
+              "POST"
+            ],
+            "effect": "external_write"
           }
-        ]
+        ],
+        "publicProbe": {
+          "purpose": "After a publication, read the site's public pages and changed CSS/JS the way an anonymous visitor does (no key, cookies or query) to check they show the new publication."
+        }
       }
     ],
     "workspace": {
@@ -2507,6 +2524,120 @@
           "maxOutputBytes": 4194304
         },
         "idempotent": false
+      },
+      {
+        "id": "publication.verify",
+        "title": "Check the public website",
+        "description": "After a publication, compare the publication identity Zoer Connect expects with what anonymous visitors receive on the home page, recently changed pages and changed CSS/JS (desktop and mobile, no key, cookies or query), and save the result for this site. Rechecks with a bounded backoff after a cache purge. Never republishes or rolls back.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/transfers.js"
+        },
+        "requiredCapabilities": [
+          "network-egress"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "siteId",
+            "checkId"
+          ],
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9:._@-]{0,255}$"
+            },
+            "checkId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "importId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "setId": {
+              "type": "string",
+              "pattern": "^fs_[a-f0-9]{32}$"
+            },
+            "purgeId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "finish",
+                "recheck",
+                "after-purge"
+              ]
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "resumable": {
+          "stepTimeoutMs": 120000,
+          "maxSteps": 200,
+          "maxRunHours": 2,
+          "lock": {
+            "input": "siteId",
+            "group": "publication-check"
+          }
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 256,
+          "maxOutputBytes": 4194304,
+          "maxNetworkRequests": 60,
+          "maxNetworkResponseBytes": 4194304
+        },
+        "idempotent": false
+      },
+      {
+        "id": "publication.purge",
+        "title": "Clear WordPress caches",
+        "description": "Ask Zoer Connect to run the known WordPress cache-plugin purges and flush the object cache now, and return its per-layer receipt. Hosting and CDN caches are separate provider operations.",
+        "effect": "external_write",
+        "approval": "always",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/transfers.js"
+        },
+        "requiredCapabilities": [
+          "network-egress"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "siteId",
+            "purgeId"
+          ],
+          "properties": {
+            "siteId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9:._@-]{0,255}$"
+            },
+            "purgeId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "resourceLimits": {
+          "timeoutMs": 60000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 262144,
+          "maxNetworkRequests": 4
+        },
+        "idempotent": true
       }
     ],
     "ui": [

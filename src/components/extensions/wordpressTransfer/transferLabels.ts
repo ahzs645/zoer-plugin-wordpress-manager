@@ -1,11 +1,11 @@
 import type { ExportOptions, ImportOptions, ResourceMode, TransferAction, WordPressDiagnostics } from "../../../lib/api/types/wordpress-transfer";
 
 export const ACTION_LABELS: Record<TransferAction, { title: string; description: string }> = {
-  pull: { title: "Pull", description: "Download this site to the Zoer server to make or refresh a local copy." },
-  push: { title: "Push", description: "Replace this site's content with a local DDEV export or another connected site." },
-  replace: { title: "Find & Replace", description: "Run find & replace on this site's own database, with a review step." },
-  backup: { title: "Backup", description: "Save a database-only snapshot on the Zoer server." },
-  export: { title: "Export", description: "Pull the site, then download the database or an archive to this device." },
+  pull: { title: "Pull", description: "Download this site to make or refresh a local copy." },
+  push: { title: "Push", description: "Update this site from a local site or another download." },
+  replace: { title: "Find & Replace", description: "Search and replace in this site's database, with review." },
+  backup: { title: "Backup", description: "Save a database snapshot." },
+  export: { title: "Export", description: "Download the database or an archive to this device." },
 };
 
 const PHASES: Record<string, string> = {

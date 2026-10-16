@@ -36,7 +36,7 @@ function useNow(intervalMs: number) {
 }
 
 /** `transfer.local-export` of a running local DDEV site. */
-function LocalExportSource({ destinationSiteId, draft, update, guidedSourceId, codeOnly }: { guidedSourceId?: string; destinationSiteId: string; draft: TransferDraft; update: DraftUpdate; codeOnly: boolean }) {
+function LocalExportSource({ destinationSiteId, draft, update, guidedSourceId, codeOnly, hasExport = false }: { guidedSourceId?: string; destinationSiteId: string; draft: TransferDraft; update: DraftUpdate; codeOnly: boolean; /** A verified export of the guided source exists already. */ hasExport?: boolean }) {
   const client = useQueryClient();
   const sites = useQuery(wordpressQueries.sites()).data ?? [];
   const choices = sites.filter(site => site.provider === "ddev" && site.id !== destinationSiteId && (!guidedSourceId || site.id === guidedSourceId));
@@ -67,16 +67,15 @@ function LocalExportSource({ destinationSiteId, draft, update, guidedSourceId, c
     } catch (caught) { setError(engineErrorMessage(caught, "The export could not start.")); }
     finally { setStarting(false); }
   }
-  return <details open={guidedSourceId ? true : undefined} data-zoer-disclosure className="min-w-0 rounded-lg border border-border-default">
-    <summary className="flex min-h-11 cursor-pointer flex-col justify-center px-3 py-2"><span className="text-sm font-medium">Export a local DDEV site</span><span className="text-xs text-text-secondary">Prepare a verified export of a local site, then choose it above.</span></summary>
-    <div className="min-w-0 space-y-3 border-t border-border-muted p-3">
-      <label className="block min-w-0 text-sm"><span className={fieldLabelClass}>Local site</span>
+  const body = <>
+      {!guidedSourceId && <label className="block min-w-0 text-sm"><span className={fieldLabelClass}>Local site</span>
         <Select searchable aria-label="Local site to export" className={selectClass("default", "w-full")} value={siteId} disabled={!!guidedSourceId} onChange={event => { setSiteId(event.target.value); setError(""); }}>
           <option value="">Choose local site</option>
           {choices.map(item => <option key={item.id} value={item.id} disabled={item.status !== "running"}>{item.name}{item.status === "running" ? "" : " (start it first)"}</option>)}
         </Select>
-      </label>
-      {guidedSourceId && !site && <p role="alert" className="text-status-warning">The selected local source is no longer available. Close this dialog and choose a current local site.</p>}
+      </label>}
+      {guidedSourceId && !site && <p role="alert" className="text-status-warning">This local site is no longer available.</p>}
+      {site && site.status !== "running" && <p role="status" className="text-sm text-status-warning">Start {site.name} to export it.</p>}
       {!choices.length && <p className="text-xs text-text-secondary">No local DDEV sites. Create or start one in WordPress Manager first.</p>}
       {site && <>
         {diagnostics.error && <div role="alert" className="space-y-2 text-xs text-status-error">
@@ -86,13 +85,17 @@ function LocalExportSource({ destinationSiteId, draft, update, guidedSourceId, c
         {!codeOnly && <DatabasePanel exportOptions={options} onExport={next => update(d => ({ ...d, exportOptions: next }))} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} localSource />}
         <FilesPanel action="push" options={options} onChange={next => update(d => ({ ...d, exportOptions: codeOnly ? codeExportOptions(next) : next }))} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} localSource codeOnly={codeOnly} defaultOpen={codeOnly} />
         {errors.map(message => <p key={message} className="text-xs text-status-error">{message}</p>)}
-        <Btn variant="primary" className="w-full sm:w-auto" disabled={starting || active || errors.length > 0 || site.status !== "running"} loading={starting} onClick={() => void start()}>Prepare local export</Btn>
-        {active && <p className="text-xs text-text-secondary">An export of this site is running.</p>}
+        <Btn variant={guidedSourceId && hasExport ? undefined : "primary"} className="w-full sm:w-auto" disabled={starting || active || errors.length > 0 || site.status !== "running"} loading={starting} onClick={() => void start()}>{guidedSourceId ? (hasExport ? "Export again" : `Export ${site.name}`) : "Prepare local export"}</Btn>
+        {active && <p className="text-xs text-text-secondary">Exporting… this usually takes a minute or two.</p>}
       </>}
       {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
-      {siteRuns.map(run => <PluginRunCard key={run.runId} recent={run} title="Local export" />)}
-      {site && <PluginPulls siteId={siteId} siteName={site.name} />}
-    </div>
+      {(guidedSourceId ? siteRuns.filter(run => !isTerminalStatus(run.status) || run.status === "failed").slice(0, 1) : siteRuns).map(run => <PluginRunCard key={run.runId} recent={run} title="Local export" />)}
+      {site && !guidedSourceId && <PluginPulls siteId={siteId} siteName={site.name} />}
+  </>;
+  if (guidedSourceId) return <div className="min-w-0 space-y-3">{body}</div>;
+  return <details data-zoer-disclosure className="min-w-0 rounded-lg border border-border-default">
+    <summary className="flex min-h-11 cursor-pointer flex-col justify-center px-3 py-2"><span className="text-sm font-medium">Export a local DDEV site</span><span className="text-xs text-text-secondary">Prepare a verified export of a local site, then choose it above.</span></summary>
+    <div className="min-w-0 space-y-3 border-t border-border-muted p-3">{body}</div>
   </details>;
 }
 
@@ -117,6 +120,11 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
   const sources = guidedPushSources(pushSources((records.data ?? []).map(parsePullRecord).filter((pull): pull is PullRecord => !!pull), siteId), guidedSourceId);
   const [setId, setSetId] = useState("");
   const chosen = sources.find(pull => pull.setId === setId) ?? null;
+  // Guided (local → live): the newest export of the local site is the one to push, including one
+  // that finishes while the dialog is open, until the person picks another.
+  const picked = useRef(false);
+  const newest = guidedSourceId ? sources[0]?.setId ?? "" : "";
+  useEffect(() => { if (newest && !picked.current && newest !== setId) choose(newest); }, [newest]); // eslint-disable-line react-hooks/exhaustive-deps
   // Selective push needs Zoer Connect's file comparison on the destination.
   const canCompare = caps?.selectivePush === true;
   const [compare, setCompare] = useState(canCompare);
@@ -188,7 +196,74 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
     finally { setStarting(null); }
   }
 
-  if (!enabled) return <p className="text-sm text-text-secondary">Push requires an import-capable Zoer Connect with Push permission enabled in WordPress → Tools → Zoer Connect.</p>;
+  if (!enabled) return <p className="text-sm text-text-secondary">Turn on Push and finish “Destination import setup” in WordPress → Tools → Zoer Connect on this site.</p>;
+  const compareBlock = <div className="min-w-0 space-y-3 rounded-lg border border-border-default p-3">
+        <Btn className="w-full sm:w-auto" disabled={starting !== null || busy || (!!preview && !previewRun.data) || (!!previewRun.data && !isTerminalStatus(previewRun.data.status))} loading={starting === "preview"} onClick={() => void startPreview()}>{preview ? "Compare again" : guidedSourceId ? "Compare with live site" : "Compare with this site"}</Btn>
+        {preview && previewRun.data && !previewDone && <PluginRunCard recent={{ runId: preview.runId, actionId: ENGINE_ACTIONS.preview, status: previewRun.data.status, createdAt: previewRun.data.createdAt ?? new Date().toISOString(), input: { siteId, previewId: preview.previewId } }} title="Comparison" />}
+        {previewDone && pages.isLoading && <p className="text-xs text-text-secondary">Loading the comparison…</p>}
+        {pages.error && <p role="alert" className="text-sm text-status-error">Could not load the comparison: {engineErrorMessage(pages.error)}</p>}
+        {expired && <p role="alert" className="text-sm text-status-warning">This comparison expired. Compare again before pushing a selection.</p>}
+        {previewReady && comparedFiles && <PreviewSelection files={comparedFiles} selected={selected} onChange={setSelected} disabled={starting !== null} />}
+  </div>;
+  const optionsBlock = chosen && <>
+      {warnings.map(w => <p key={w.code} className="text-xs text-status-warning">{w.message}</p>)}
+      <DatabasePanel importOptions={draft.importOptions} onImport={options => update(d => ({ ...d, importOptions: options }))} destinationCaps={caps} />
+      <ReplacePanel options={draft.importOptions} onChange={options => update(d => ({ ...d, importOptions: options }))} caps={caps} sourceUrl={sourceUrl} destinationUrl={target} sourcePath={chosen?.source?.abspath} destinationPath={destination?.wordpress?.abspath} />
+      <SafetyPanel options={draft.importOptions} onChange={options => update(d => ({ ...d, importOptions: options }))} caps={caps} />
+      {importGate.downgraded.length > 0 && <p className="text-xs text-status-warning">{REQUIRES_040} for: {importGate.downgraded.join(", ")}. These run with the previous behaviour.</p>}
+      {importErrors.map(message => <p key={message} className="text-xs text-status-error">{message}</p>)}
+  </>;
+  const confirmBlock = <>
+      <CheckboxField label="Dry run first" description={guidedSourceId ? "Check the push without changing the live site." : "Plans the import against the destination and stops. Nothing is uploaded or activated."} checked={dryRun} onChange={onDryRun} />
+      {guidedSourceId
+        ? <p className="text-xs text-text-secondary">You approve the push, then review the staged result. The live site switches only when you choose Finish, and Roll back stays available until then.</p>
+        : <p className="text-xs text-text-secondary">Push does not update WordPress core, the destination's user accounts or its Zoer Connect key. Zoer asks for approval before the push starts. {pushReviewMessage(importGate.options.review, importGate.options.fence)} Every real push pauses after activation until you choose Finish or Roll back.</p>}
+      <ConfirmDestination target={target} value={confirm} onChange={setConfirm} shared={shared} writers={writers} onWriters={setWriters} disabled={starting !== null} />
+      {busy && <p className="text-xs text-status-warning">Another transfer is running on this site. Finish, roll back or cancel it below before starting another.</p>}
+      {comparing && !previewReady && <p className="text-xs text-text-secondary">{guidedSourceId ? "Compare with the live site first (step 2)." : codeOnly ? "Compare with this site first. Code updates require a reviewed file selection." : "Compare with this site first, or turn off “Compare first” to push everything in the download."}</p>}
+      <Btn variant="primary" className="w-full sm:w-auto" disabled={!ready} loading={starting === "push"} onClick={() => void startPush()}>
+        {dryRun ? "Request dry run" : guidedSourceId && comparing ? `Push ${selected.size.toLocaleString()} item${selected.size === 1 ? "" : "s"} to live` : comparing ? `Request push of ${selected.size.toLocaleString()} item${selected.size === 1 ? "" : "s"}` : "Request push of everything"}
+      </Btn>
+  </>;
+  const modeChoice = (code: boolean, title: string, detail: string) => <label className={`flex min-h-11 min-w-0 cursor-pointer flex-col gap-0.5 rounded-lg border p-2.5 text-sm focus-within:ring-2 focus-within:ring-input-focus ${codeOnly === code ? "border-accent bg-surface-hover" : "border-border-default hover:bg-surface-hover"}`}>
+    <input type="radio" className="sr-only" name={`zoer-push-mode-${siteId}`} checked={codeOnly === code} disabled={starting !== null} onChange={() => { setCodeOnly(code); picked.current = false; choose(code === codeOnly ? setId : ""); }} />
+    <span className="font-medium text-text-primary">{title}</span><span className="text-[12px] leading-4 text-text-muted">{detail}</span>
+  </label>;
+  if (guidedSourceId) return <div className="min-w-0 space-y-5">
+    <fieldset className="min-w-0"><legend className="mb-2 text-sm font-medium">What to push</legend>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {modeChoice(true, "Code only (recommended)", "Selected themes and plugins. Live posts, pages, media and users stay as they are.")}
+        {modeChoice(false, "Everything", "Replace the live site with the local one, including the database.")}
+      </div>
+    </fieldset>
+    {!codeOnly && <p role="note" className="text-xs text-status-warning">Live edits made since your local copy (new posts, orders, sign-ups) will be overwritten.</p>}
+    {codeOnly && !codeCapabilities && <p role="alert" className="text-xs text-status-warning">Update Zoer Connect on the live site to push code only.</p>}
+
+    <Step n={1} title={`Export ${siteName(guidedSourceId)}`}>
+      <LocalExportSource destinationSiteId={siteId} guidedSourceId={guidedSourceId} draft={draft} update={update} codeOnly={codeOnly} hasExport={!!sources.length} />
+      {sources.length > 0 && <label className="block min-w-0 text-sm"><span className={fieldLabelClass}>Export to push</span>
+        <Select aria-label="Push source" className={selectClass("default", "w-full")} value={chosen ? setId : ""} onChange={event => { picked.current = true; choose(event.target.value); }}>
+          {sources.map((pull, index) => <option key={pull.pullId} value={pull.setId!}>{index === 0 ? "Latest · " : ""}{new Date(pull.createdAt).toLocaleString()} · {pullContents(pull.options).label} · {formatTransferBytes(pull.totalBytes)}</option>)}
+        </Select>
+      </label>}
+      {codeIssue && <p role="alert" className="text-xs text-status-warning">{codeIssue}</p>}
+      {partialUnsupported && <p className="text-xs text-status-warning">This export contains only some tables. {REQUIRES_040} to import a partial database.</p>}
+    </Step>
+
+    {chosen && <Step n={2} title="Compare with the live site">
+      {!codeOnly && <CheckboxField label="Choose files after comparing" description={canCompare ? "Otherwise everything in the export is pushed." : "Update Zoer Connect on the live site to compare first."} checked={comparing} disabled={!canCompare} onChange={value => { setCompare(value); setError(""); }} />}
+      {comparing && compareBlock}
+    </Step>}
+
+    {chosen && !codeOnly && <Step n={3} title="Options">
+      <details data-zoer-disclosure className="min-w-0 rounded-lg border border-border-default"><summary className="flex min-h-11 cursor-pointer items-center px-3 text-sm text-text-secondary">Database, find &amp; replace and safety (defaults are fine for most pushes)</summary>
+        <div className="min-w-0 space-y-3 border-t border-border-muted p-3">{optionsBlock}</div>
+      </details>
+    </Step>}
+
+    {chosen && <Step n={codeOnly ? 3 : 4} title="Push">{confirmBlock}</Step>}
+    {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
+  </div>;
   return <div className="min-w-0 space-y-5">
     <label className="block text-sm"><span className={fieldLabelClass}>Publish mode</span>
       <Select aria-label="Publish mode" className={selectClass("default", "w-full")} value={codeOnly ? "code" : "custom"} onChange={event => { setCodeOnly(event.target.value === "code"); choose(""); }} disabled={starting !== null}>
@@ -218,34 +293,15 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
 
     {chosen && <Step n={2} title="What to push">
       <CheckboxField label="Compare first and choose files" description={canCompare ? "Compares the download with this site. New and changed files start selected; files absent from the download are kept. Comparisons expire after one hour." : "Update Zoer Connect on this site to compare files before pushing. Without it, Push sends everything in the download."} checked={(codeOnly || compare) && canCompare} disabled={!canCompare || codeOnly} onChange={value => { setCompare(value); setError(""); }} />
-      {comparing && <div className="min-w-0 space-y-3 rounded-lg border border-border-default p-3">
-        <Btn className="w-full sm:w-auto" disabled={starting !== null || busy || (!!preview && !previewRun.data) || (!!previewRun.data && !isTerminalStatus(previewRun.data.status))} loading={starting === "preview"} onClick={() => void startPreview()}>{preview ? "Compare again" : "Compare with this site"}</Btn>
-        {preview && previewRun.data && !previewDone && <PluginRunCard recent={{ runId: preview.runId, actionId: ENGINE_ACTIONS.preview, status: previewRun.data.status, createdAt: previewRun.data.createdAt ?? new Date().toISOString(), input: { siteId, previewId: preview.previewId } }} title="Comparison" />}
-        {previewDone && pages.isLoading && <p className="text-xs text-text-secondary">Loading the comparison…</p>}
-        {pages.error && <p role="alert" className="text-sm text-status-error">Could not load the comparison: {engineErrorMessage(pages.error)}</p>}
-        {expired && <p role="alert" className="text-sm text-status-warning">This comparison expired. Compare again before pushing a selection.</p>}
-        {previewReady && comparedFiles && <PreviewSelection files={comparedFiles} selected={selected} onChange={setSelected} disabled={starting !== null} />}
-      </div>}
+      {comparing && compareBlock}
     </Step>}
 
     {chosen && !codeOnly && <Step n={3} title="Options">
-      {warnings.map(w => <p key={w.code} className="text-xs text-status-warning">{w.message}</p>)}
-      <DatabasePanel importOptions={draft.importOptions} onImport={options => update(d => ({ ...d, importOptions: options }))} destinationCaps={caps} />
-      <ReplacePanel options={draft.importOptions} onChange={options => update(d => ({ ...d, importOptions: options }))} caps={caps} sourceUrl={sourceUrl} destinationUrl={target} sourcePath={chosen.source?.abspath} destinationPath={destination?.wordpress?.abspath} />
-      <SafetyPanel options={draft.importOptions} onChange={options => update(d => ({ ...d, importOptions: options }))} caps={caps} />
-      {importGate.downgraded.length > 0 && <p className="text-xs text-status-warning">{REQUIRES_040} for: {importGate.downgraded.join(", ")}. These run with the previous behaviour.</p>}
-      {importErrors.map(message => <p key={message} className="text-xs text-status-error">{message}</p>)}
+      {optionsBlock}
     </Step>}
 
     {chosen && <Step n={codeOnly ? 3 : 4} title="Confirm">
-      <CheckboxField label="Dry run" description="Plans the import against the destination and stops. Nothing is uploaded or activated." checked={dryRun} onChange={onDryRun} />
-      <p className="text-xs text-text-secondary">Push does not update WordPress core, the destination's user accounts or its Zoer Connect key. Zoer asks for approval before the push starts. {pushReviewMessage(importGate.options.review, importGate.options.fence)} Every real push pauses after activation until you choose Finish or Roll back.</p>
-      <ConfirmDestination target={target} value={confirm} onChange={setConfirm} shared={shared} writers={writers} onWriters={setWriters} disabled={starting !== null} />
-      {busy && <p className="text-xs text-status-warning">Another transfer is running on this site. Finish, roll back or cancel it below before starting another.</p>}
-      {comparing && !previewReady && <p className="text-xs text-text-secondary">{codeOnly ? "Compare with this site first. Code updates require a reviewed file selection." : "Compare with this site first, or turn off “Compare first” to push everything in the download."}</p>}
-      <Btn variant="primary" className="w-full sm:w-auto" disabled={!ready} loading={starting === "push"} onClick={() => void startPush()}>
-        {dryRun ? "Request dry run" : comparing ? `Request push of ${selected.size.toLocaleString()} item${selected.size === 1 ? "" : "s"}` : "Request push of everything"}
-      </Btn>
+      {confirmBlock}
     </Step>}
     {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
   </div>;

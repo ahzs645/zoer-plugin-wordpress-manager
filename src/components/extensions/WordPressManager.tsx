@@ -59,8 +59,11 @@ import { useDialogs } from "@zoer/plugin-ui/controls";
 import WordPressUpdraftImport from "./WordPressUpdraftImport";
 import { wordpressExtensionActions, wordpressExtensionActionLabel, wordpressExtensionAutoUpdateLabel } from "./wordpressExtensionActions";
 import WordPressConnect from "./WordPressConnect";
-import LocalPublishChoice from "./LocalPublishChoice";
-import type { PublishDestination } from "./publishGuidance";
+import PushToLiveDialog from "./PushToLiveDialog";
+import SiteSyncCard from "./SiteSyncCard";
+import PluginLocalCopy from "./pluginEngine/PluginLocalCopy";
+import PublicationStatus from "./pluginEngine/PublicationStatus";
+import { connectionHealth } from "./pluginEngine/publicationCheck";
 import HostingerWebsiteSetup from "./HostingerWebsiteSetup";
 import WordPressCoreUpdates from "./WordPressCoreUpdates";
 import WordPressUpdates from "./WordPressUpdates";
@@ -157,8 +160,8 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const [extensionSlug, setExtensionSlug] = useState("");
   const [directoryResults, setDirectoryResults] = useState<Array<{ slug: string; name: string; description: string; imageUrl: string | null }>>([]);
   const [extensionPlan, setExtensionPlan] = useState<{ input: { siteId: string; kind: WordPressExtensionKind; operation: WordPressExtensionOperation; slugs: string[] }; plan: WordPressExtensionPlan } | null>(null);
-  const [localPublish, setLocalPublish] = useState<WordPressManagedSite | null>(null);
-  const [guidedPublish, setGuidedPublish] = useState<{ source: WordPressManagedSite; destination: PublishDestination } | null>(null);
+  const [pushFrom, setPushFrom] = useState<WordPressManagedSite | null>(null);
+  const [pullInto, setPullInto] = useState<{ local: WordPressManagedSite; live: WordPressManagedSite } | null>(null);
   const [publishPlan, setPublishPlan] = useState<WordPressPublishPlan | null>(null);
   const [confirmation, setConfirmation] = useState("");
   const [connectionName, setConnectionName] = useState("");
@@ -182,7 +185,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const sites = useMemo(() => withSiteLinks(sitesQuery.data ?? [], (siteLinks.data ?? []).map(parseSiteLink).filter((link): link is SiteLinkRecord => !!link)), [sitesQuery.data, siteLinks.data]);
   const identity = useMemo(() => consolidateWordPressSites(sites, separatedConnections), [sites, separatedConnections]);
   const candidateIdentity = useMemo(() => consolidateWordPressSites(sites), [sites]);
-  const connectionsQuery = useQuery({ ...wordpressQueries.connections(), enabled: providersOpen || tab === "deployments" });
+  const connectionsQuery = useQuery({ ...wordpressQueries.connections() });
   const deploymentsQuery = useQuery({ ...wordpressQueries.deployments(), refetchInterval: query => query.state.data?.some(item => activeWordPressDeployment(item.status)) ? 5_000 : false, refetchIntervalInBackground: false });
   // Receipts and recovery points migrated into the catalog (`deployment:`, `recovery-point:`) supplement Zoer's own lists.
   const deploymentRecords = useCatalogKind("deployment");
@@ -262,6 +265,18 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const selected = selectedSummary ?? selectedDetails?.site ?? null;
   const connectSite = selected ? identity.connector(selected) : null;
   const connectionMembers = selected ? candidateIdentity.aliases(selected.id) : [];
+  // Hosting accounts this website depends on. A saved "connected" status is only as current as its
+  // last test, so test each once per page load when its site is opened; failures show a banner.
+  const hostingConnectionIds = [...new Set([selected, ...connectionMembers].filter((site): site is WordPressManagedSite => site?.provider === "hostinger" && !!site.connectionId).map(site => site.connectionId!))];
+  const hostingConnections = connections.filter(connection => hostingConnectionIds.includes(connection.id));
+  const testedConnections = useRef(new Set<string>());
+  useEffect(() => {
+    for (const id of hostingConnectionIds) {
+      if (testedConnections.current.has(id)) continue;
+      testedConnections.current.add(id);
+      void api.testWordPressManagerConnection(id).catch(() => undefined).finally(() => void client.invalidateQueries({ queryKey: wordpressQueries.connections().queryKey }));
+    }
+  }, [hostingConnectionIds.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
   const connectionsCombined = Boolean(selected && identity.aliases(selected.id).length > 1);
   const toggleConnections = () => {
     setSeparatedConnections(current => {
@@ -616,7 +631,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     ...(lifecycle === "stop" ? [{ label: "Stop site", icon: <Square className="h-4 w-4" />, disabled: busy !== null, onClick: () => void changeLifecycle(selected) }] : []),
     ...(isLocalWordPress(selected) && !lifecycle ? [{ label: "Refresh site status", icon: <RefreshCw className="h-4 w-4" />, disabled: busy !== null, onClick: () => void refreshAll() }] : []),
     ...(previewUrl ? [{ label: "Preview", icon: <ExternalLink className="h-4 w-4" />, onClick: () => window.open(previewUrl, "_blank", "noopener,noreferrer") }] : []),
-    ...(selected.capabilities.deploySource || selected.provider === "hostinger" ? [{ label: selected.provider === "ddev" ? "Publish local changes" : "Transfer & publish", icon: <Rocket className="h-4 w-4" />, onClick: () => selected.provider === "ddev" ? setLocalPublish(selected) : openPublish(selected) }] : []),
+    ...(selected.capabilities.deploySource || selected.provider === "hostinger" ? [{ label: selected.provider === "ddev" ? "Push to live" : "Transfer & publish", icon: <Rocket className="h-4 w-4" />, onClick: () => selected.provider === "ddev" ? setPushFrom(selected) : openPublish(selected) }] : []),
     { label: "Site name & URL", icon: <Pencil className="h-4 w-4" />, onClick: () => { setEditSite(selected); setEditName(selected.name); setEditError(null); } },
     ...(isLocalWordPress(selected) ? [{ label: "Move to trash", icon: <Trash2 className="h-4 w-4" />, tone: "danger" as const, loading: busy === `delete:${selected.id}`, disabled: busy !== null, onClick: () => void removeSite(selected) }] : []),
   ] : [];
@@ -732,13 +747,16 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
           <PageTabs id="wordpress-sections" label="WordPress manager sections" tabs={tabs.filter(item => item.id !== "security" || selected?.provider === "ddev")} value={tab} onChange={setTab} />
           <PageTabPanel id="wordpress-sections" value={tab} className="flex-1 overflow-y-auto p-3 sm:p-4">
             {connectSite?.provider === "zoer-connect" && tab !== "history" && !(connectionsCombined && tab === "overview") && <div className="mb-4 empty:hidden"><PluginSiteRuns key={connectSite.id} siteId={connectSite.id} compact /></div>}
+            {hostingConnections.filter(connection => !connectionHealth(connection).ok).map(connection => <div key={connection.id} role="alert" className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-warning/30 bg-status-warning/10 px-3 py-2 text-[13px] text-status-warning"><span className="min-w-0 break-words">Hostinger account “{connection.name}” needs reconnecting. Zoer cannot clear its cache or manage this site until then.{connection.lastError ? ` Last error: ${connection.lastError}` : ""}</span><Btn size="sm" onClick={() => setProvidersOpen(true)}>Reconnect</Btn></div>)}
             {connectionMembers.length > 1 && <section aria-label="Website connections" className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border-muted pb-3 text-sm"><p className="text-text-secondary">{connectionsCombined ? "Hostinger hosting and Zoer Connect transfers share this website view." : "Hostinger and Zoer Connect have the same website address."}</p><Btn size="sm" onClick={toggleConnections}>{connectionsCombined ? "Show connections separately" : "Combine connections"}</Btn></section>}
             {detailError && (isTransferFence(detailError)
               ? <div role="status" className="mb-3 text-sm text-status-warning">{TRANSFER_FENCE_NOTICE} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>
               : <div role="alert" className="mb-3 text-sm text-status-error">{detailError} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>)}
             {tab === "development" ? <WordPressRepositoryDevelopment/> : tab === "history" ? <div className="min-w-0 space-y-8"><PluginTransferHistory sites={sites} canonicalId={identity.canonicalId} /></div> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
               <>
-                {tab === "overview" && <OverviewTab site={selected} connectSite={connectSite} details={selectedDetails} loading={detailLoading} onSetup={()=>selected && void openSite(selected,true)} onRestore={openBackupImport} />}
+                {tab === "overview" && <OverviewTab site={selected} connectSite={connectSite} details={selectedDetails} loading={detailLoading} onSetup={()=>selected && void openSite(selected,true)} onRestore={openBackupImport} onReconnect={() => setProvidersOpen(true)}
+                  sync={selected && (selected.provider === "ddev" || selected.provider === "hostinger" || selected.provider === "zoer-connect") ? <SiteSyncCard site={selected} live={selectedSource} copies={selectedCopies} onSelect={selectSite} onPush={setPushFrom} onRefresh={(local, live) => setPullInto({ local, live })}
+                    makeCopy={selected.provider !== "ddev" ? <WordPressConnect key={connectSite?.id ?? selected.id} siteId={connectSite?.id ?? selected.id} siteName={selected.name} label={selectedCopies.length ? "Make another local copy" : "Make a local copy"} localCopy onSetup={selected.provider === "hostinger" ? () => void openSite(selected, true) : undefined} onRestore={openBackupImport} /> : undefined} /> : null} />}
                 {tab === "plugins" && <ExtensionsTab developingPlugin={developingPlugin} onDevelop={setDevelopingPlugin} kind="plugin" site={selected} connectSiteId={connectSite?.id} rows={selectedDetails?.plugins || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
                 {tab === "themes" && <ExtensionsTab kind="theme" site={selected} connectSiteId={connectSite?.id} rows={selectedDetails?.themes || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
                 {tab === "updates" && <WordPressUpdates key={selected?.id} site={selected} siteIds={selected ? [selected.id, ...connectionMembers.map(member => member.id)] : []} deployments={deployments} loading={deploymentsQuery.isFetching} error={deploymentsQuery.error?.message || deploymentRecords.error?.message} onRefresh={() => { void deploymentsQuery.refetch(); void deploymentRecords.refetch(); }} onExtensions={setTab} />}
@@ -747,7 +765,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
                 {tab === "backups" && <BackupsTab site={selected} details={selectedDetails} recoveryPoints={selected ? recoveryPointsFor([...(selectedDetails?.recoveryPoints ?? []), ...recoveryPoints], selected) : []} busy={busy} retainPortableBackup={retainPortableBackup} onRetainPortableBackup={setRetainPortableBackup} onCreatePortableBackup={createPortableBackup} onRecordRecovery={recordRecovery} onImportBackup={openBackupImport} />}
                 {tab === "deployments" && selected && (connectionsCombined || selectedDetails?.plugins.some(plugin => plugin.slug === "zoer-connect" && plugin.status === "active") || (!!connectSite && !!detailError)) && <section className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-border-muted pb-3"><h3 className="text-sm font-medium text-text-heading">Zoer Connect transfers</h3><WordPressConnect key={connectSite?.id ?? selected.id} siteId={connectSite?.id ?? selected.id} siteName={selected.name} /></section>}
                 {tab === "deployments" && selected?.provider === "zoer-connect" && <p className="text-sm text-text-secondary">Use {connectLabel} to pull, push, back up or export this site.</p>}
-                {tab === "deployments" && selected?.provider !== "zoer-connect" && <DeploymentsTab sites={sites} fixedSource={selected?.capabilities.deploySource ? selected : null} connections={connections} deployments={deployments} source={publishSource} setSource={setPublishSource} connection={publishConnection} setConnection={setPublishConnection} domain={publishDomain} setDomain={setPublishDomain} mode={publishMode} setMode={setPublishMode} busy={busy} onPlan={planPublish} onVerify={confirmDeployment} onImport={() => setTab("backups")} />}
+                {tab === "deployments" && selected?.provider !== "zoer-connect" && <DeploymentsTab onPushToLive={selected?.provider === "ddev" ? () => setPushFrom(selected) : undefined} sites={sites} fixedSource={selected?.capabilities.deploySource ? selected : null} connections={connections} deployments={deployments} source={publishSource} setSource={setPublishSource} connection={publishConnection} setConnection={setPublishConnection} domain={publishDomain} setDomain={setPublishDomain} mode={publishMode} setMode={setPublishMode} busy={busy} onPlan={planPublish} onVerify={confirmDeployment} onImport={() => setTab("backups")} />}
 
               </>
             )}
@@ -755,8 +773,10 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
         </div>
       </div>
 
-      {localPublish && <LocalPublishChoice key={localPublish.id} source={localPublish} sites={sites} onClose={() => setLocalPublish(null)} onHosting={() => { openPublish(localPublish); setLocalPublish(null); }} onContinue={destination => { setGuidedPublish({ source: localPublish, destination }); setLocalPublish(null); }} />}
-      {guidedPublish && <WordPressConnect key={`${guidedPublish.source.id}:${guidedPublish.destination.id}`} siteId={guidedPublish.destination.id} siteName={guidedPublish.destination.name} initialPushSource={guidedPublish.source.id} autoOpen onDismiss={() => setGuidedPublish(null)} />}
+      {pushFrom && <PushToLiveDialog key={pushFrom.id} source={pushFrom} sites={sites} onClose={() => setPushFrom(null)} onHosting={pushFrom.capabilities.deploySource && connections.length ? () => { openPublish(pushFrom); setPushFrom(null); } : undefined} />}
+      {pullInto && (() => { const live = identity.connector(pullInto.live) ?? pullInto.live; return <Modal mobileSheet title={`Pull from live · ${pullInto.local.name}`} onClose={() => setPullInto(null)}>
+        {live.provider === "zoer-connect" ? <PluginLocalCopy siteId={live.id} siteName={pullInto.live.name} sourceUrl={live.url} refreshSiteId={pullInto.local.id} /> : <p className="text-sm text-text-secondary">Connect {pullInto.live.name} with Zoer Connect to pull from it. Open the live site and choose <strong>Make a local copy</strong> for setup steps.</p>}
+      </Modal>; })()}
       {providersOpen && <Modal title="Provider accounts" onClose={() => setProvidersOpen(false)}><ConnectionsTab onConnected={() => void load(true, true)} connections={connections} name={connectionName} setName={setConnectionName} token={connectionToken} setToken={setConnectionToken} busy={busy} onAdd={addConnection} onTest={testConnection} onRemove={removeConnection} /></Modal>}
       {extensionPlan && <ReviewPanel title={`${wordpressExtensionActionLabel(extensionPlan.plan.operation)} ${extensionPlan.plan.kind}${extensionPlan.plan.slugs.length > 1 ? "s" : ""}`} plan={extensionPlan.plan} confirmation={confirmation} setConfirmation={setConfirmation} busy={busy === "apply-extension"} onApply={applyExtension} onCancel={() => { setExtensionPlan(null); setConfirmation(""); }} />}
       {publishPlan && <ReviewPanel title={`${publishPlan.mode === "replace" ? "Replace" : "Publish"} ${publishPlan.domain}`} plan={publishPlan} confirmation={confirmation} setConfirmation={setConfirmation} busy={busy === "execute-publish"} onApply={executePublish} onCancel={() => { setPublishPlan(null); setConfirmation(""); }} />}
@@ -825,14 +845,16 @@ function SitePairCard({ source, copies, selectedId, onSelect, onSeparate }: { so
   </div>;
 }
 
-function OverviewTab({ site, connectSite, details, loading, onSetup, onRestore }: { site: WordPressManagedSite | null; connectSite: WordPressManagedSite | null; details: WordPressSiteDetails | null; loading: boolean; onSetup: () => void; onRestore: () => void }) {
+function OverviewTab({ site, connectSite, details, loading, onSetup, onRestore, sync, onReconnect }: { site: WordPressManagedSite | null; connectSite: WordPressManagedSite | null; details: WordPressSiteDetails | null; loading: boolean; onSetup: () => void; onRestore: () => void; /** The local ⇄ live card. */ sync?: React.ReactNode; onReconnect?: () => void }) {
   if (!site) return <EmptyState icon={<Globe2 className="h-7 w-7" />} title="Select a WordPress site" />;
   const health = details?.health || [];
   return <div className="space-y-4">
+    {connectSite?.provider === "zoer-connect" && connectSite.status === "connected" && connectSite.url && <PublicationStatus key={connectSite.id} siteId={connectSite.id} siteUrl={connectSite.url} onReconnect={onReconnect} />}
+    {sync}
     {site.provider === "ddev" && <WordPressCoreUpdates key={site.id} site={site} />}
     {site.provider === "ddev" && <a className="inline-flex min-h-11 items-center text-sm text-accent underline" href={`/#/plugins/wordpress-manager?tab=development&site=${encodeURIComponent(site.id)}`}>Develop a repository plugin on this site</a>}
     {site.provider === "hostinger" && <HostingerSiteTools key={site.id} site={site} />}
-    {(site.provider === "hostinger" || site.provider === "zoer-connect") && <section className="rounded-lg border border-border-default p-4"><h4 className="text-sm font-medium text-text-heading">Local development copy</h4><p className="my-3 text-sm text-text-secondary">Download this website into a separate local WordPress site for testing and development.</p><WordPressConnect key={connectSite?.id ?? site.id} siteId={connectSite?.id ?? site.id} siteName={site.name} label="Make a local copy" localCopy onSetup={site.provider === "hostinger" ? onSetup : undefined} onRestore={onRestore} /></section>}
+    {!sync && (site.provider === "hostinger" || site.provider === "zoer-connect") && <section className="rounded-lg border border-border-default p-4"><h4 className="text-sm font-medium text-text-heading">Local development copy</h4><p className="my-3 text-sm text-text-secondary">Download this website into a separate local WordPress site for testing and development.</p><WordPressConnect key={connectSite?.id ?? site.id} siteId={connectSite?.id ?? site.id} siteName={site.name} label="Make a local copy" localCopy onSetup={site.provider === "hostinger" ? onSetup : undefined} onRestore={onRestore} /></section>}
     <details><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-sm text-text-secondary">Site details</summary><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
       <Info label="Provider" value={site.provider} /><Info label="Environment" value={site.environment} />
       <Info label="WordPress" value={site.wordpressVersion || "Provider-managed"} />
@@ -892,13 +914,16 @@ function BackupsTab({ site, details, recoveryPoints, busy, retainPortableBackup,
   </div>;
 }
 
-function DeploymentsTab({ sites, fixedSource, connections, deployments, source, setSource, connection, setConnection, domain, setDomain, mode, setMode, busy, onPlan, onVerify, onImport }: { sites: WordPressManagedSite[]; fixedSource: WordPressManagedSite | null; connections: HostingerConnectionPublic[]; deployments: WordPressDeployment[]; source: string; setSource: (value: string) => void; connection: string; setConnection: (value: string) => void; domain: string; setDomain: (value: string) => void; mode: "new" | "replace"; setMode: (value: "new" | "replace") => void; busy: string | null; onPlan: (event: React.FormEvent) => void; onVerify: (deployment: WordPressDeployment) => void; onImport: () => void }) {
+function DeploymentsTab({ onPushToLive, sites, fixedSource, connections, deployments, source, setSource, connection, setConnection, domain, setDomain, mode, setMode, busy, onPlan, onVerify, onImport }: { onPushToLive?: () => void;  sites: WordPressManagedSite[]; fixedSource: WordPressManagedSite | null; connections: HostingerConnectionPublic[]; deployments: WordPressDeployment[]; source: string; setSource: (value: string) => void; connection: string; setConnection: (value: string) => void; domain: string; setDomain: (value: string) => void; mode: "new" | "replace"; setMode: (value: "new" | "replace") => void; busy: string | null; onPlan: (event: React.FormEvent) => void; onVerify: (deployment: WordPressDeployment) => void; onImport: () => void }) {
   const destinations = useQuery({queryKey:["wordpress","hostinger-setup",connection],queryFn:()=>api.getHostingerSetupInventory(connection),enabled:!!connection,staleTime:0});
-  const localSource = fixedSource ?? sites.find(site=>site.id===source && site.provider==="ddev");
   return <div className="space-y-5">
-    {localSource && <WordPressCoreUpdates key={localSource.id} site={localSource} />}
+    {onPushToLive && fixedSource && <section className="space-y-3 rounded-lg border border-border-default bg-surface-primary p-4">
+      <h4 className="flex items-center gap-2 text-base font-semibold text-text-heading"><Rocket className="h-4 w-4 shrink-0" />Push to live</h4>
+      <p className="text-[13px] text-text-secondary">Send {fixedSource.name}'s changes to a site connected with Zoer Connect. You review the result before the live site switches.</p>
+      <Btn variant="primary" onClick={onPushToLive}>Push to live</Btn>
+    </section>}
     <form onSubmit={onPlan} className="rounded-lg border border-border-default bg-surface-primary p-4">
-      <h4 className="flex items-center gap-2 text-base font-semibold text-text-heading"><Rocket className="h-4 w-4 shrink-0" />Publish local changes</h4>
+      <h4 className="flex items-center gap-2 text-base font-semibold text-text-heading"><Rocket className="h-4 w-4 shrink-0" />{onPushToLive ? "Publish through a Hostinger account" : "Publish local changes"}</h4>
       <p className="mt-1 text-[13px] text-text-secondary">{fixedSource ? `From ${fixedSource.name}. ` : ""}Replaces the live site; live edits are not merged.</p>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         {/* On a local site's own page it is already the source; only other pages ask. */}
@@ -918,7 +943,7 @@ function DeploymentsTab({ sites, fixedSource, connections, deployments, source, 
 
 function ConnectionsTab({ onConnected, connections, name, setName, token, setToken, busy, onAdd, onTest, onRemove }: { onConnected: () => void; connections: HostingerConnectionPublic[]; name: string; setName: (value: string) => void; token: string; setToken: (value: string) => void; busy: string | null; onAdd: (event: React.FormEvent) => void; onTest: (connection: HostingerConnectionPublic) => void; onRemove: (connection: HostingerConnectionPublic) => void }) {
   return <div className="space-y-5">
-    <section><h4 className="flex items-center gap-2 text-[13px] font-semibold text-text-heading"><Cloud className="h-4 w-4" /> Hostinger connections</h4><p className="mt-1 text-[13px] leading-4 text-text-secondary">Connect your account to discover and manage its WordPress sites.</p><HostingerBrowserLogin name={name} setName={setName} onConnected={onConnected} connections={connections} /><details className="mt-3"><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-[13px] text-text-secondary">Advanced setup · API token</summary><form onSubmit={onAdd} className="mt-3 grid gap-2 rounded-md border border-border-muted bg-surface-primary/40 p-3 md:grid-cols-[1fr_2fr_auto]"><input aria-label="Connection name" className={controlClass("compact")} value={name} onChange={(event) => setName(event.target.value)} placeholder="My Hostinger account" /><input aria-label="Hostinger API token" type="password" autoComplete="new-password" className={controlClass("compact")} value={token} onChange={(event) => setToken(event.target.value)} placeholder="Hostinger API token" /><Btn size="sm" type="submit" variant="primary" loading={busy === "add-connection"} disabled={!name || !token}>Connect</Btn></form></details><div className="mt-3 space-y-2">{connections.map((connection) => <div key={connection.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-muted bg-surface-primary/50 p-3"><div><div className="flex items-center gap-2 text-[12px] font-medium text-text-primary">{connection.name}<Status status={connection.status} /></div><div className="mt-1 text-[12px] text-text-secondary">{connection.oauthConnectionId ? "Browser sign-in · Zoer connection" : connection.authMethod === "browser-login" ? "Browser sign-in" : "API token"} · Last tested {connection.lastTestedAt ? new Date(connection.lastTestedAt).toLocaleString() : "never"}</div>{connection.lastError && <div className="mt-1 text-[12px] text-status-error">{connection.lastError}</div>}</div><div className="flex gap-1"><Btn size="sm" variant="ghost" loading={busy === `test:${connection.id}`} onClick={() => onTest(connection)}>Test</Btn><Btn size="sm" variant="ghost" loading={busy === `remove:${connection.id}`} icon={<Trash2 className="h-3 w-3" />} onClick={() => onRemove(connection)}>Remove</Btn></div></div>)}{!connections.length && <p className="text-[13px] text-text-secondary">No Hostinger connection configured.</p>}</div></section>
+    <section><h4 className="flex items-center gap-2 text-[13px] font-semibold text-text-heading"><Cloud className="h-4 w-4" /> Hostinger connections</h4><p className="mt-1 text-[13px] leading-4 text-text-secondary">Connect your account to discover and manage its WordPress sites.</p><HostingerBrowserLogin name={name} setName={setName} onConnected={onConnected} connections={connections} /><details className="mt-3"><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-[13px] text-text-secondary">Advanced setup · API token</summary><form onSubmit={onAdd} className="mt-3 grid gap-2 rounded-md border border-border-muted bg-surface-primary/40 p-3 md:grid-cols-[1fr_2fr_auto]"><input aria-label="Connection name" className={controlClass("compact")} value={name} onChange={(event) => setName(event.target.value)} placeholder="My Hostinger account" /><input aria-label="Hostinger API token" type="password" autoComplete="new-password" className={controlClass("compact")} value={token} onChange={(event) => setToken(event.target.value)} placeholder="Hostinger API token" /><Btn size="sm" type="submit" variant="primary" loading={busy === "add-connection"} disabled={!name || !token}>Connect</Btn></form></details><div className="mt-3 space-y-2">{connections.map((connection) => <div key={connection.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-muted bg-surface-primary/50 p-3"><div><div className="flex items-center gap-2 text-[12px] font-medium text-text-primary">{connection.name}{(() => { const health = connectionHealth(connection); return <StatusBadge tone={!health.ok ? "error" : health.stale ? "neutral" : "success"}>{!health.ok ? "Needs reconnecting" : health.stale ? "Not checked recently" : "Working"}</StatusBadge>; })()}</div><div className="mt-1 text-[12px] text-text-secondary">{connection.oauthConnectionId ? "Browser sign-in · Zoer connection" : connection.authMethod === "browser-login" ? "Browser sign-in" : "API token"} · Last tested {connection.lastTestedAt ? new Date(connection.lastTestedAt).toLocaleString() : "never"}</div>{connection.lastError && <div className="mt-1 text-[12px] text-status-error">{connection.lastError}</div>}</div><div className="flex gap-1"><Btn size="sm" variant="ghost" loading={busy === `test:${connection.id}`} onClick={() => onTest(connection)}>Test</Btn><Btn size="sm" variant="ghost" loading={busy === `remove:${connection.id}`} icon={<Trash2 className="h-3 w-3" />} onClick={() => onRemove(connection)}>Remove</Btn></div></div>)}{!connections.length && <p className="text-[13px] text-text-secondary">No Hostinger connection configured.</p>}</div></section>
     <HostingerWebsiteSetup connections={connections} onCreated={onConnected} />
   </div>;
 }

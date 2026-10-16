@@ -1,16 +1,24 @@
 import { expect, test } from "bun:test";
 import type { ZoerConnectConnection } from "../../../lib/api/types/wordpress-transfer";
-import { actionAvailability } from "./availability";
+import { actionAvailability, pushReadiness, zoerConnectSettingsUrl } from "./availability";
 import { initialAction } from "./draft";
 import { tableItems, unselectableTablesHint } from "./DatabasePanel";
 
 const connection = (status: Partial<ZoerConnectConnection["status"]>) => ({ url: "https://site.example", status: { pull: true, push: true, publish: true, stagingReady: true, capabilities: { siteReplace: true }, ...status } }) as unknown as ZoerConnectConnection;
 
-test("Find & Replace needs an import-capable plugin, like Push", () => {
+test("Find & Replace needs completed import setup, like Push", () => {
   expect(actionAvailability(connection({})).replace).toBeNull();
   const noImport = actionAvailability(connection({ publish: false }));
   expect(noImport.replace).toBe(noImport.push);
-  expect(noImport.replace).toContain("import-capable");
+  // publish=false means the destination import setup was not confirmed, not an old plugin.
+  expect(noImport.push).toContain("Destination import setup");
+  expect(noImport.push).not.toContain("Update");
+});
+
+test("push readiness lists each destination setting with its fix", () => {
+  const items = pushReadiness(connection({ publish: false, stagingReady: false }));
+  expect(items.filter(item => !item.ok).map(item => item.key)).toEqual(["imports", "storage"]);
+  expect(zoerConnectSettingsUrl("https://site.example/")).toBe("https://site.example/wp-admin/tools.php?page=zoer-connect");
 });
 
 test("tables whose names the plugin cannot select are disabled with a hint", () => {
@@ -26,7 +34,7 @@ test("tables whose names the plugin cannot select are disabled with a hint", () 
 test("a transfer dialog never opens on a disabled tile", () => {
   // A push-only destination (Pull off, as on the 0.4.0 destination test site) opens on Push.
   const pushOnly = actionAvailability(connection({ pull: false }));
-  expect(pushOnly.pull).toContain("Enable Pull");
+  expect(pushOnly.pull).toContain("Turn on Pull");
   expect(initialAction(pushOnly)).toBe("push");
   expect(initialAction(actionAvailability(connection({ stagingReady: false })))).toBe("push");
   expect(initialAction(actionAvailability(connection({})))).toBe("pull");

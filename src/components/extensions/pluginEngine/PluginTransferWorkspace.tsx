@@ -58,17 +58,17 @@ function PullStart({ siteId, connection, diagnostics, diagnosticsLoading, draft,
   }
   return <div className="min-w-0 space-y-3">
     <p className="text-xs text-text-secondary">{action === "backup"
-      ? "Saves a verified database snapshot on the Zoer server. Download or delete it below."
+      ? "Saves a database snapshot on the Zoer server."
       : action === "export"
-        ? "Downloads the selected resources to the Zoer server; then save the database (.sql) or an archive (.tar.gz) to this device from the list below."
-        : "Downloads the selected resources to the Zoer server. Pause keeps your progress; Resume continues from the saved checkpoint. Nothing is imported or published."}</p>
+        ? "Downloads to the Zoer server, then to this device as .sql or .tar.gz."
+        : "Downloads to the Zoer server only. Nothing on either site changes."}</p>
     <DatabasePanel exportOptions={options} onExport={setOptions} diagnostics={diagnostics} diagnosticsLoading={diagnosticsLoading} sourceCaps={caps} lockDatabase={action === "backup"} defaultOpen={action === "backup"} />
     {action !== "backup" && <FilesPanel action={action} options={options} onChange={setOptions} diagnostics={diagnostics} diagnosticsLoading={diagnosticsLoading} sourceCaps={caps} />}
     {canPauseSource && <div className="space-y-2">
       <OptionToggle label="Pause source while exporting database" checked={pauseSource} onChange={value => setPause({ action, paused: value, writersStopped: false })} description="For large databases. WordPress requests pause until the database is saved or you cancel." />
       {pauseSource && <OptionToggle label="Background jobs and external database writers are stopped" checked={writersStopped} onChange={value => setPause({ action, paused: true, writersStopped: value })} description="Stop earlier requests, scheduled jobs and direct database edits first. An idle pause expires after one hour." />}
     </div>}
-    <CheckboxField label="Dry run" description="Downloads into a scratch file set and stops before the download is marked ready. Nothing is kept for pushes or copies." checked={dryRun} onChange={onDryRun} />
+    <CheckboxField label="Dry run" description="Test the download without keeping it." checked={dryRun} onChange={onDryRun} />
     {gated.downgraded.map(label => <p key={label} className="text-xs text-status-warning">{label} need Zoer Connect 0.4.0 on this site and will not be applied.</p>)}
     {errors.map(message => <p key={message} className="text-xs text-status-error">{message}</p>)}
     {busy && <p className="text-xs text-status-warning">Another transfer is running on this site. Wait for it, or pause or cancel it below.</p>}
@@ -131,7 +131,7 @@ function ReplaceStart({ siteId, connection, diagnostics, diagnosticsLoading, dra
     <OptionToggle label="Also replace in post GUIDs" checked={options.replaceGuids} onChange={value => setOptions({ ...options, replaceGuids: value })} />
     <SafetyPanel options={options} onChange={setOptions} caps={caps} lockFence />
     {errors.map(message => <p key={message} className="text-xs text-status-error">{message}</p>)}
-    <CheckboxField label="Dry run" description="Plans the replacement against this site and stops. Nothing is staged or activated." checked={dryRun} onChange={onDryRun} />
+    <CheckboxField label="Dry run" description="Plan only. Nothing is changed." checked={dryRun} onChange={onDryRun} />
     <ConfirmDestination target={target} value={confirm} onChange={setConfirm} shared={shared} writers={writers} onWriters={setWriters} disabled={starting} />
     {busy && <p className="text-xs text-status-warning">Another transfer is running on this site. Finish, roll back or cancel it below before starting another.</p>}
     <Btn variant="primary" className="w-full sm:w-auto" disabled={!ready} loading={starting} onClick={() => void start()}>{dryRun ? "Request dry run" : "Request replacement preview"}</Btn>
@@ -177,7 +177,7 @@ export default function PluginTransferWorkspace({ siteId, siteName, connection, 
           return <label key={value} className={`relative flex min-h-11 min-w-0 cursor-pointer flex-col gap-1 rounded-lg border p-2.5 text-sm transition-colors focus-within:ring-2 focus-within:ring-input-focus ${selected ? "border-accent bg-surface-hover" : "border-border-default hover:bg-surface-hover"} ${reason ? "opacity-60" : ""} ${value === "export" ? "col-span-2 sm:col-span-1" : ""}`}>
             <input type="radio" name={`zoer-plugin-transfer-action-${siteId}`} className="sr-only" checked={selected} onChange={() => setDraft(d => switchAction(d, value))} aria-describedby={`zoer-plugin-action-${value}`} />
             <span className="flex items-center gap-1.5 font-medium text-text-primary">{ICONS[value]}{ACTION_LABELS[value].title}</span>
-            <span id={`zoer-plugin-action-${value}`} className="text-[12px] leading-4 text-text-muted">{reason ?? (value === "push" ? "Replace this site's content with a verified download of another site." : ACTION_LABELS[value].description)}</span>
+            <span id={`zoer-plugin-action-${value}`} className="text-[12px] leading-4 text-text-muted">{reason ?? ACTION_LABELS[value].description}</span>
           </label>;
         })}
       </div>

@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, Circle, Eraser, Loader2, Pause, Play, Shie
 import { Btn, StatusBadge, useDialogs } from "@zoer/plugin-ui/controls";
 import { cancelRun, controlImport, engineKeys, pauseRun, resumeRun, startEngineAction, useEngineRun, useRecentRuns } from "../../../lib/queries/plugin-engine";
 import { completedPushUrl } from "../publishGuidance";
+import PublicationStatus from "./PublicationStatus";
 import { formatTransferBytes } from "../wordpressPullProgress";
 import { formatDuration } from "../wordpressTransfer/transferLabels";
 import { describeRun, ENGINE_ACTIONS, engineErrorMessage, importStateFromControls, runInput, recoverableDownload, type RecentRun, type RunButton } from "./runState";
@@ -254,7 +255,8 @@ export default function PluginRunCard({ recent, title, kind = "other", siteId, s
     {view.needsUser === "review" && <p className="text-xs text-text-secondary">Everything is staged and the site is still online. Approve to activate the changes, or roll back to discard them. Each decision asks for Zoer's approval.</p>}
     {view.needsUser === "verify" && <p className="text-xs text-text-secondary">The new content is active and WordPress is paused for visitors. Public browsing is blocked while paused, so an ordinary preview cannot verify the site yet. Review the transfer result, then Finish to reopen and check the website, or Roll back. Backups remain available after Finish.</p>}
     {output && view.terminal && <RunOutput output={output} />}
-    {publishedUrl && <div className="space-y-1 text-sm"><a className="inline-flex min-h-11 items-center underline" href={publishedUrl} target="_blank" rel="noopener noreferrer">Open published website</a><p className="text-xs text-text-secondary">Check the home page, important pages and sign-in on the reopened destination. A completed transfer does not verify website behaviour.</p></div>}
+    {publishedUrl && <div className="space-y-1 text-sm"><a className="inline-flex min-h-11 items-center underline" href={publishedUrl} target="_blank" rel="noopener noreferrer">Open published website</a><p className="text-xs text-text-secondary">Transfer complete. Zoer checks below what visitors receive; also try sign-in and forms yourself.</p></div>}
+    {publishedUrl && target && importId && <PublicationStatus siteId={target} siteUrl={publishedUrl} importId={importId} setId={typeof input.setId === "string" ? input.setId : null} autoStart />}
     {view.terminal && output?.status === "complete" && output.cleanedUp !== true && !later.rolledBack && !later.cleanedUp && (kind === "push" || kind === "replace") && <p className="text-xs text-text-secondary">Backups are kept on the destination so you can roll back. Clean them up when you are satisfied.</p>}
 
     {view.buttons.length > 0 && <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">

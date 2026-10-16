@@ -17,7 +17,7 @@ const COPY_ACTIONS = [ENGINE_ACTIONS.copy] as const;
  * they cannot refresh an existing copy. Earlier copies (`local-copy:` records, including copies the
  * legacy host engine made, migrated by Zoer) are listed and can be refreshed.
  */
-export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pull = null, onClearPull }: { siteId: string; siteName: string; sourceUrl?: string | null; pull?: PullRecord | null; onClearPull?: () => void }) {
+export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pull = null, onClearPull, refreshSiteId }: { siteId: string; siteName: string; sourceUrl?: string | null; pull?: PullRecord | null; onClearPull?: () => void; /** Opens on "Refresh" with this local copy chosen. */ refreshSiteId?: string }) {
   const client = useQueryClient();
   const connectors = useQuery({ ...resourceQueries.connectors(), refetchInterval: 10_000 });
   const ddev = connectors.data?.find(c => c.id === "ddev");
@@ -30,9 +30,9 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   const runs = useRecentRuns(COPY_ACTIONS);
   const siteRuns = (runs.data ?? []).filter(run => runInput(run).siteId === siteId).slice(0, 5);
   const running = siteRuns.some(run => !isTerminalStatus(run.status));
-  const [mode, setMode] = useState<"new" | "refresh">("new");
+  const [mode, setMode] = useState<"new" | "refresh">(refreshSiteId ? "refresh" : "new");
   const [name, setName] = useState(siteName ? `${siteName} local`.slice(0, 60) : "");
-  const [replaceSiteId, setReplaceSiteId] = useState("");
+  const [replaceSiteId, setReplaceSiteId] = useState(refreshSiteId ?? "");
   const [scope, setScope] = useState<"database" | "complete">("database");
   const [keepLocalDesign, setKeepLocalDesign] = useState(true);
   const [dryRun, setDryRun] = useState(false);
