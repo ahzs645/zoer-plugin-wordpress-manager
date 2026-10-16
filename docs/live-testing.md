@@ -200,3 +200,9 @@ Fix these in this repository, add unit tests, push a dev build and verify on the
 - The test sites you started are stopped.
 - Commits explain what changed and what was tested live (run IDs help). Push to GitHub only if the user asked for it.
 - Report to the user: the dev version installed, what was tested and how, what's still open, and anything that needs a Zoer change.
+
+## Public verification (0.11.0)
+
+- `bun tools/live-gate/push.ts --shared ...` pushes into a destination in shared-replacement mode (it sends `replacementAccepted` instead of `wordpressOnlyWriters`, like the push dialog).
+- `bun tools/live-gate/zoer.ts start publication.verify '{"siteId":"<endpoint id>","checkId":"<32 hex>","reason":"recheck"}'` runs a check; read it back with `zoer.ts catalog publication-check`. A check only reads the site (keyed `/status` and `/publication`, then public pages without the key); for a non-test site it still needs `LIVE_GATE_ALLOW_SITE` because it writes a Zoer catalog record.
+- Since 2026-10-16 `ddev-zoer-connect-040-destination` runs Zoer Connect 0.6.0 (its request-fence MU file was upgraded by wp-admin, so 0.5.0 can no longer serve it; the 0.5.0 files are in `wp-content/zoer-connect-050-backup`). Its imports are set up in shared-replacement mode.

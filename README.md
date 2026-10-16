@@ -2,6 +2,10 @@
 
 Independent source and releases for the `wordpress-manager` native plugin. This repository owns its interface and isolated workers. Zoer provides reviewed host services, shared controls and provider credential storage. The first extracted release is **0.5.0**; **0.5.1** adds the shared public type snapshot and reliable source resolution, preserving the existing plugin ID and site/account/backup/transfer state.
 
+## Local ⇄ live and public verification (0.11.0, development)
+
+Every site's **Overview** starts with **Local and live**: **Push to live** (one guided dialog: readiness, *Code only* or *Everything*, export, compare, push, review, Finish) and **Pull from live** (refresh the copy). After Finish, `publication.verify` checks what anonymous visitors receive (home and changed pages, desktop and mobile, changed CSS/JS) against Zoer Connect 0.6.0's publication identity and reports **Current on checked pages**, **Old content detected**, **Check failed** or **Not verifiable**, separately from the transfer result. **Clear caches and recheck** clears WordPress, hosting and CDN layers with separate receipts and rechecks with a bounded backoff. Needs the matching Zoer host (`endpoint-public` scope) and upgrade review. See [release notes](docs/releases/0.11.0.md) and [public verification](docs/public-verification.md). Proposals: [portable site stack manifest](docs/proposals/site-stack-manifest.md), [theme development pathway](docs/proposals/theme-development.md).
+
 ## Repository plugin development (0.10.1)
 
 Stable **0.10.1** publishes the repository development workflow as a normal GitHub Release. It upgrades both earlier stable installations and `0.10.1-dev` builds. See [release notes and installation](docs/releases/0.10.1.md).
