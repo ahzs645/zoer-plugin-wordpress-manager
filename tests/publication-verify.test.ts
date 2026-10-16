@@ -100,6 +100,8 @@ describe("publication.verify against a deterministic stale-cache fixture", () =>
     const home = record(w).results.find((r: any) => r.path === "/" && r.variant === "desktop");
     expect(home).toMatchObject({ status: "stale", observedPublication: PUB_OLD, freshResponse: "current", headers: { "x-hcdn-cache-status": "HIT" } });
     expect(pub.log.some(entry => new URL(entry.url).searchParams.has("zoer-check"))).toBe(true);
+    // Seven-day public HTML: browsers may keep the old page even after every cache is purged.
+    expect(record(w).advisory).toMatchObject({ maxAgeSeconds: 604800 });
   });
 
   test("old page content with the new theme (stale object/fragment cache): detected by the page revision", async () => {
@@ -185,6 +187,17 @@ describe("publication.verify against a deterministic stale-cache fixture", () =>
     w.catalog.records.set(recordId(SITE), { id: recordId(SITE), kind: "publication-check", title: "", data: { ...record(w), committedAt: 9999, importId: "c".repeat(32), checkId: "9".repeat(32), startedAt: "2099-01-01T00:00:00.000Z" } });
     state.publication = { id: PUB_NEW, importId: IMPORT, kind: "import", committedAt: 2000 };
     expect((await run(w, { checkId: CHECK2 })).output).toMatchObject({ saved: false, skipped: "newer-publication" });
+  });
+
+  test("a rollback is a newer publication: a late after-Finish check of that import is superseded", async () => {
+    const { w, state } = world();
+    expect((await run(w)).output).toMatchObject({ status: "current" });
+    state.publication = { id: PUB_OLD, importId: IMPORT, kind: "rollback", committedAt: 3000 };
+    expect((await run(w, { checkId: CHECK2 })).output).toMatchObject({ status: "superseded", saved: false });
+    expect(record(w)).toMatchObject({ checkId: CHECK, publicationKind: "import" });
+    // A plain recheck describes the site as it is now (the rolled-back publication).
+    expect((await run(w, { checkId: CHECK2, reason: "recheck", importId: undefined })).output).toMatchObject({ saved: true });
+    expect(record(w)).toMatchObject({ checkId: CHECK2, publicationKind: "rollback", committedAt: 3000 });
   });
 
   test("resumes from its checkpoint after a restart mid-check", async () => {

@@ -77,7 +77,7 @@ import { mergeDeployments, parseDeploymentRecord, parseRecoveryPointRecord, pars
 import { commitCatalog, engineKeys, retireEngineRecords, useCatalogKind } from "../../lib/queries/plugin-engine";
 import WordPressAddSite from "./WordPressAddSite";
 import WordPressTrash from "./WordPressTrash";
-import { runAction } from "../../host/actions";
+import { hostEndpoints, runAction } from "../../host/actions";
 import { isLocalWordPress, wordpressLifecycleAction } from "./wordpressLifecycle";
 import { consolidateWordPressSites, readSeparatedSiteConnections, writeSeparatedSiteConnections } from "./wordpressSiteIdentity";
 import { filterWordPressSiteGroups, groupWordPressSites, readSeparatedSitePairs, wordPressSiteCopies, wordPressSiteSource, writeSeparatedSitePairs } from "./wordpressSiteGroups";
@@ -265,6 +265,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const selected = selectedSummary ?? selectedDetails?.site ?? null;
   const connectSite = selected ? identity.connector(selected) : null;
   const connectionMembers = selected ? candidateIdentity.aliases(selected.id) : [];
+  const siteEndpoints = useQuery({ queryKey: ["wordpress-manager", "publish-destinations"], queryFn: () => hostEndpoints.list("site"), staleTime: 30_000 });
   // Hosting accounts this website depends on. A saved "connected" status is only as current as its
   // last test, so test each once per page load when its site is opened; failures show a banner.
   const hostingConnectionIds = [...new Set([selected, ...connectionMembers].filter((site): site is WordPressManagedSite => site?.provider === "hostinger" && !!site.connectionId).map(site => site.connectionId!))];
@@ -754,7 +755,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
               : <div role="alert" className="mb-3 text-sm text-status-error">{detailError} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>)}
             {tab === "development" ? <WordPressRepositoryDevelopment/> : tab === "history" ? <div className="min-w-0 space-y-8"><PluginTransferHistory sites={sites} canonicalId={identity.canonicalId} /></div> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
               <>
-                {tab === "overview" && <OverviewTab site={selected} connectSite={connectSite} details={selectedDetails} loading={detailLoading} onSetup={()=>selected && void openSite(selected,true)} onRestore={openBackupImport} onReconnect={() => setProvidersOpen(true)}
+                {tab === "overview" && <OverviewTab site={selected} connectSite={connectSite} details={selectedDetails} loading={detailLoading} onSetup={()=>selected && void openSite(selected,true)} onRestore={openBackupImport} onReconnect={() => setProvidersOpen(true)} publicEndpoint={siteEndpoints.data?.endpoints.find(endpoint => endpoint.id === (connectSite?.id ?? selected?.id)) ?? null}
                   sync={selected && (selected.provider === "ddev" || selected.provider === "hostinger" || selected.provider === "zoer-connect") ? <SiteSyncCard site={selected} live={selectedSource} copies={selectedCopies} onSelect={selectSite} onPush={setPushFrom} onRefresh={(local, live) => setPullInto({ local, live })}
                     makeCopy={selected.provider !== "ddev" ? <WordPressConnect key={connectSite?.id ?? selected.id} siteId={connectSite?.id ?? selected.id} siteName={selected.name} label={selectedCopies.length ? "Make another local copy" : "Make a local copy"} localCopy onSetup={selected.provider === "hostinger" ? () => void openSite(selected, true) : undefined} onRestore={openBackupImport} /> : undefined} /> : null} />}
                 {tab === "plugins" && <ExtensionsTab developingPlugin={developingPlugin} onDevelop={setDevelopingPlugin} kind="plugin" site={selected} connectSiteId={connectSite?.id} rows={selectedDetails?.plugins || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
@@ -845,11 +846,11 @@ function SitePairCard({ source, copies, selectedId, onSelect, onSeparate }: { so
   </div>;
 }
 
-function OverviewTab({ site, connectSite, details, loading, onSetup, onRestore, sync, onReconnect }: { site: WordPressManagedSite | null; connectSite: WordPressManagedSite | null; details: WordPressSiteDetails | null; loading: boolean; onSetup: () => void; onRestore: () => void; /** The local ⇄ live card. */ sync?: React.ReactNode; onReconnect?: () => void }) {
+function OverviewTab({ site, connectSite, details, loading, onSetup, onRestore, sync, onReconnect, publicEndpoint }: { site: WordPressManagedSite | null; connectSite: WordPressManagedSite | null; details: WordPressSiteDetails | null; loading: boolean; onSetup: () => void; onRestore: () => void; /** The local ⇄ live card. */ sync?: React.ReactNode; onReconnect?: () => void; /** The site's Zoer Connect endpoint, whose public pages can be checked. */ publicEndpoint?: { id: string; origin: string } | null }) {
   if (!site) return <EmptyState icon={<Globe2 className="h-7 w-7" />} title="Select a WordPress site" />;
   const health = details?.health || [];
   return <div className="space-y-4">
-    {connectSite?.provider === "zoer-connect" && connectSite.status === "connected" && connectSite.url && <PublicationStatus key={connectSite.id} siteId={connectSite.id} siteUrl={connectSite.url} onReconnect={onReconnect} />}
+    {publicEndpoint && <PublicationStatus key={publicEndpoint.id} siteId={publicEndpoint.id} siteUrl={publicEndpoint.origin} onReconnect={onReconnect} />}
     {sync}
     {site.provider === "ddev" && <WordPressCoreUpdates key={site.id} site={site} />}
     {site.provider === "ddev" && <a className="inline-flex min-h-11 items-center text-sm text-accent underline" href={`/#/plugins/wordpress-manager?tab=development&site=${encodeURIComponent(site.id)}`}>Develop a repository plugin on this site</a>}

@@ -191,7 +191,7 @@ function summaryOf(state) {
   const assets = results.filter((r) => r.kind === "asset").length;
   return status === "current" ? `Current on ${pages} checked page${pages === 1 ? "" : "s"}${assets ? ` and ${assets} asset${assets === 1 ? "" : "s"}` : ""}.`
     : status === "stale" ? "Old content detected on the public site."
-      : status === "not-verifiable" ? state.detail
+      : status === "not-verifiable" || status === "superseded" ? state.detail
         : "The public check could not complete.";
 }
 
@@ -199,7 +199,7 @@ function recordOf(state, now) {
   return {
     id: recordId(state.siteId), kind: "publication-check", title: summaryOf(state).slice(0, 200),
     data: {
-      v: 1, siteId: state.siteId, importId: state.importId ?? null, publicationId: state.expected?.publicationId ?? null, committedAt: state.expected?.committedAt ?? 0,
+      v: 1, siteId: state.siteId, importId: state.importId ?? null, publicationId: state.expected?.publicationId ?? null, publicationKind: state.expected?.kind ?? null, committedAt: state.expected?.committedAt ?? 0,
       checkId: state.checkId, reason: state.reason, purgeId: state.purgeId ?? null, status: state.status, detail: state.detail ?? null, summary: summaryOf(state),
       attempt: state.attempt, rechecking: state.rechecking === true, startedAt: state.startedAt, checkedAt: new Date(now()).toISOString(),
       coverage: { pages: [...new Set(state.results.filter((r) => r.kind === "page").map((r) => r.path))], variants: Object.keys(VARIANTS), assets: state.results.filter((r) => r.kind === "asset").length },
@@ -247,6 +247,9 @@ export const verifySpec = {
       state.wordpressCache = expected.wordpressCache && typeof expected.wordpressCache === "object" ? { state: String(expected.wordpressCache.state ?? "").slice(0, 20), ranAt: expected.wordpressCache.ranAt ?? null, layers: (expected.wordpressCache.layers ?? []).slice(0, 16).map((l) => ({ key: String(l.key).slice(0, 40), label: String(l.label).slice(0, 60), status: String(l.status).slice(0, 20) })) } : null;
       // Checking an earlier import after a newer publication would describe the wrong website.
       if (state.importId && state.expected.importId && state.expected.importId !== state.importId) { state.superseded = true; return finishWith("superseded", "A newer publication replaced this one."); }
+      // A rollback commits a newer publication with the same import ID: a check started for the
+      // import's Finish must not report the rolled-back state as that publication being current.
+      if (state.reason === "finish" && state.importId && state.expected.importId === state.importId && state.expected.kind === "rollback") { state.superseded = true; return finishWith("superseded", "This publication was rolled back."); }
       state.importId = state.importId ?? state.expected.importId;
       state.queue = plan(state);
       state.phase = "check";

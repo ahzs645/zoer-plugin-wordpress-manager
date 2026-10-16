@@ -6,7 +6,7 @@
  *
  *   bun tools/live-gate/push.ts --set fs_<32 hex> --confirm-target https://<destination address> \
  *     [--site ddev-zoer-connect-040-destination] [--source ddev-zoer-connect-040-source] [--dry] \
- *     [--pause-on-upload [--pause-seconds 10]] [--options '<importOptions JSON merged over the defaults>']
+ *     [--shared] [--pause-on-upload [--pause-seconds 10]] [--options '<importOptions JSON merged over the defaults>']
  *
  * `--confirm-target` is the destination's Zoer Connect address exactly as the push dialog asks for
  * it (no trailing slash). `--pause-on-upload` pauses once at the first upload progress, waits `--pause-seconds`, and
@@ -33,6 +33,8 @@ if (import.meta.main) {
       source: { type: "string", default: "ddev-zoer-connect-040-source" }, "confirm-target": { type: "string" },
       dry: { type: "boolean", default: false }, "pause-on-upload": { type: "boolean", default: false }, "pause-seconds": { type: "string", default: "10" }, options: { type: "string" },
       "timeout-min": { type: "string", default: "30" },
+      /** The destination runs in shared-replacement mode: accept replacement instead of asserting WordPress-only writers. */
+      shared: { type: "boolean", default: false },
     },
   });
   if (!values.set || !values["confirm-target"]) { console.error("Usage: push.ts --set fs_<id> --confirm-target <https address> [--site] [--source] [--dry] [--pause-on-upload [--pause-seconds 10]] [--options json]"); process.exit(2); }
@@ -40,7 +42,7 @@ if (import.meta.main) {
   const input: Record<string, unknown> = {
     siteId: values.site, setId: values.set, importId: randomBytes(16).toString("hex"), confirmTarget: values["confirm-target"], sourceSiteId: values.source,
     importOptions: { ...DEFAULT_IMPORT_OPTIONS, ...(values.options ? JSON.parse(values.options) : {}) },
-    wordpressOnlyWriters: true, ...(values.dry ? { dryRun: true } : {}),
+    ...(values.shared ? { replacementAccepted: true } : { wordpressOnlyWriters: true }), ...(values.dry ? { dryRun: true } : {}),
   };
   const t0 = Date.now();
   const at = () => ((Date.now() - t0) / 1000).toFixed(1);
