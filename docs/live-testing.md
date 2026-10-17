@@ -136,6 +136,8 @@ bun tools/live-gate/zoer.ts start site.stop '{"siteId":"ddev-zoer-connect-040-so
 
 `--confirm-target` is the destination's Zoer Connect address exactly as the push dialog shows it. For 040-destination that was `https://zoer-connect-040-destination.wp.k8s.overtheedgepaper.ca`; check it in the dialog if a plan says "Confirm the exact destination address". Use `zoer.ts filesets` or `zoer.ts catalog pull` to find an existing ready set instead of pulling again. Some actions (`site.start`, pulls) may wait for approval when Zoer is configured that way. `zoer.ts approvals` lists them, and `zoer.ts approve <id>` approves only test-site approvals.
 
+`snap.ts` table counts come from `SHOW TABLE STATUS`, which InnoDB estimates. A backup restore recreates tables and refreshes the estimates, so a compare after one can show changed `tables.*` counts for identical content. Check `postTypes` (exact `COUNT(*)`) or count the rows before calling it a difference.
+
 UI check after a UI change (read-only, 1440 and 390 wide):
 
 ```sh
