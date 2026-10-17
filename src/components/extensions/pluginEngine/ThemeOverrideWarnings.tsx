@@ -13,6 +13,18 @@ interface LocalItem { title: string; slug: string; safeToRemove: boolean }
 interface LiveItem { title: string; slug: string }
 const names = (items: { title: string; slug: string }[]) => items.slice(0, 4).map(item => item.title || item.slug).join(", ") + (items.length > 4 ? ` and ${items.length - 4} more` : "");
 
+/** Warning lines for the chosen themes: local copies missing from the theme files, and live copies that hide pushed files. */
+export function themeOverrideWarnings(themes: string[], local: LocalItem[][], live: LiveItem[][], sourceName: string, destinationHost: string): { key: string; text: string }[] {
+  return themes.flatMap((theme, index) => {
+    const unsaved = (local[index] ?? []).filter(item => !item.safeToRemove);
+    const hidden = live[index] ?? [];
+    return [
+      ...(unsaved.length ? [{ key: `local:${theme}`, text: `${theme}: ${names(unsaved)} ${unsaved.length === 1 ? "was" : "were"} edited in the Site Editor on ${sourceName} and ${unsaved.length === 1 ? "is" : "are"} not in the theme files, so this push won't include ${unsaved.length === 1 ? "it" : "them"}. Save ${unsaved.length === 1 ? "it" : "them"} to the theme's repository first (Development tab).` }] : []),
+      ...(hidden.length ? [{ key: `live:${theme}`, text: `${theme}: ${destinationHost} has its own saved ${hidden.length === 1 ? "copy" : "copies"} of ${names(hidden)}. Visitors will keep seeing ${hidden.length === 1 ? "that" : "those"} instead of the pushed files until ${hidden.length === 1 ? "it is" : "they are"} reset in Appearance → Editor on the live site.` }] : []),
+    ];
+  });
+}
+
 export default function ThemeOverrideWarnings({ themes, sourceId, sourceLocal, sourceName, destinationId, destinationHost, capabilities }: {
   themes: string[]; sourceId: string; sourceLocal: boolean; sourceName: string; destinationId: string; destinationHost: string; capabilities: ZoerConnectCapabilities | undefined;
 }) {
@@ -29,14 +41,7 @@ export default function ThemeOverrideWarnings({ themes, sourceId, sourceLocal, s
       return result.themeOverrides?.items ?? [];
     },
   })) });
-  const warnings = themes.flatMap((theme, index) => {
-    const unsaved = (local[index]?.data?.items ?? []).filter(item => !item.safeToRemove);
-    const hidden = remote[index]?.data ?? [];
-    return [
-      ...(unsaved.length ? [{ key: `local:${theme}`, text: `${theme}: ${names(unsaved)} ${unsaved.length === 1 ? "was" : "were"} edited in the Site Editor on ${sourceName} and ${unsaved.length === 1 ? "is" : "are"} not in the theme files, so this push won't include ${unsaved.length === 1 ? "it" : "them"}. Save ${unsaved.length === 1 ? "it" : "them"} to the theme's repository first (Development tab).` }] : []),
-      ...(hidden.length ? [{ key: `live:${theme}`, text: `${theme}: ${destinationHost} has its own saved ${hidden.length === 1 ? "copy" : "copies"} of ${names(hidden)}. Visitors will keep seeing ${hidden.length === 1 ? "that" : "those"} instead of the pushed files until ${hidden.length === 1 ? "it is" : "they are"} reset in Appearance → Editor on the live site.` }] : []),
-    ];
-  });
+  const warnings = themeOverrideWarnings(themes, themes.map((_, index) => local[index]?.data?.items ?? []), themes.map((_, index) => remote[index]?.data ?? []), sourceName, destinationHost);
   if (!warnings.length) return null;
   return <div role="status" className="space-y-1.5 rounded-md border border-status-warning/40 bg-status-warning/10 p-3 text-sm">
     {warnings.map(warning => <p key={warning.key} className="flex items-start gap-1.5"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-status-warning" aria-hidden="true" /><span>{warning.text}</span></p>)}

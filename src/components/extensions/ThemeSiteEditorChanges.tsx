@@ -53,10 +53,11 @@ export default function ThemeSiteEditorChanges({ base, theme, siteRunning, locke
       <Btn size="sm" disabled={query.isFetching} onClick={() => void query.refetch()}>Check again</Btn>
     </div>
     {query.isLoading && <p role="status" className="text-text-secondary">Reading the local site…</p>}
+    {query.isFetching && !query.isLoading && <p role="status" className="text-text-secondary">Checking the local site…</p>}
     {query.error && <p role="alert" className="text-status-error">{query.error instanceof Error ? query.error.message : String(query.error)}</p>}
     {query.data && !query.data.active && <p className="text-text-secondary">{theme} is not the active theme on this site, so the Site Editor is editing another theme.</p>}
     {query.data && !items.length && <p className="flex items-center gap-1.5 text-text-secondary"><Check className="h-4 w-4 text-status-success" aria-hidden="true" />No Site Editor changes. The theme files are what visitors see.</p>}
-    {!!items.length && <ul className="divide-y divide-border-muted rounded-md border border-border-muted">
+    {!!items.length && <ul aria-busy={query.isFetching} className={`divide-y divide-border-muted rounded-md border border-border-muted ${query.isFetching ? "opacity-60" : ""}`}>
       {items.map(item => {
         const state = overrideState(item);
         return <li key={item.id} className="flex min-w-0 items-start gap-2 p-2.5">
