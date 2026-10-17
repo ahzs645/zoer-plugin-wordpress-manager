@@ -120,11 +120,6 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
   const sources = guidedPushSources(pushSources((records.data ?? []).map(parsePullRecord).filter((pull): pull is PullRecord => !!pull), siteId), guidedSourceId);
   const [setId, setSetId] = useState("");
   const chosen = sources.find(pull => pull.setId === setId) ?? null;
-  // Guided (local → live): the newest export of the local site is the one to push, including one
-  // that finishes while the dialog is open, until the person picks another.
-  const picked = useRef(false);
-  const newest = guidedSourceId ? sources[0]?.setId ?? "" : "";
-  useEffect(() => { if (newest && !picked.current && newest !== setId) choose(newest); }, [newest]); // eslint-disable-line react-hooks/exhaustive-deps
   // Selective push needs Zoer Connect's file comparison on the destination.
   const canCompare = caps?.selectivePush === true;
   const [compare, setCompare] = useState(canCompare);
@@ -225,45 +220,6 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
         {dryRun ? "Request dry run" : guidedSourceId && comparing ? `Push ${selected.size.toLocaleString()} item${selected.size === 1 ? "" : "s"} to live` : comparing ? `Request push of ${selected.size.toLocaleString()} item${selected.size === 1 ? "" : "s"}` : "Request push of everything"}
       </Btn>
   </>;
-  const modeChoice = (code: boolean, title: string, detail: string) => <label className={`flex min-h-11 min-w-0 cursor-pointer flex-col gap-0.5 rounded-lg border p-2.5 text-sm focus-within:ring-2 focus-within:ring-input-focus ${codeOnly === code ? "border-accent bg-surface-hover" : "border-border-default hover:bg-surface-hover"}`}>
-    <input type="radio" className="sr-only" name={`zoer-push-mode-${siteId}`} checked={codeOnly === code} disabled={starting !== null} onChange={() => { setCodeOnly(code); picked.current = false; choose(code === codeOnly ? setId : ""); }} />
-    <span className="font-medium text-text-primary">{title}</span><span className="text-[12px] leading-4 text-text-muted">{detail}</span>
-  </label>;
-  if (guidedSourceId) return <div className="min-w-0 space-y-5">
-    <fieldset className="min-w-0"><legend className="mb-2 text-sm font-medium">What to push</legend>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {modeChoice(true, "Code only (recommended)", "Selected themes and plugins. Live posts, pages, media and users stay as they are.")}
-        {modeChoice(false, "Everything", "Replace the live site with the local one, including the database.")}
-      </div>
-    </fieldset>
-    {!codeOnly && <p role="note" className="text-xs text-status-warning">Live edits made since your local copy (new posts, orders, sign-ups) will be overwritten.</p>}
-    {codeOnly && !codeCapabilities && <p role="alert" className="text-xs text-status-warning">Update Zoer Connect on the live site to push code only.</p>}
-
-    <Step n={1} title={`Export ${siteName(guidedSourceId)}`}>
-      <LocalExportSource destinationSiteId={siteId} guidedSourceId={guidedSourceId} draft={draft} update={update} codeOnly={codeOnly} hasExport={!!sources.length} />
-      {sources.length > 0 && <label className="block min-w-0 text-sm"><span className={fieldLabelClass}>Export to push</span>
-        <Select aria-label="Push source" className={selectClass("default", "w-full")} value={chosen ? setId : ""} onChange={event => { picked.current = true; choose(event.target.value); }}>
-          {sources.map((pull, index) => <option key={pull.pullId} value={pull.setId!}>{index === 0 ? "Latest · " : ""}{new Date(pull.createdAt).toLocaleString()} · {pullContents(pull.options).label} · {formatTransferBytes(pull.totalBytes)}</option>)}
-        </Select>
-      </label>}
-      {codeIssue && <p role="alert" className="text-xs text-status-warning">{codeIssue}</p>}
-      {partialUnsupported && <p className="text-xs text-status-warning">This export contains only some tables. {REQUIRES_040} to import a partial database.</p>}
-    </Step>
-
-    {chosen && <Step n={2} title="Compare with the live site">
-      {!codeOnly && <CheckboxField label="Choose files after comparing" description={canCompare ? "Otherwise everything in the export is pushed." : "Update Zoer Connect on the live site to compare first."} checked={comparing} disabled={!canCompare} onChange={value => { setCompare(value); setError(""); }} />}
-      {comparing && compareBlock}
-    </Step>}
-
-    {chosen && !codeOnly && <Step n={3} title="Options">
-      <details data-zoer-disclosure className="min-w-0 rounded-lg border border-border-default"><summary className="flex min-h-11 cursor-pointer items-center px-3 text-sm text-text-secondary">Database, find &amp; replace and safety (defaults are fine for most pushes)</summary>
-        <div className="min-w-0 space-y-3 border-t border-border-muted p-3">{optionsBlock}</div>
-      </details>
-    </Step>}
-
-    {chosen && <Step n={codeOnly ? 3 : 4} title="Push">{confirmBlock}</Step>}
-    {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
-  </div>;
   return <div className="min-w-0 space-y-5">
     <label className="block text-sm"><span className={fieldLabelClass}>Publish mode</span>
       <Select aria-label="Publish mode" className={selectClass("default", "w-full")} value={codeOnly ? "code" : "custom"} onChange={event => { setCodeOnly(event.target.value === "code"); choose(""); }} disabled={starting !== null}>

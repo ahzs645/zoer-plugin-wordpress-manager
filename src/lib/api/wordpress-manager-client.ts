@@ -40,6 +40,8 @@ export const wordpressManagerClient = {
   /** 0.6.0: load the websites of a Hostinger account connected through Zoer (S7a). */
   adoptHostingerOAuthConnection: (connectionId: string, name?: string) => json<{ connection: HostingerConnectionPublic }>("/wordpress-manager/connections/oauth", { method: "POST", body: JSON.stringify({ connectionId, ...(name ? { name } : {}) }) }),
   testWordPressManagerConnection: (id: string) => json<{ ok: boolean; testedAt: string; websites: number; installations: number }>(`/wordpress-manager/connections/${encodeURIComponent(id)}/test`, { method: "POST" }),
+  /** Replaces an expired sign-in or revoked token in place (same account; sites and recovery points stay). */
+  reconnectWordPressManagerConnection: (id: string, input: { oauthConnectionId: string } | { token: string }) => json<{ connection: HostingerConnectionPublic }>(`/wordpress-manager/connections/${encodeURIComponent(id)}/reconnect`, { method: "POST", body: JSON.stringify(input) }),
   deleteWordPressManagerConnection: (id: string) => json<{ ok: boolean }>(`/wordpress-manager/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
   createWordPressAdminLink: (siteId: string) => json<{ url: string }>("/wordpress-manager/admin-link", { method: "POST", body: JSON.stringify({ siteId }) }),
   recordWordPressRecoveryPoint: (input: { connectionId: string; domain: string; label: string; confirmed: true }) => json<{ recoveryPoint: WordPressRecoveryPoint }>("/wordpress-manager/recovery-points", { method: "POST", body: JSON.stringify(input) }),
