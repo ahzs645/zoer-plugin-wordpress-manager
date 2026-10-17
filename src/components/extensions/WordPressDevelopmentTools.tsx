@@ -7,7 +7,7 @@ import { Field } from "@zoer/plugin-ui/controls";
 import { ComputerSelect } from "@zoer/plugin-ui/controls";
 import { CodeBlock } from "@zoer/plugin-ui/controls";
 interface Tooling {settings:null|{computerId:string;enabled:boolean;command:string;excludes:string[];setupStatus:string;error?:string;versions?:string};computerStatus?:string;build:null|{status:string;sequence:number;output?:string;workerAlive:boolean;sourceDigest:string;currentDigest:string}}
-export default function WordPressDevelopmentTools({repo,onRecipe}:{repo:RepoEntry;onRecipe:(recipe:{folder:string;slug:string})=>void}) {
+export default function WordPressDevelopmentTools({repo,onRecipe}:{repo:RepoEntry;onRecipe:(recipe:{folder:string;slug:string;kind?:"plugin"|"theme"})=>void}) {
   const client=useQueryClient(), path=`/repository-development/${encodeURIComponent(repo.id)}/tooling`, key=[getApiBase(),'wordpress-development-tooling',repo.id];
   const query=useQuery({queryKey:key,queryFn:()=>json<Tooling>(path),refetchInterval:3000});
   const [computerId,setComputerId]=useState(repo.attachedComputers[0]?.id??''),[command,setCommand]=useState(''),[excludes,setExcludes]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[dirty,setDirty]=useState(false);
@@ -17,7 +17,7 @@ export default function WordPressDevelopmentTools({repo,onRecipe}:{repo:RepoEntr
   return <div className="min-w-0 space-y-3 rounded-lg border border-border-default p-4">
     <h3 className="font-medium text-text-heading">PHP/Composer and build-on-save</h3>
     <p className="text-sm text-text-secondary">Enable once: installs PHP and Composer, then rebuilds a moment after you save in Files, Terminal or Chat.</p>
-    <Btn disabled={busy} onClick={async()=>{setBusy(true);setError('');try{const recipe=await json<{command:string;folder:string;slug:string}>(`/wordpress-manager/repositories/${encodeURIComponent(repo.id)}/development/inspect`);setCommand(recipe.command);setDirty(true);onRecipe(recipe);}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}}>Inspect repository and prepare build</Btn>
+    <Btn disabled={busy} onClick={async()=>{setBusy(true);setError('');try{const recipe=await json<{command:string;folder:string;slug:string;kind?:"plugin"|"theme"}>(`/wordpress-manager/repositories/${encodeURIComponent(repo.id)}/development/inspect`);setCommand(recipe.command);setDirty(true);onRecipe(recipe);}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}}>Inspect repository and prepare build</Btn>
     <ComputerSelect computers={repo.attachedComputers} aria-label="WordPress development computer" value={computerId} onChange={e=>{setComputerId(e.target.value);setDirty(true);}}><option value="">Choose an attached computer</option>{repo.attachedComputers.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</ComputerSelect>
     <Field label="Build command" value={command} onChange={v=>{setCommand(v);setDirty(true);}} placeholder="Blank: install dependencies, build assets and lint PHP"/>
     <Field label="Additional ignored folders" value={excludes} onChange={v=>{setExcludes(v);setDirty(true);}} placeholder="generated, cache"/>

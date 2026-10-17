@@ -1,5 +1,5 @@
 import {test,expect} from 'bun:test';
-import {sourcesForPlugin,repositoryForPlugin,canDevelopInstalledPlugin} from './repositoryPluginSelection';
+import {sourcesForPlugin,repositoryForPlugin,repositoryLinkedToSite,canDevelopInstalledPlugin} from './repositoryPluginSelection';
 const sources=[{id:'campus',name:'Campus',linked:true,link:{repoId:'campus',siteId:'local-a',slug:'campus-manager',folder:'dist/campus-manager'}},{id:'other',name:'Other',linked:false,link:{repoId:'other',siteId:'local-b',slug:'campus-manager',folder:'.'}},{id:'empty',name:'Empty',linked:false,link:null}];
 test('installed-plugin context selects its exact link and excludes other-site/other-plugin links',()=>{
  expect(repositoryForPlugin(sources,'local-a','campus-manager','empty')).toBe('campus');
@@ -13,4 +13,10 @@ test('development applies to ordinary local plugins only',()=>{
  expect(canDevelopInstalledPlugin('ddev','plugin','active','campus-manager')).toBe(true);
  expect(canDevelopInstalledPlugin('ddev','plugin','inactive','campus-manager')).toBe(true);
  for(const [provider,kind,status,slug] of [['hostinger','plugin','active','campus-manager'],['zoer-connect','plugin','active','campus-manager'],['ddev','theme','active','campus-manager'],['ddev','plugin','must-use','campus-manager'],['ddev','plugin','dropin','campus-manager'],['ddev','plugin','active','zoer-connect']])expect(canDevelopInstalledPlugin(provider!,kind!,status!,slug!)).toBe(false);
+});
+test('a linked local site opens on its repository',()=>{
+ expect(repositoryLinkedToSite(sources,'local-a')).toBe('campus');
+ expect(repositoryLinkedToSite(sources,'local-b')).toBe('other');
+ expect(repositoryLinkedToSite(sources,'local-c')).toBeNull();
+ expect(repositoryLinkedToSite(sources,null)).toBeNull();
 });

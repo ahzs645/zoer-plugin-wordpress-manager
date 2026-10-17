@@ -9,6 +9,10 @@ export function repositoryForPlugin(sources:SiteRepositorySource[],siteId:string
  return available.find(source=>source.link?.siteId===siteId&&source.link.slug===slug)?.id
   ??available.find(source=>source.id===selected)?.id??null;
 }
+/** The repository already linked to this local site, so opening its Development tab shows it. */
+export function repositoryLinkedToSite(sources:SiteRepositorySource[],siteId:string|null) {
+ return siteId?sources.find(source=>source.link?.siteId===siteId)?.id??null:null;
+}
 export function canDevelopInstalledPlugin(provider:string,kind:string,status:string,slug:string) {
  return provider==='ddev'&&kind==='plugin'&&(status==='active'||status==='inactive')&&slug!=='zoer-connect';
 }

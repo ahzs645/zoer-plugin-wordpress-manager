@@ -1,6 +1,14 @@
 # Proposal: theme development pathway
 
-**Status:** proposal (2026-10-16). Nothing here is implemented. Example: `apex/apex-wordpress`.
+**Status:** steps 1–3 partly implemented (2026-10-16); steps 4–5 are proposals. Example:
+`apex/apex-wordpress`.
+
+Implemented: repository development links take `kind: "theme"` (Zoer host
+`repo-wordpress-theme.ts`): inspection finds exactly one theme (`style.css` header plus
+`templates/index.html` or `index.php`), a block theme starter, install/update into
+`wp-content/themes/<slug>` with the same review, PHP syntax check and rollback, and reviewed
+activation. Not yet: build hints beyond the plugin ones, portability warnings, required-plugin
+detection, database-override warnings and Site Editor capture.
 
 ## The example: Apex
 

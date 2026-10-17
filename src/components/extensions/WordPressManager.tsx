@@ -89,13 +89,12 @@ type ManagerTab = "development" | "overview" | "plugins" | "themes" | "updates" 
 const tabs: Array<{ id: ManagerTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "plugins", label: "Plugins" },
-  { id: "development", label: "Plugin development" },
+  { id: "development", label: "Development" },
   { id: "themes", label: "Themes" },
   { id: "updates", label: "Updates & logs" },
   { id: "security", label: "Scan & report" },
   { id: "backups", label: "Backups & import" },
   { id: "deployments", label: "Transfer & publish" },
-  { id: "history", label: "Transfer history" },
 
 ];
 
@@ -196,7 +195,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const inspectSelected = Boolean(selectedSummary && (!isLocalWordPress(selectedSummary) || selectedSummary.status === "running"));
   // Logs use saved receipts; opening them does not need to run Site Health or inspect extensions.
   const inspectDetails = inspectSelected && tab !== "development" && tab !== "updates" && tab !== "security";
-  const detailSection = tab === "history" || tab === "updates" || tab === "security" ? "overview" : tab;
+  const detailSection = tab === "updates" || tab === "security" ? "overview" : tab;
   const detailsQuery = useQuery({ ...wordpressQueries.site(selectedSummary?.id ?? "", detailSection), enabled: inspectDetails });
   const scopedSites = siteScope === "local" ? sites.filter(isLocalWordPress) : sites;
   const pickerSites = siteScope === "local" ? identity.sites.filter(isLocalWordPress) : identity.sites;
@@ -761,7 +760,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
             {/* Phones put the main button on its own row so the title keeps its width. */}
             {selected && (mainAction || transfersAction) && <div className="mt-3 flex flex-wrap gap-2 sm:hidden">{mainAction}{transfersAction}</div>}
           </div>
-          <PageTabs id="wordpress-sections" label="WordPress manager sections" tabs={tabs.filter(item => item.id !== "security" || selected?.provider === "ddev")} value={tab} onChange={setTab} />
+          <PageTabs id="wordpress-sections" label="WordPress manager sections" tabs={tabs.filter(item => item.id !== "security" || selected?.provider === "ddev")} value={tab === "history" ? "deployments" : tab} onChange={setTab} />
           <PageTabPanel id="wordpress-sections" value={tab} className="flex-1 overflow-y-auto p-3 sm:p-4">
             {connectSite?.provider === "zoer-connect" && tab !== "history" && !(connectionsCombined && tab === "overview") && <div className="mb-4 empty:hidden"><PluginSiteRuns key={connectSite.id} siteId={connectSite.id} compact /></div>}
             {pendingAccounts.map(account => <div key={account.id} role="status" className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-default bg-surface-secondary px-3 py-2 text-[13px]"><span className="min-w-0 break-words">Hostinger account “{account.label}” is signed in, but its websites aren't loaded here yet.</span><Btn size="sm" variant="primary" loading={busy === `adopt:${account.id}`} disabled={busy !== null} onClick={() => void (async () => { setBusy(`adopt:${account.id}`); setError(null); try { await api.adoptHostingerOAuthConnection(account.id); setNotice("Hostinger websites loaded."); await load(true, true); void connectionsQuery.refetch(); void hostAccounts.refetch(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not load this Hostinger account."); } finally { setBusy(null); } })()}>Load websites</Btn></div>)}
@@ -770,7 +769,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
             {detailError && (isTransferFence(detailError)
               ? <div role="status" className="mb-3 text-sm text-status-warning">{TRANSFER_FENCE_NOTICE} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>
               : <div role="alert" className="mb-3 text-sm text-status-error">{detailError} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>)}
-            {tab === "development" ? <WordPressRepositoryDevelopment onPushToLive={selected?.provider === "ddev" ? () => setPushFrom(selected) : undefined}/> : tab === "history" ? <div className="min-w-0 space-y-8"><PluginTransferHistory sites={sites} canonicalId={identity.canonicalId} /></div> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
+            {tab === "development" ? <WordPressRepositoryDevelopment onPushToLive={selected?.provider === "ddev" ? () => setPushFrom(selected) : undefined}/> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
               <>
                 {tab === "overview" && <OverviewTab site={selected} connectSite={connectSite} details={selectedDetails} loading={detailLoading} onSetup={()=>selected && void openSite(selected,true)} onRestore={openBackupImport} onReconnect={() => setProvidersOpen(true)} publicEndpoint={siteEndpoints.data?.endpoints.find(endpoint => endpoint.id === (connectSite?.id ?? selected?.id)) ?? null}
                   sync={selected && (selected.provider === "ddev" || selected.provider === "hostinger" || selected.provider === "zoer-connect") ? <SiteSyncCard site={selected} live={selectedSource} copies={selectedCopies} onSelect={selectSite} onPush={setPushFrom} onRefresh={(local, live) => setPullInto({ local, live })}
@@ -781,8 +780,12 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
                 {tab === "security" && selected && <WordPressSecurity key={selected.id} site={selected} onStart={() => void changeLifecycle(selected)} />}
                 {tab === "backups" && connectSite?.provider === "zoer-connect" && <div className="mb-5"><PluginPulls key={connectSite.id} siteId={connectSite.id} siteName={selected?.name ?? connectSite.name} /></div>}
                 {tab === "backups" && <BackupsTab site={selected} details={selectedDetails} recoveryPoints={selected ? recoveryPointsFor([...(selectedDetails?.recoveryPoints ?? []), ...recoveryPoints], selected) : []} busy={busy} retainPortableBackup={retainPortableBackup} onRetainPortableBackup={setRetainPortableBackup} onCreatePortableBackup={createPortableBackup} onRecordRecovery={recordRecovery} onImportBackup={openBackupImport} />}
-                {tab === "deployments" && selected && selected.provider !== "ddev" && <LiveTransferTab site={selected} connectSite={connectSite?.provider === "zoer-connect" ? connectSite : null} copies={selectedCopies} deployments={siteDeployments} onPush={setPushFrom} onSelect={selectSite} makeCopy={<WordPressConnect key={`copy:${connectSite?.id ?? selected.id}`} siteId={connectSite?.id ?? selected.id} siteName={selected.name} label="Make a local copy" localCopy onSetup={selected.provider === "hostinger" ? () => void openSite(selected, true) : undefined} onRestore={openBackupImport} />} hostingerPublish={selected.provider === "hostinger" || connectionsCombined ? <DeploymentsTab sites={sites} fixedSource={null} connections={connections} deployments={[]} source={publishSource} setSource={setPublishSource} connection={publishConnection} setConnection={setPublishConnection} domain={publishDomain} setDomain={setPublishDomain} mode={publishMode} setMode={setPublishMode} busy={busy} onPlan={planPublish} onVerify={confirmDeployment} onImport={() => setTab("backups")} compact /> : null} onVerify={confirmDeployment} busy={busy} />}
-                {tab === "deployments" && selected?.provider === "ddev" && <DeploymentsTab onPushToLive={selected?.provider === "ddev" ? () => setPushFrom(selected) : undefined} sites={sites} fixedSource={selected?.capabilities.deploySource ? selected : null} connections={connections} deployments={siteDeployments} source={publishSource} setSource={setPublishSource} connection={publishConnection} setConnection={setPublishConnection} domain={publishDomain} setDomain={setPublishDomain} mode={publishMode} setMode={setPublishMode} busy={busy} onPlan={planPublish} onVerify={confirmDeployment} onImport={() => setTab("backups")} />}
+                {(tab === "deployments" || tab === "history") && selected && selected.provider !== "ddev" && <LiveTransferTab site={selected} connectSite={connectSite?.provider === "zoer-connect" ? connectSite : null} copies={selectedCopies} deployments={siteDeployments} onPush={setPushFrom} onSelect={selectSite} makeCopy={<WordPressConnect key={`copy:${connectSite?.id ?? selected.id}`} siteId={connectSite?.id ?? selected.id} siteName={selected.name} label="Make a local copy" localCopy onSetup={selected.provider === "hostinger" ? () => void openSite(selected, true) : undefined} onRestore={openBackupImport} />} hostingerPublish={selected.provider === "hostinger" || connectionsCombined ? <DeploymentsTab sites={sites} fixedSource={null} connections={connections} deployments={[]} source={publishSource} setSource={setPublishSource} connection={publishConnection} setConnection={setPublishConnection} domain={publishDomain} setDomain={setPublishDomain} mode={publishMode} setMode={setPublishMode} busy={busy} onPlan={planPublish} onVerify={confirmDeployment} onImport={() => setTab("backups")} compact /> : null} onVerify={confirmDeployment} busy={busy} />}
+                {(tab === "deployments" || tab === "history") && selected?.provider === "ddev" && <DeploymentsTab onPushToLive={selected?.provider === "ddev" ? () => setPushFrom(selected) : undefined} sites={sites} fixedSource={selected?.capabilities.deploySource ? selected : null} connections={connections} deployments={siteDeployments} source={publishSource} setSource={setPublishSource} connection={publishConnection} setConnection={setPublishConnection} domain={publishDomain} setDomain={setPublishDomain} mode={publishMode} setMode={setPublishMode} busy={busy} onPlan={planPublish} onVerify={confirmDeployment} onImport={() => setTab("backups")} />}
+                {(tab === "deployments" || tab === "history") && selected && <section aria-label="Transfer history" className="mt-6 min-w-0 space-y-4 border-t border-border-muted pt-4">
+                  <PluginTransferHistory key={`history:${connectSite?.id ?? selected.id}`} siteId={connectSite?.provider === "zoer-connect" ? connectSite.id : selected.id} disclosure />
+                  <details data-zoer-disclosure open={tab === "history" || undefined} className="min-w-0"><summary className="flex min-h-11 cursor-pointer items-center text-sm text-text-secondary sm:min-h-0">Transfers of every site</summary><div className="mt-3"><PluginTransferHistory sites={sites} canonicalId={identity.canonicalId} /></div></details>
+                </section>}
 
               </>
             )}
@@ -869,7 +872,7 @@ function OverviewTab({ site, connectSite, details, loading, onSetup, onRestore, 
     {publicEndpoint && <PublicationStatus key={publicEndpoint.id} siteId={publicEndpoint.id} siteUrl={publicEndpoint.origin} onReconnect={onReconnect} />}
     {sync}
     {site.provider === "ddev" && <WordPressCoreUpdates key={site.id} site={site} />}
-    {site.provider === "ddev" && <a className="inline-flex min-h-11 items-center text-sm text-accent underline" href={`/#/plugins/wordpress-manager?tab=development&site=${encodeURIComponent(site.id)}`}>Develop a repository plugin on this site</a>}
+    {site.provider === "ddev" && <a className="inline-flex min-h-11 items-center text-sm text-accent underline" href={`/#/plugins/wordpress-manager?tab=development&site=${encodeURIComponent(site.id)}`}>Develop a plugin or theme from a repository</a>}
     {site.provider === "hostinger" && <HostingerSiteTools key={site.id} site={site} />}
     {!sync && (site.provider === "hostinger" || site.provider === "zoer-connect") && <section className="rounded-lg border border-border-default p-4"><h4 className="text-sm font-medium text-text-heading">Local development copy</h4><p className="my-3 text-sm text-text-secondary">Download this website into a separate local WordPress site for testing and development.</p><WordPressConnect key={connectSite?.id ?? site.id} siteId={connectSite?.id ?? site.id} siteName={site.name} label="Make a local copy" localCopy onSetup={site.provider === "hostinger" ? onSetup : undefined} onRestore={onRestore} /></section>}
     <details><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-sm text-text-secondary">Site details</summary><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
