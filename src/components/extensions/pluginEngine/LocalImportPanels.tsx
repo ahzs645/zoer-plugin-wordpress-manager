@@ -57,7 +57,7 @@ export default function LocalImportPanels({ id, kind, users, onUsers, sourceUrl,
   const rules = localUrlRules(sourceUrl);
   const from = kind === "copy" ? "source site" : "backup";
   return <div className="min-w-0 space-y-2">
-    <TransferPanel title="Database" summary={databaseOnly ? `${usersSummary(users).replace("All tables", "Other tables")} · local settings kept` : usersSummary(users)} defaultOpen>
+    <TransferPanel title="Database" summary={databaseOnly ? `${usersSummary(users).replace("All tables", "Other tables")} · local settings kept` : usersSummary(users)}>
       <fieldset className="min-w-0 space-y-2" disabled={disabled}>
         <legend className="mb-1 text-xs font-medium text-text-secondary">User accounts</legend>
         <Choice name={`local-users-${id}`} value="local" checked={users === "local"} onChange={onUsers} title="Keep only the local administrator"

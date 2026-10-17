@@ -189,7 +189,7 @@ export default function PluginTransferWorkspace({ siteId, siteName, connection, 
     </>}
 
     <PluginSiteRuns siteId={siteId} />
-    <PluginPulls siteId={siteId} siteName={siteName} onLocalCopy={onLocalCopy} />
+    <PluginPulls siteId={siteId} siteName={siteName} onLocalCopy={onLocalCopy} collapsed />
     <PluginTransferHistory siteId={siteId} disclosure />
   </div>;
 }

@@ -11,7 +11,7 @@ import { isReadyPull, parsePullRecord, pullHasDatabase, type PullRecord } from "
 const STATUS: Record<string, string> = { ready: "Verified", "dry-run": "Dry run · no files kept", downloading: "Downloading", cancelled: "Cancelled", failed: "Failed · nothing kept" };
 
 /** Pulls, backups and local exports of one site (including migrated legacy downloads): download, delete, or copy locally. */
-export default function PluginPulls({ siteId, siteName, onLocalCopy }: { siteId: string; siteName: string; onLocalCopy?: (pull: PullRecord) => void }) {
+export default function PluginPulls({ siteId, siteName, onLocalCopy, collapsed = false }: { siteId: string; siteName: string; onLocalCopy?: (pull: PullRecord) => void; /** Folded behind a summary with the count (inside the Transfers dialog). */ collapsed?: boolean }) {
   const dialogs = useDialogs();
   const client = useQueryClient();
   const records = useCatalogKind("pull");
@@ -52,8 +52,9 @@ export default function PluginPulls({ siteId, siteName, onLocalCopy }: { siteId:
     finally { setBusy(null); }
   }
 
-  return <section className="min-w-0 space-y-2" aria-label="Downloads">
-    <h4 className="text-sm font-semibold text-text-heading">Downloads on the Zoer server</h4>
+  const Wrapper = collapsed ? "details" : "section";
+  return <Wrapper className="min-w-0 space-y-2" aria-label="Downloads" {...(collapsed ? { "data-zoer-disclosure": true } : {})}>
+    {collapsed ? <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-text-heading sm:min-h-0">Downloads on the Zoer server{pulls.length ? ` (${pulls.length})` : ""}</summary> : <h4 className="text-sm font-semibold text-text-heading">Downloads on the Zoer server</h4>}
     {records.isLoading && <p className="text-sm text-text-secondary">Loading downloads…</p>}
     {records.error && <p role="alert" className="text-sm text-status-error">Could not load downloads: {engineErrorMessage(records.error)} <Btn size="sm" onClick={() => void records.refetch()}>Retry</Btn></p>}
     {records.data && !pulls.length && <p className="text-sm text-text-secondary">No downloads of this site yet.</p>}
@@ -79,5 +80,5 @@ export default function PluginPulls({ siteId, siteName, onLocalCopy }: { siteId:
     {pulls.some(pull => isReadyPull(pull) && pull.kind === "local-export" && !pull.sourceReleasedAt) && <p className="text-xs text-text-secondary">Release source staging to free a local export slot. Its verified download stays in Zoer; website files and database are unchanged.</p>}
     {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
     {notice && <p role="status" className="break-words text-sm text-status-warning">{notice}</p>}
-  </section>;
+  </Wrapper>;
 }

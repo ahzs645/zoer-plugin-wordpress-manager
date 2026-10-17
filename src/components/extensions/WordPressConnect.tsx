@@ -12,7 +12,7 @@ import PluginTransferWorkspace from "./pluginEngine/PluginTransferWorkspace";
 import { isTransferFence, TRANSFER_FENCE_NOTICE } from "./pluginEngine/runState";
 import type { PullRecord } from "./pluginEngine/records";
 
-export default function WordPressConnect({ siteId, siteName, label = "Connect Zoer", primary = false, localCopy = false, onSetup, onRestore, initialPushSource, autoOpen = false, onDismiss }: { siteId: string; siteName: string; /** Already-connected sites read "Transfers": the dialog is where pulls, pushes and backups run. */ label?: string; /** The site's main action (an external site has no WordPress admin button). */ primary?: boolean; localCopy?: boolean; initialPushSource?: string; autoOpen?: boolean; onDismiss?: () => void; onSetup?: () => void; onRestore?: () => void }) {
+export default function WordPressConnect({ siteId, siteName, label = "Connect Zoer", primary = false, headerButton = false, localCopy = false, onSetup, onRestore, initialPushSource, autoOpen = false, onDismiss }: { siteId: string; siteName: string; /** Already-connected sites read "Transfers": the dialog is where pulls, pushes and backups run. */ label?: string; /** The site's main action (an external site has no WordPress admin button). */ primary?: boolean; /** A secondary header button beside the main action. */ headerButton?: boolean; localCopy?: boolean; initialPushSource?: string; autoOpen?: boolean; onDismiss?: () => void; onSetup?: () => void; onRestore?: () => void }) {
   const [advanced, setAdvanced] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   const [open, setOpen] = useState(autoOpen);
@@ -36,7 +36,7 @@ export default function WordPressConnect({ siteId, siteName, label = "Connect Zo
   }
   const close = () => { if (!busy) { setOpen(false); setInfo(""); setShow(false); setReplacing(false); onDismiss?.(); } };
   return <>
-    {!autoOpen && <Btn size={primary ? undefined : "sm"} variant={primary ? "primary" : undefined} icon={primary ? <ArrowLeftRight className="h-4 w-4" /> : undefined} onClick={() => { setOpen(true); void conn.refetch(); }}>{label}</Btn>}
+    {!autoOpen && <Btn size={primary || headerButton ? undefined : "sm"} variant={primary ? "primary" : headerButton ? "secondary" : undefined} icon={primary || headerButton ? <ArrowLeftRight className="h-4 w-4" /> : undefined} onClick={() => { setOpen(true); void conn.refetch(); }}>{label}</Btn>}
     {open && <Modal mobileSheet size="wide" title={`${localCopy ? "Make a local copy" : connection ? "Transfers" : "Connect"} · ${siteName}`} onClose={close}>
       <div className="min-w-0 space-y-4 text-sm">
         
