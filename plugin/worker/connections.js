@@ -62,7 +62,8 @@ function diagnosticsResult(answer) {
   return { ok: true, summary: `Diagnostics read · ${tables} table${tables === 1 ? "" : "s"}.`, diagnostics };
 }
 
-/** Zoer Connect 0.7.0 `/theme-overrides`: a block theme's Site Editor copies, names and dates only. */
+/** Zoer Connect 0.7.0 `/theme-overrides/<theme>`: a block theme's Site Editor copies, names and dates only. The theme is a
+ * path segment because Zoer's endpoint gateway forwards only declared query keys. */
 function themeOverridesResult(answer) {
   if (answer.refused) return { ok: false, summary: answer.refused.slice(0, 500) };
   if (answer.status === 404) return { ok: false, summary: "Checking Site Editor changes needs Zoer Connect 0.7.0 on this site." };
@@ -80,7 +81,7 @@ else if (request.action.id === "site.test") {
   const auth = endpoint && { type: "endpoint", endpointId: endpoint.id, generation: endpoint.generation };
   if (!endpoint) done({ ok: false, summary: "This site's connection was removed. Add the site again." });
   else if (request.input.diagnostics === true) done(diagnosticsResult(await fetchThroughHost(`${endpoint.origin}/wp-json/zoer-connect/v1/diagnostics`, auth)));
-  else if (typeof request.input.themeOverrides === "string") done(themeOverridesResult(await fetchThroughHost(`${endpoint.origin}/wp-json/zoer-connect/v1/theme-overrides?theme=${encodeURIComponent(request.input.themeOverrides)}`, auth)));
+  else if (typeof request.input.themeOverrides === "string") done(themeOverridesResult(await fetchThroughHost(`${endpoint.origin}/wp-json/zoer-connect/v1/theme-overrides/${encodeURIComponent(request.input.themeOverrides)}`, auth)));
   else done(checkZoerConnectStatus(endpoint.origin, await fetchThroughHost(`${endpoint.origin}/wp-json/zoer-connect/v1/status`, auth)));
 } else if (request.action.id === "hostinger.check") {
   const answer = await fetchThroughHost("https://developers.hostinger.com/api/hosting/v1/websites?per_page=100", { type: "bearer", connectionAlias: "hostinger", account: request.input.account });

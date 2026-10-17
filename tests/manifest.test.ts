@@ -35,7 +35,10 @@ test("Hostinger accounts and Zoer Connect sites use host connections and endpoin
  const [site]=integration.requiredEndpoints;expect(site).toMatchObject({alias:"site",pathPrefix:"/wp-json/zoer-connect/v1/",keyHeader:"x-zoer-connection",keyPattern:"^zc_[a-f0-9]{64}$",probe:"status",multiple:true});
  expect(site.routes.find((r:any)=>r.path==="status")).toEqual({path:"status",methods:["GET"],effect:"read"});
  // 0.12.0: Site Editor copies on a live site (Zoer Connect 0.7.0), read-only.
- expect(site.routes.find((r:any)=>r.path==="theme-overrides")).toEqual({path:"theme-overrides",methods:["GET"],effect:"read"});
+ expect(site.routes.find((r:any)=>r.path==="theme-overrides/{slug}")).toEqual({path:"theme-overrides/{slug}",methods:["GET"],effect:"read"});
+ // The gateway's {slug} placeholder is [a-z0-9][a-z0-9_-]{0,127}: the action input must not accept more (no dots).
+ const siteTest:any=manifest.integration.actions.find((a:any)=>a.id==="site.test");
+ expect(siteTest.inputSchema.properties.themeOverrides.pattern).toBe("^[a-z0-9][a-z0-9_-]{0,79}$");
  for(const id of ["site.test","hostinger.check"]){const action=integration.actions.find((a:any)=>a.id===id);expect(action).toMatchObject({effect:"read",approval:"never",requiredCapabilities:["network-egress"]});expect(action.resourceLimits.maxNetworkRequests).toBe(2);}
 });
 

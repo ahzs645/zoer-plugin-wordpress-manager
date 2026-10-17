@@ -150,7 +150,7 @@
             "effect": "read"
           },
           {
-            "path": "theme-overrides",
+            "path": "theme-overrides/{slug}",
             "methods": [
               "GET"
             ],
@@ -929,7 +929,7 @@
             },
             "themeOverrides": {
               "type": "string",
-              "pattern": "^[a-z0-9][a-z0-9._-]{0,79}$"
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,79}$"
             }
           },
           "required": [

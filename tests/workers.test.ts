@@ -111,7 +111,9 @@ test("site.test with themeOverrides lists a theme's Site Editor copies by name o
  const answer=(status:number,value:any)=>({ok:true,result:{status,headers:{},bodyBase64:Buffer.from(JSON.stringify(value)).toString("base64")},nextTicket:"n1"});
  const body={theme:"acme",active:true,installed:true,truncated:false,items:[{type:"part",slug:"footer",title:"Footer",modified:"2026-10-17 10:00:00",path:"parts/footer.html",hasThemeFile:true,content:"<p>secret</p>"},{type:"bogus",slug:"x"}]};
  const read=await runWorker("connections.js",{action:{id:"site.test"},input:{endpointId:"ep_1",themeOverrides:"acme"},grants},()=>answer(200,body));
- expect(read.calls.map(c=>c.input.url)).toEqual([`${origin}/wp-json/zoer-connect/v1/theme-overrides?theme=acme`]);
+ expect(read.calls.map(c=>c.input.url)).toEqual([`${origin}/wp-json/zoer-connect/v1/theme-overrides/acme`]);
+ // Zoer's endpoint gateway forwards only index/offset/view query keys: the theme must be a path segment.
+ expect(new URL(read.calls[0]!.input.url).search).toBe("");
  expect(read.output.output).toEqual({ok:true,summary:"1 Site Editor change.",themeOverrides:{theme:"acme",active:true,installed:true,truncated:false,items:[{type:"part",slug:"footer",title:"Footer",modified:"2026-10-17 10:00:00",path:"parts/footer.html",hasThemeFile:true}]}});
  const old=await runWorker("connections.js",{action:{id:"site.test"},input:{endpointId:"ep_1",themeOverrides:"acme"},grants},()=>answer(404,{}));
  expect(old.output.output).toEqual({ok:false,summary:"Checking Site Editor changes needs Zoer Connect 0.7.0 on this site."});
