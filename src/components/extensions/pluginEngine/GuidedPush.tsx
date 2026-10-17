@@ -12,6 +12,7 @@ import { formatTransferBytes } from "../wordpressPullProgress";
 import DatabasePanel from "../wordpressTransfer/DatabasePanel";
 import ReplacePanel from "../wordpressTransfer/ReplacePanel";
 import PluginRunCard from "./PluginRunCard";
+import ThemeOverrideWarnings from "./ThemeOverrideWarnings";
 import PreviewSelection from "./PreviewSelection";
 import { defaultSelection, MAX_SELECTED_PATHS, parsePullRecord, previewFiles, pushSources, type PullRecord } from "./records";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
@@ -217,7 +218,8 @@ export default function GuidedPush({ source, onStartSource, destinationId, conne
         ? <div className="flex flex-wrap items-center gap-2 rounded-md border border-border-default p-3"><span className="min-w-0 flex-1 text-sm">Start <strong>{source.name}</strong> to list its themes and plugins.</span>{onStartSource && <Btn size="sm" icon={<Play className="h-3.5 w-3.5" />} onClick={onStartSource}>Start site</Btn>}</div>
         : inventory.isLoading ? <p role="status" className="text-sm text-text-secondary">Reading themes and plugins from {source.name}…</p>
           : inventory.error ? <div role="alert" className="space-y-2 text-sm text-status-error"><p>Could not read {source.name}'s themes and plugins: {engineErrorMessage(inventory.error)}</p><Btn size="sm" onClick={() => void inventory.refetch()}>Try again</Btn></div>
-            : <div className="grid min-w-0 gap-3 sm:grid-cols-2"><Checklist label="Themes" items={themeItems} selected={themes} onChange={setThemes} empty="No themes found." /><Checklist label="Plugins" items={pluginItems} selected={plugins} onChange={setPlugins} empty="No plugins found." /></div>)}
+            : <><div className="grid min-w-0 gap-3 sm:grid-cols-2"><Checklist label="Themes" items={themeItems} selected={themes} onChange={setThemes} empty="No themes found." /><Checklist label="Plugins" items={pluginItems} selected={plugins} onChange={setPlugins} empty="No plugins found." /></div>
+              {themes.length > 0 && <ThemeOverrideWarnings themes={themes} sourceId={source.id} sourceLocal={source.provider === "ddev"} sourceName={source.name} destinationId={destinationId} destinationHost={host(target)} capabilities={caps} />}</>)}
       {mode === "everything" && <p className="text-xs text-status-warning">Live edits made since your local copy (new posts, orders, sign-ups) will be overwritten.</p>}
       <details data-zoer-disclosure className="text-sm"><summary className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Advanced: files to leave out</summary>
         <label className="mt-2 block"><span className={fieldLabelClass}>One pattern per line</span><textarea className={textareaClass("compact", "w-full font-mono")} rows={4} value={excludes} onChange={event => setExcludes(event.target.value)} spellCheck={false} /></label>

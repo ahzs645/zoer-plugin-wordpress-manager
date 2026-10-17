@@ -7,8 +7,9 @@ Implemented: repository development links take `kind: "theme"` (Zoer host
 `repo-wordpress-theme.ts`): inspection finds exactly one theme (`style.css` header plus
 `templates/index.html` or `index.php`), a block theme starter, install/update into
 `wp-content/themes/<slug>` with the same review, PHP syntax check and rollback, and reviewed
-activation. Not yet: build hints beyond the plugin ones, portability warnings, required-plugin
-detection, database-override warnings and Site Editor capture.
+activation. 0.12.0 adds Site Editor capture into the repository, removal of matching Site Editor
+copies, and database-override warnings before Push to live ([release notes](../releases/0.12.0.md)).
+Not yet: build hints beyond the plugin ones, portability warnings and required-plugin detection.
 
 ## The example: Apex
 

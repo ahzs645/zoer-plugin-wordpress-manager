@@ -20,6 +20,10 @@ export interface ExtensionChangeInput {
   kind: WordPressExtensionKind;
   operation: WordPressExtensionOperation;
   slugs: string[];
+  /** Pinned wordpress.org version (install, local sites, one extension; needs the matching Zoer host). */
+  version?: string;
+  /** ZIP from a stack file: HTTPS GitHub/wordpress.org link and its SHA-256 (install, local sites, one extension). */
+  package?: { url: string; sha256: string };
 }
 
 export const wordpressManagerClient = {

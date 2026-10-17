@@ -5,6 +5,7 @@ import { resourceQueries } from "../../lib/queries/resources";
 import { Select as Select } from "@zoer/plugin-ui/controls";
 import HostingerBrowserLogin, { unloadedHostingerAccounts } from "./HostingerBrowserLogin";
 import HostingerReconnect from "./HostingerReconnect";
+import SiteStackPanel from "./SiteStackPanel";
 import WordPressRepositoryDevelopment from "./WordPressRepositoryDevelopment";
 import { canDevelopInstalledPlugin, type SiteRepositorySource } from "./repositoryPluginSelection";
 import { useResourceSelection } from "@zoer/plugin-ui/workspace";
@@ -769,7 +770,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
             {detailError && (isTransferFence(detailError)
               ? <div role="status" className="mb-3 text-sm text-status-warning">{TRANSFER_FENCE_NOTICE} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>
               : <div role="alert" className="mb-3 text-sm text-status-error">{detailError} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>)}
-            {tab === "development" ? <WordPressRepositoryDevelopment onPushToLive={selected?.provider === "ddev" ? () => setPushFrom(selected) : undefined}/> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
+            {tab === "development" ? <div className="min-w-0 space-y-6"><WordPressRepositoryDevelopment onPushToLive={selected?.provider === "ddev" ? () => setPushFrom(selected) : undefined}/>{selected && <SiteStackPanel site={selected} />}</div> : detailLoading && tab !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
               <>
                 {tab === "overview" && <OverviewTab site={selected} connectSite={connectSite} details={selectedDetails} loading={detailLoading} onSetup={()=>selected && void openSite(selected,true)} onRestore={openBackupImport} onReconnect={() => setProvidersOpen(true)} publicEndpoint={siteEndpoints.data?.endpoints.find(endpoint => endpoint.id === (connectSite?.id ?? selected?.id)) ?? null}
                   sync={selected && (selected.provider === "ddev" || selected.provider === "hostinger" || selected.provider === "zoer-connect") ? <SiteSyncCard site={selected} live={selectedSource} copies={selectedCopies} onSelect={selectSite} onPush={setPushFrom} onRefresh={(local, live) => setPullInto({ local, live })}

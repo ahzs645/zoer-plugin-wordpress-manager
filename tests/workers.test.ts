@@ -105,6 +105,18 @@ test("site.test with diagnostics reads the Zoer Connect inventory the transfer p
  expect(old.output.output).toEqual({ok:false,summary:"Diagnostics need Zoer Connect 0.4.0 on this site. Update the plugin in WordPress."});
 });
 
+test("site.test with themeOverrides lists a theme's Site Editor copies by name only (Zoer Connect 0.7.0)",async()=>{
+ const origin="https://shop.example";
+ const grants={network:{ticket:"n0",allowedHosts:[],maxRequests:2,endpoints:[{alias:"site",endpoints:[{id:"ep_1",origin,label:"Shop",generation:"g1"}]}]}};
+ const answer=(status:number,value:any)=>({ok:true,result:{status,headers:{},bodyBase64:Buffer.from(JSON.stringify(value)).toString("base64")},nextTicket:"n1"});
+ const body={theme:"acme",active:true,installed:true,truncated:false,items:[{type:"part",slug:"footer",title:"Footer",modified:"2026-10-17 10:00:00",path:"parts/footer.html",hasThemeFile:true,content:"<p>secret</p>"},{type:"bogus",slug:"x"}]};
+ const read=await runWorker("connections.js",{action:{id:"site.test"},input:{endpointId:"ep_1",themeOverrides:"acme"},grants},()=>answer(200,body));
+ expect(read.calls.map(c=>c.input.url)).toEqual([`${origin}/wp-json/zoer-connect/v1/theme-overrides?theme=acme`]);
+ expect(read.output.output).toEqual({ok:true,summary:"1 Site Editor change.",themeOverrides:{theme:"acme",active:true,installed:true,truncated:false,items:[{type:"part",slug:"footer",title:"Footer",modified:"2026-10-17 10:00:00",path:"parts/footer.html",hasThemeFile:true}]}});
+ const old=await runWorker("connections.js",{action:{id:"site.test"},input:{endpointId:"ep_1",themeOverrides:"acme"},grants},()=>answer(404,{}));
+ expect(old.output.output).toEqual({ok:false,summary:"Checking Site Editor changes needs Zoer Connect 0.7.0 on this site."});
+});
+
 test("hostinger.check uses the selected bound account through host bearer auth",async()=>{
  const grants={network:{ticket:"n0",allowedHosts:["developers.hostinger.com"],maxRequests:2,connections:[{alias:"hostinger",provider:"hostinger",apiHosts:["developers.hostinger.com"],accounts:[{id:"oc_"+"a".repeat(32),label:"Agency"}]}]}};
  const result=await runWorker("connections.js",{action:{id:"hostinger.check"},input:{account:"oc_"+"a".repeat(32)},grants},()=>({ok:true,result:{status:200,headers:{},bodyBase64:Buffer.from(JSON.stringify({data:[{},{}]})).toString("base64")},nextTicket:"n1"}));

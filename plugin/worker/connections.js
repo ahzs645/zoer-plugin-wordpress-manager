@@ -62,12 +62,25 @@ function diagnosticsResult(answer) {
   return { ok: true, summary: `Diagnostics read · ${tables} table${tables === 1 ? "" : "s"}.`, diagnostics };
 }
 
+/** Zoer Connect 0.7.0 `/theme-overrides`: a block theme's Site Editor copies, names and dates only. */
+function themeOverridesResult(answer) {
+  if (answer.refused) return { ok: false, summary: answer.refused.slice(0, 500) };
+  if (answer.status === 404) return { ok: false, summary: "Checking Site Editor changes needs Zoer Connect 0.7.0 on this site." };
+  if (answer.status === 401 || answer.status === 403) return { ok: false, summary: "WordPress rejected this key. Check its version, key and permissions." };
+  const body = answer.body;
+  if (answer.status < 200 || answer.status >= 300 || !body || typeof body !== "object" || !Array.isArray(body.items)) return { ok: false, summary: "WordPress returned an invalid list of Site Editor changes." };
+  const items = body.items.slice(0, 200).flatMap((item) => item && typeof item === "object" && ["template", "part", "styles"].includes(item.type) && typeof item.slug === "string"
+    ? [{ type: item.type, slug: item.slug.slice(0, 200), title: String(item.title ?? "").slice(0, 200), modified: String(item.modified ?? "").slice(0, 40), path: String(item.path ?? "").slice(0, 300), hasThemeFile: item.hasThemeFile === true }] : []);
+  return { ok: true, summary: `${items.length} Site Editor change${items.length === 1 ? "" : "s"}.`, themeOverrides: { theme: String(body.theme ?? ""), active: body.active === true, installed: body.installed === true, truncated: body.truncated === true, items } };
+}
+
 if (request.resumable?.cancelling) done({ cancelled: true });
 else if (request.action.id === "site.test") {
   const endpoint = (network.endpoints ?? []).flatMap((entry) => entry.alias === "site" ? entry.endpoints : []).find((entry) => entry.id === request.input.endpointId);
   const auth = endpoint && { type: "endpoint", endpointId: endpoint.id, generation: endpoint.generation };
   if (!endpoint) done({ ok: false, summary: "This site's connection was removed. Add the site again." });
   else if (request.input.diagnostics === true) done(diagnosticsResult(await fetchThroughHost(`${endpoint.origin}/wp-json/zoer-connect/v1/diagnostics`, auth)));
+  else if (typeof request.input.themeOverrides === "string") done(themeOverridesResult(await fetchThroughHost(`${endpoint.origin}/wp-json/zoer-connect/v1/theme-overrides?theme=${encodeURIComponent(request.input.themeOverrides)}`, auth)));
   else done(checkZoerConnectStatus(endpoint.origin, await fetchThroughHost(`${endpoint.origin}/wp-json/zoer-connect/v1/status`, auth)));
 } else if (request.action.id === "hostinger.check") {
   const answer = await fetchThroughHost("https://developers.hostinger.com/api/hosting/v1/websites?per_page=100", { type: "bearer", connectionAlias: "hostinger", account: request.input.account });

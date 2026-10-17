@@ -1,7 +1,7 @@
 {
   "id": "wordpress-manager",
   "name": "WordPress Manager",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Independent WordPress workspace with Hostinger temporary-domain setup, safe imports, backups, transfers, update review and cache tools.",
   "author": "Zoer contributors",
   "type": "integration",
@@ -144,6 +144,13 @@
           },
           {
             "path": "publication",
+            "methods": [
+              "GET"
+            ],
+            "effect": "read"
+          },
+          {
+            "path": "theme-overrides",
             "methods": [
               "GET"
             ],
@@ -899,7 +906,7 @@
       {
         "id": "site.test",
         "title": "Check Zoer Connect site",
-        "description": "Read the Zoer Connect status of one added site through its saved endpoint key and check that it answers for that address, or (diagnostics) read its table, theme and plugin inventory for transfers.",
+        "description": "Read the Zoer Connect status of one added site through its saved endpoint key and check that it answers for that address, or (diagnostics) read its table, theme and plugin inventory for transfers, or (themeOverrides) list one block theme's Site Editor copies by name.",
         "effect": "read",
         "approval": "never",
         "execution": {
@@ -919,6 +926,10 @@
             },
             "diagnostics": {
               "type": "boolean"
+            },
+            "themeOverrides": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,79}$"
             }
           },
           "required": [
@@ -948,6 +959,9 @@
               "type": "boolean"
             },
             "diagnostics": {
+              "type": "object"
+            },
+            "themeOverrides": {
               "type": "object"
             }
           },

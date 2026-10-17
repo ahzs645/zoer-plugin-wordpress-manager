@@ -7,8 +7,8 @@ test("package retains WordPress identity, isolated actions, native entrypoint an
  for(const action of manifest.integration.actions)expect(action.execution.kind).toBe("isolated-process");
  expect(manifest.integration.actions.map(a=>a.id)).toContain("site.start");expect(manifest.integration.actions.map(a=>a.id)).toContain("backup.restore");expect(recipe.manifest).toBe("plugin/manifest.json");expect(recipe.package).toBe("dist/package");
 });
-test("0.11.0 keeps the generic runtime names and the P3 transfer services",()=>{
- expect(manifest.version).toBe("0.11.0");expect(pkg.version).toBe(manifest.version);
+test("0.12.0 keeps the generic runtime names and the P3 transfer services",()=>{
+ expect(manifest.version).toBe("0.12.0");expect(pkg.version).toBe(manifest.version);
  const permissions=manifest.integration.permissions;
  for(const legacy of ["runtime:wordpress:read","runtime:wordpress:lifecycle","wordpress:wp-cli:read","wordpress:snapshots","wordpress:backups"])expect(permissions).not.toContain(legacy);
  expect([...permissions].sort()).toEqual(["database:linked-register","routes:hosted","runtime:backups","runtime:commands:read","runtime:commands:write","runtime:files","runtime:lifecycle","runtime:manage","runtime:read","runtime:snapshots","workspace:catalog","workspace:filesets","workspace:native","workspace:repositories","workspace:wordpress"]);
@@ -34,6 +34,8 @@ test("Hostinger accounts and Zoer Connect sites use host connections and endpoin
  expect(integration.networkAllowlist).toEqual(["developers.hostinger.com"]);
  const [site]=integration.requiredEndpoints;expect(site).toMatchObject({alias:"site",pathPrefix:"/wp-json/zoer-connect/v1/",keyHeader:"x-zoer-connection",keyPattern:"^zc_[a-f0-9]{64}$",probe:"status",multiple:true});
  expect(site.routes.find((r:any)=>r.path==="status")).toEqual({path:"status",methods:["GET"],effect:"read"});
+ // 0.12.0: Site Editor copies on a live site (Zoer Connect 0.7.0), read-only.
+ expect(site.routes.find((r:any)=>r.path==="theme-overrides")).toEqual({path:"theme-overrides",methods:["GET"],effect:"read"});
  for(const id of ["site.test","hostinger.check"]){const action=integration.actions.find((a:any)=>a.id===id);expect(action).toMatchObject({effect:"read",approval:"never",requiredCapabilities:["network-egress"]});expect(action.resourceLimits.maxNetworkRequests).toBe(2);}
 });
 

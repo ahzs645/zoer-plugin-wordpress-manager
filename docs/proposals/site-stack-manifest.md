@@ -1,6 +1,6 @@
 # Proposal: portable site stack manifest (`zoer-wordpress.json`)
 
-**Status:** proposal (2026-10-16). Nothing here is implemented.
+**Status:** implemented in WordPress Manager 0.12.0 (2026-10-17); see [release notes](../releases/0.12.0.md). The sections below are the original proposal.
 
 ## Goal
 
