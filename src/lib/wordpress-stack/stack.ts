@@ -122,7 +122,8 @@ export interface StackExport { stack: StackFile; notes: { slug: string; kind: St
 export function exportStack(input: { name: string; plugins: InstalledExtension[]; themes: InstalledExtension[]; links: RepositoryLinkInfo[]; wordpress?: { version?: string; php?: string } }): StackExport {
   const notes: StackExport["notes"] = [];
   const build = (list: InstalledExtension[], kind: StackKind): StackEntry[] => list
-    .filter(item => SLUG.test(item.slug) && item.slug !== "zoer-connect")
+    // Zoer Connect is managed by Zoer; Hello Dolly (`hello.php`) ships with WordPress itself, and wordpress.org names it `hello-dolly`.
+    .filter(item => SLUG.test(item.slug) && item.slug !== "zoer-connect" && !(kind === "plugin" && item.slug === "hello" && (!item.name || /hello dolly/i.test(item.name))))
     .sort((a, b) => a.slug.localeCompare(b.slug))
     .map(item => {
       const link = input.links.find(entry => entry.kind === kind && entry.slug === item.slug);

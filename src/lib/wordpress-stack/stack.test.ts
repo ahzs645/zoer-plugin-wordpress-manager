@@ -66,6 +66,12 @@ describe("stack files", () => {
     expect(() => parseStackFile(stack)).not.toThrow();
   });
 
+  test("export leaves out WordPress's bundled Hello Dolly (hello.php), but not a plugin that only shares the slug", () => {
+    const plugins = [{ slug: "hello", name: "Hello Dolly", version: "1.7.2" }, { slug: "akismet", version: "5.3" }];
+    expect(exportStack({ name: "Local", plugins, themes: [], links: [] }).stack.plugins.map(entry => entry.slug)).toEqual(["akismet"]);
+    expect(exportStack({ name: "Local", plugins: [{ slug: "hello", name: "Hello Banner", version: "2.0" }], themes: [], links: [] }).stack.plugins.map(entry => entry.slug)).toEqual(["hello"]);
+  });
+
   test("compare orders required plugins first, the activated theme last, and matches repositories", () => {
     const stack = parseStackFile(sample);
     const plan = compareStack(stack, { plugins: [{ slug: "query-monitor", version: "3.16.4", active: false }, { slug: "release-only", version: "2", active: false }], themes: [{ slug: "twentytwentyfive", version: "1.0", active: true }] }, [{ id: "r1", name: "apex", gitUrl: "https://github.com/AHZS645/apex" }]);
