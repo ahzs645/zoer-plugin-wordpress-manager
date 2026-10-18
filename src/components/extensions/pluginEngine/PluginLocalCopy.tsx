@@ -7,7 +7,7 @@ import { resourceQueries } from "../../../lib/queries/resources";
 import { wordpressQueries } from "../../../lib/queries/wordpress";
 import CopySettingsPanels from "./CopySettingsPanels";
 import { type LocalUserMode } from "./LocalImportPanels";
-import { copyInput, copyPresetRecord, copySettingsProblem, copySettingsSummary, defaultCopySettings, parseCopyPreset, type CopyPreset, type CopySettings } from "./refreshOptions";
+import { copyInput, copyInputForDownload, copyPresetRecord, copySettingsProblem, copySettingsSummary, defaultCopySettings, parseCopyPreset, type CopyPreset, type CopySettings } from "./refreshOptions";
 import PluginRunCard, { localCopyStages } from "./PluginRunCard";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
 import { existingCopies, parseLocalCopyRecord, refreshCandidates, type LocalCopyRecord, type PullRecord } from "./records";
@@ -39,7 +39,7 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   const [settingsByMode, setSettingsByMode] = useState<Record<"new" | "refresh", CopySettings>>(() => ({ new: defaultCopySettings(false), refresh: defaultCopySettings(true) }));
   const presets = useCatalogKind("refresh-preset");
   const presetList = (presets.data ?? []).map(parseCopyPreset).filter((preset): preset is CopyPreset => !!preset).sort((a, b) => a.name.localeCompare(b.name));
-  const [presetId, setPresetId] = useState("");
+  const [presetIds, setPresetIds] = useState<Record<"new" | "refresh", string>>({ new: "", refresh: "" });
   const dialogs = useDialogs();
   // The live site's inventory fills the post type, table, theme and plugin pickers.
   const diagnostics = useWordPressDiagnostics(siteId, { enabled: available });
@@ -63,6 +63,8 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   const refresh = mode === "refresh";
   const settings = settingsByMode[mode];
   const setSettings = (next: CopySettings) => setSettingsByMode(current => ({ ...current, [mode]: next }));
+  const presetId = presetIds[mode];
+  const setPresetId = (id: string) => setPresetIds(current => ({ ...current, [mode]: id }));
   const problem = copySettingsProblem(settings, refresh);
   const canStart = available && !starting && !running && !problem && (refresh ? !!replaceSiteId : !!name.trim() && name.trim().length <= 60);
   async function savePreset() {
@@ -96,10 +98,11 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
         siteId, copyId: newHexId(),
         ...(refresh ? { replaceSiteId } : { name: name.trim() }),
         // An existing download keeps the selection it was made with; only the import options apply.
-        ...(pull?.setId ? Object.fromEntries(Object.entries(copyInput(settings, refresh)).filter(([key]) => !["media", "themes", "plugins", "database", "pace"].includes(key))) : copyInput(settings, refresh)),
+        ...(pull?.setId ? copyInputForDownload(settings, refresh, pull) : copyInput(settings, refresh)),
         ...(pull?.setId ? { pullSetId: pull.setId } : {}),
         ...(dryRun && !refresh ? { dryRun: true } : {}),
-        ...(users !== "local" ? { users } : {}),
+        // A files-only refresh leaves the accounts alone.
+        ...(users !== "local" && (pull?.setId ? !!pull.options?.database : settings.database) ? { users } : {}),
       });
       await client.invalidateQueries({ queryKey: [...engineKeys.all(), "recent"] });
     } catch (caught) { setError(engineErrorMessage(caught, "The local copy could not start.")); }
@@ -137,7 +140,8 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
           <Select aria-label="Saved copy settings" className={selectClass("default", "w-full")} value={presetId} disabled={starting} onChange={event => {
             const preset = presetList.find(item => item.id === event.target.value);
             setPresetId(event.target.value);
-            if (preset) setSettings({ ...preset.settings, ...(refresh ? {} : { database: true, files: true }) });
+            // A new copy always takes the database and files, with every table.
+            if (preset) setSettings({ ...preset.settings, ...(refresh ? {} : { database: true, files: true, tables: "all" }) });
           }}>
             <option value="">{presetList.length ? "Choose saved settings" : "No saved settings yet"}</option>
             {presetList.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}

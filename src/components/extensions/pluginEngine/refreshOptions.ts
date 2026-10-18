@@ -91,6 +91,23 @@ export function copyInput(settings: CopySettings, refresh: boolean): Record<stri
   return input;
 }
 
+/**
+ * `copy.local` input for a copy from an existing download: the download keeps its own selection, so
+ * the scope follows what it holds (a no-media download refreshes as "without-media") and only the
+ * import options of `settings` apply.
+ */
+export function copyInputForDownload(settings: CopySettings, refresh: boolean, download: { options: { profile?: Record<string, unknown>; database?: unknown } | null }): Record<string, unknown> {
+  const profile = download.options?.profile ?? {};
+  const database = !!download.options?.database, files = profile.themes === true && profile.plugins === true, media = profile.media === true;
+  const scope = database && files ? (media ? "complete" : "without-media") : database ? "database" : "files";
+  const imported: CopySettings = { ...settings, database, files, media: media ? "all" : "none" };
+  const base = copyInput(imported, refresh);
+  const input: Record<string, unknown> = {};
+  if (refresh) input.scope = scope;
+  for (const key of ["removeStale", "keepLocalDesign", "activePlugins", "replacements"]) if (base[key] !== undefined) input[key] = base[key];
+  return input;
+}
+
 /** One-line description of the settings, for the summary under the dialog title and preset lists. */
 export function copySettingsSummary(settings: CopySettings, refresh: boolean): string {
   const scope = copyScope(settings);

@@ -72,6 +72,17 @@ describe("local copy rules", () => {
     // The same path on both sides adds no rule.
     expect(rules(`return count(LocalCopyRules::replacementRules(['x'=>'y'],'/var/www/html/','/var/www/html',[]));`)).toBe(1);
   });
+  test("text that only looks serialized is replaced as text; regex rules touch only matching values", () => {
+    const out = rules(`$map=[['mode'=>'map','pairs'=>LocalCopyRules::urlPairs('https://example.com','https://copy.test')]];
+      return [Replacement::apply('a:hover{color:red} .x{background:url(https://example.com/i.png)}',$map),
+        Replacement::apply('C:\\\\sites\\\\old brand',LocalCopyRules::replacementRules(['https://a.test'=>'https://b.test'],null,'/var/www/html',[['find'=>'OLD BRAND','replace'=>'New','caseSensitive'=>false]])),
+        Replacement::apply('a:1:{s:1:"u";${ser("https://example.com/x")}}',$map),
+        Replacement::apply('s:3:"abc"; untouched',LocalCopyRules::replacementRules(['https://a.test'=>'https://b.test'],null,'/var/www/html',[['find'=>'/zzz/','replace'=>'y','regex'=>true]]))];`);
+    expect(out[0]).toBe("a:hover{color:red} .x{background:url(https://copy.test/i.png)}");
+    expect(out[1]).toBe("C:\\sites\\New");
+    expect(out[2]).toBe(`a:1:{s:1:"u";${ser("https://copy.test/x")}}`);
+    expect(out[3]).toBe('s:3:"abc"; untouched');
+  });
   test("prune roots are the theme and plugin folders placed; hidden files, node_modules and logs are kept", () => {
     expect(rules(`return LocalCopyRules::pruneRoots(['wp-content/plugins/akismet/a.php','wp-content/plugins/akismet/inc/b.php','wp-content/plugins/hello.php','wp-content/themes/two/style.css','wp-content/uploads/2024/x.jpg','wp-content/mu-plugins/m/x.php','wp-content/plugins/zoer-connect/z.php']);`))
       .toEqual(["wp-content/plugins/akismet", "wp-content/themes/two"]);

@@ -26,18 +26,26 @@ final class Replacement {
     }
     private static function possible(string $value,array $rules): bool {
         foreach($rules as $r){
-            if($r['mode']==='regex')return true;
+            // A regex rule only matters where it matches (walking every value would hand plain
+            // text such as `a:hover {` to the serialized parser).
+            if($r['mode']==='regex'){if(@preg_match($r['find'],$value)===1)return true;continue;}
             if($r['mode']==='map'){foreach($r['pairs'] as $find=>$_)if(str_contains($value,(string)$find))return true;}
             elseif(str_contains($value,$r['find']))return true;
         }
         return false;
+    }
+    private static function serialized(string $value,int $depth): bool {
+        try{SerializedReplacement::apply($value,static fn($text)=>$text,$depth);return true;}
+        catch(\RuntimeException){return false;}
     }
     private static function walk($value,array $rules,int $depth) {
         if($depth>30)throw new \RuntimeException('Nested value limit exceeded.');
         if(is_array($value)){ $out=[];foreach($value as $key=>$item)$out[$key]=self::walk($item,$rules,$depth+1);return $out; }
         if(!is_string($value))return $value;
         if(!self::possible($value,$rules))return $value;
-        if(preg_match('/^(?:a|s|i|b|d|O|C|E|R|r):|^N;$/',$value)){
+        // Only well-formed serialized values take the serialized path; text that merely starts like
+        // one (CSS `a:hover`, a `C:\` path) is replaced as text.
+        if(preg_match('/^(?:a|s|i|b|d|O|C|E|R|r):|^N;$/',$value)&&self::serialized($value,$depth)){
             return SerializedReplacement::apply($value,fn($text,$level)=>self::walk($text,$rules,$level),$depth);
         }
         foreach($rules as $r){

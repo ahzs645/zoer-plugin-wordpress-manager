@@ -728,7 +728,7 @@ describe("copy.local", () => {
     expect(site.files.has("wp-content/plugins/akismet/.git/HEAD")).toBe(true);
     expect(site.files.has("wp-content/plugins/local-only/local.php")).toBe(true);
     const output = (refreshed as any).output;
-    expect(output.summary).toContain("only new media downloaded");
+    expect(output.summary).toMatch(/only media new since \d{4}-\d{2}-\d{2} downloaded/);
     expect(output.summary).toContain("selected plugins only");
     expect(output.summary).toContain("1 deleted file removed");
     expect(output.summary).toContain("source plugins activated");
@@ -789,6 +789,20 @@ describe("copy.local", () => {
     expect((refreshed as any).output.summary).toContain("Local themes and plugins refreshed");
   });
 
+  test("new media counts from this copy's own last download, not another copy's or a separate pull", async () => {
+    const { w, source } = world();
+    const a = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "A" });
+    // A database-only refresh of A has no media: the cutoff stays at A's first copy.
+    await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, replaceSiteId: (a as any).output.targetId, scope: "database" });
+    const record = w.catalog.records.get(`local-copy:${COPY}`)!;
+    w.catalog.records.set(`local-copy:${COPY}`, { ...record, data: { ...record.data, createdAt: "2026-01-05T10:00:00.000Z" } });
+    await pulled(w); // a separate Pull today must not move A's cutoff
+    const third = "c".repeat(32);
+    const refreshed = await w.run("copy.local", { siteId: "hostinger-1", copyId: third, replaceSiteId: (a as any).output.targetId, media: "since-last" });
+    expect(refreshed.status).toBe("succeeded");
+    expect(source.exports.get(third)!.input.profile.mediaSince).toBe("2026-01-05");
+  });
+
   test("refresh options are refused where they do not apply, before anything changes", async () => {
     const { w } = world();
     const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
@@ -807,6 +821,10 @@ describe("copy.local", () => {
     expect(await refused({ replaceSiteId: targetId, pullSetId: `fs_${COPY}`, media: "none" })).toContain("an existing download keeps the selection");
     expect(await refused({ replaceSiteId: targetId, replacements: { custom: [{ find: "not a regex", replace: "x", regex: true }] } })).toContain("delimiters");
     expect(await refused({ replaceSiteId: targetId, pace: "fast" })).toContain("pace");
+    expect(await refused({ replaceSiteId: targetId, replacements: { custom: [{ find: "/foo(/", replace: "x", regex: true }] } })).toContain("does not compile");
+    expect(await refused({ replaceSiteId: targetId, replacements: { custom: [{ find: "字".repeat(2000), replace: "x" }] } })).toContain("4,096");
+    expect(await refused({ replaceSiteId: targetId, users: "source", database: { tables: ["posts", "options"] } })).toContain("users and usermeta");
+    expect(await refused({ replaceSiteId: targetId, scope: "database", keepLocalDesign: true, database: { postTypes: ["post"] } })).toContain("every post type");
     expect(w.ddev.commands.length).toBe(count);
   });
 

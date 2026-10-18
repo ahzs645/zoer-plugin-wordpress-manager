@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { copyInput, copyPresetRecord, copyScope, copySettingsProblem, copySettingsSummary, defaultCopySettings, parseCopyPreset, type CopySettings } from "./refreshOptions";
+import { copyInput, copyInputForDownload, copyPresetRecord, copyScope, copySettingsProblem, copySettingsSummary, defaultCopySettings, parseCopyPreset, type CopySettings } from "./refreshOptions";
 
 const refresh = (patch: Partial<CopySettings> = {}) => ({ ...defaultCopySettings(true), ...patch });
 const fresh = (patch: Partial<CopySettings> = {}) => ({ ...defaultCopySettings(false), ...patch });
@@ -37,6 +37,17 @@ describe("copy settings → copy.local input", () => {
       .toBe("Database and files · new media only · deleted files removed · local plugins stay active · gentle pace");
     expect(copySettingsSummary(refresh(), true)).toBe("Database only");
     expect(copySettingsSummary(fresh(), false)).toBe("Database and files · all media · plugins inactive");
+  });
+});
+
+describe("copies from an existing download", () => {
+  test("the scope follows the download; selection options are not sent; no-media downloads refresh as without-media", () => {
+    const settings = refresh({ files: true, media: "since-last", plugins: { mode: "active", items: [] }, languages: true, pace: "gentle", removeStale: true, activePlugins: "local", custom: [{ find: "a", replace: "b", regex: false, caseSensitive: true }] });
+    const noMedia = { options: { profile: { themes: true, plugins: true, media: false }, database: true } };
+    expect(copyInputForDownload(settings, true, noMedia)).toEqual({ scope: "without-media", removeStale: true, activePlugins: "local", replacements: { custom: [{ find: "a", replace: "b", regex: false, caseSensitive: true }] } });
+    expect(copyInputForDownload(settings, true, { options: { profile: {}, database: true } })).toEqual({ scope: "database", keepLocalDesign: true, replacements: { custom: [{ find: "a", replace: "b", regex: false, caseSensitive: true }] } });
+    expect(copyInputForDownload(settings, true, { options: { profile: { themes: true, plugins: true, media: true }, database: false } })).toEqual({ scope: "files", removeStale: true });
+    expect(copyInputForDownload(fresh(), false, { options: { profile: { themes: true, plugins: true, media: true }, database: true } })).toEqual({});
   });
 });
 

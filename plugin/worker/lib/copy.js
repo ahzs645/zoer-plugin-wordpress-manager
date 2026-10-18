@@ -91,7 +91,7 @@ function validName(value, max) {
  * - `pace`: "gentle" downloads in smaller requests with pauses (shared live hosts).
  * - `languages`: also place wp-content/languages (translations; Zoer Connect 0.8.1 on the source).
  */
-export function copyOptions(input, scope, refresh) {
+export function copyOptions(input, scope, refresh, users = "local") {
   const files = scope !== "database", database = scope !== "files";
   const opts = {};
   if (input.media !== undefined) {
@@ -117,7 +117,9 @@ export function copyOptions(input, scope, refresh) {
     if (d.tables !== undefined && d.tables !== "all") {
       if (!refresh) fail("Choosing tables applies to refreshing an existing local copy; a new copy needs every table.");
       if (!Array.isArray(d.tables) || !d.tables.includes("posts") || (scope !== "database" && !d.tables.includes("options"))) fail(scope === "database" ? "Include the posts table." : "Include the posts and options tables.");
+      if (users !== "local" && !(d.tables.includes("users") && d.tables.includes("usermeta"))) fail("Copying the live site's accounts needs the users and usermeta tables.");
     }
+    if (Array.isArray(d.postTypes) && scope === "database" && input.keepLocalDesign === true) fail("Keeping local pages and blocks needs every post type; turn one of them off.");
     opts.database = { tables: d.tables ?? "all", postTypes: d.postTypes ?? "all", excludeRevisions: d.excludeRevisions === true, excludeSpam: d.excludeSpam === true, excludeTransients: true };
   }
   if (input.activePlugins !== undefined) {
@@ -147,13 +149,14 @@ export function copyOptions(input, scope, refresh) {
 }
 
 /** The pull a copy makes for itself (the selections `copyOptions` chose; validated like any Pull). */
-export function copyExportOptions(scope, opts) {
+export function copyExportOptions(scope, opts, mediaSince = undefined) {
   const exportOptions = defaultExportOptions();
   const r = exportOptions.resources;
   r.database = scope !== "files";
   r.themes = r.plugins = scope !== "database";
   r.media = scope !== "database" && opts.media !== "none";
-  if (opts.media === "since-last") exportOptions.media = { mode: "since-last" };
+  // A known date is sent as "since"; without one (no earlier download with media) all media.
+  if (opts.media === "since-last" && mediaSince) exportOptions.media = { mode: "since", since: mediaSince };
   if (opts.database) exportOptions.database = opts.database;
   if (opts.themes) exportOptions.themes = opts.themes;
   if (opts.plugins) exportOptions.plugins = opts.plugins;
@@ -175,7 +178,7 @@ export async function startCopy(input, ctx) {
   if (scope === "database") state.keepLocalDesign = input.keepLocalDesign === true;
   else if (input.keepLocalDesign === true) fail("Keeping local pages and blocks requires a database-only refresh.");
   if (scope === "files" && state.users !== "local") fail("A files-only refresh does not change user accounts.");
-  const opts = copyOptions(input, scope, refresh);
+  const opts = copyOptions(input, scope, refresh, state.users);
   state.options = opts;
   if (refresh) {
     if (typeof input.replaceSiteId !== "string" || !input.replaceSiteId.startsWith("ddev-")) fail("Choose a local DDEV copy to refresh.");
@@ -185,6 +188,12 @@ export async function startCopy(input, ctx) {
     copies.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     state.replaceSiteId = input.replaceSiteId;
     state.siteName = copies[0].siteName ?? copies[0].name;
+    // "New media since the last download" counts from this copy's own last download with media
+    // (not another copy's or a separate pull); a copy with none takes all media.
+    if (opts.media === "since-last") {
+      const last = copies.find(copyHadMedia);
+      state.mediaSince = last ? String(last.createdAt).slice(0, 10) : null;
+    }
     const { resource } = await runtime(host, "runtime.inspect.v1", input.replaceSiteId);
     if (resource?.status !== "running") fail("Start the local copy before refreshing it.");
   } else {
@@ -200,7 +209,7 @@ export async function startCopy(input, ctx) {
     state.setId = input.pullSetId;
     state.phase = "checking";
   } else {
-    state.pull = await pullSpec("pull").start({ siteId: input.siteId, pullId: copyId, exportOptions: copyExportOptions(scope, opts), ...(opts.pace ? { pace: opts.pace } : {}) }, ctx);
+    state.pull = await pullSpec("pull").start({ siteId: input.siteId, pullId: copyId, exportOptions: copyExportOptions(scope, opts, state.mediaSince), ...(opts.pace ? { pace: opts.pace } : {}) }, ctx);
     state.pullOwned = true;
   }
   return state;
@@ -220,6 +229,12 @@ export async function startRestore(input, ctx) {
 // ---------------------------------------------------------------------------------------------
 // Checks before anything is created
 // ---------------------------------------------------------------------------------------------
+
+/** A completed local-copy record whose download included media. */
+function copyHadMedia(record) {
+  const scope = record?.scope ?? "complete";
+  return (scope === "complete" || scope === "files") && record?.options?.media !== "none";
+}
 
 /** Theme or plugin selection other than "all" (as `exportOptionsToPull` sends it). */
 const narrowed = (mode) => !!mode && mode.mode !== "all" && !(mode.mode === "except" && !mode.items?.length);
@@ -263,7 +278,8 @@ async function checkCopySource(state, ctx) {
   if (wantDatabase && dbIndex < 0) fail("The database snapshot is missing.");
   Object.assign(state, { dbIndex, ...(dbIndex >= 0 ? { dbSha256: entries[dbIndex].sha256 } : {}), prefix: pull.source.prefix, sourceUrl: pull.source.url, fileCount: entries.length - (dbIndex >= 0 ? 1 : 0), pullId: pull.pullId,
     ...(pull.source.abspath ? { sourceAbspath: pull.source.abspath } : {}) });
-  if (opts.replacements?.paths && !state.sourceAbspath) fail("The source did not report its file path, so it cannot be replaced. Turn path replacement off or update Zoer Connect on the source.");
+  // eslint-disable-next-line no-control-regex -- rejects control characters in untrusted input
+  if (opts.replacements?.paths && !(typeof state.sourceAbspath === "string" && /^\/[^\x00-\x1f\x7f]{1,1023}$/.test(state.sourceAbspath) && state.sourceAbspath.replace(/\/+$/, "").length >= 2)) fail("The source did not report a usable file path, so it cannot be replaced. Turn path replacement off or update Zoer Connect on the source.");
 }
 
 /** Restore: the uploaded set must be one complete UpdraftPlus set (and, for a dry run, inspectable archives). */
@@ -508,7 +524,7 @@ export function copySummary(state, copied = "") {
   const opts = state.options ?? {};
   const notes = [];
   if (state.scope === "without-media" || (opts.media === "none" && state.scope !== "database" && state.scope !== "files")) notes.push("existing media retained");
-  if (opts.media === "since-last") notes.push("only new media downloaded");
+  if (opts.media === "since-last") notes.push(state.mediaSince ? `only media new since ${state.mediaSince} downloaded` : "all media downloaded (no earlier download of this copy had media)");
   for (const kind of ["themes", "plugins"]) if (narrowed(opts[kind])) notes.push(`${opts[kind].mode === "active" ? "active" : "selected"} ${kind} only`);
   if (opts.languages) notes.push("translations included");
   if (state.pruned) notes.push(`${state.pruned.toLocaleString("en-US")} deleted ${state.pruned === 1 ? "file" : "files"} removed`);

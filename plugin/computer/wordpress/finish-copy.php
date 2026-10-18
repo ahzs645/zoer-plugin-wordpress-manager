@@ -52,7 +52,8 @@ zoer_main(function (): void {
     // The administrator the importer kept (by ID: copied source accounts may include another "admin").
     $imported = json_decode((string)@file_get_contents($stage . '/database-complete.json'), true);
     $admin = is_array($imported) && is_int($imported['localAdministrator'] ?? null) && $imported['localAdministrator'] > 0 ? (string)$imported['localAdministrator'] : 'admin';
-    if (!str_contains(zoer_wp(['user', 'get', $admin, '--field=roles'], $fail, 120), 'administrator')) throw new ZoerCommandError('The local administrator account is missing after the import.');
+    // A files-only refresh leaves the database (and its accounts) as they were.
+    if (($plan['scope'] ?? 'complete') !== 'files' && !str_contains(zoer_wp(['user', 'get', $admin, '--field=roles'], $fail, 120), 'administrator')) throw new ZoerCommandError('The local administrator account is missing after the import.');
     if (($plan['updateDb'] ?? false) === true) zoer_wp(['core', 'update-db'], $fail, 600);
     // Load the restored theme's custom post types before rebuilding permalinks.
     // A database refresh retains the destination's complete options table and its existing

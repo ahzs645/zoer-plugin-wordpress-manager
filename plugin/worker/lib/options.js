@@ -134,7 +134,9 @@ function row(value) {
   if (!isObject(value) || typeof value.find !== "string" || !value.find || value.find.length > 4096 || typeof value.replace !== "string" || value.replace.length > 4096 || /\x00/.test(value.find + value.replace)) fail("Each find & replace row needs text to find; values are limited to 4,096 characters.");
   const regex = value.regex === undefined ? false : bool(value.regex, "regex"), caseSensitive = value.caseSensitive === undefined ? true : bool(value.caseSensitive, "case");
   if (regex && Buffer.byteLength(value.find, "utf8") > 500) fail("Regular expressions are limited to 500 characters.");
-  if (regex) { const m = /^([^A-Za-z0-9\\\s])([\s\S]+)([^A-Za-z0-9\\\s])([a-zA-Z]*)$/.exec(value.find); if (!m || /e/.test(m[4]) || new Set(m[4]).size !== m[4].length) fail("Write regular expressions with delimiters, for example /old-(\\d+)/i."); }
+  if (regex) { const m = /^([^A-Za-z0-9\\\s])([\s\S]+)([^A-Za-z0-9\\\s])([a-zA-Z]*)$/.exec(value.find); if (!m || /e/.test(m[4]) || new Set(m[4]).size !== m[4].length) fail("Write regular expressions with delimiters, for example /old-(\\d+)/i."); if (!regexCompiles(m[2], m[4])) fail(`The regular expression ${value.find.slice(0, 80)} does not compile.`); }
+  // PHP checks byte lengths; refuse here what the destination would refuse mid-import.
+  if (Buffer.byteLength(value.find, "utf8") > 4096 || Buffer.byteLength(value.replace, "utf8") > 4096) fail("Each find & replace row needs text to find; values are limited to 4,096 characters.");
   return { find: value.find, replace: value.replace, regex, caseSensitive };
 }
 
@@ -142,6 +144,16 @@ function row(value) {
 export function validateReplacementRows(value, max = 50) {
   if (!Array.isArray(value) || value.length > max) fail(`Use at most ${max} find & replace rows.`);
   return value.map(row);
+}
+
+/**
+ * Whether a PCRE pattern body plausibly compiles: JavaScript's engine checks it, except for
+ * constructs only PCRE has (possessive quantifiers, atomic groups, \A \z \K, recursion,
+ * branch reset, named groups the PCRE way), which are left to the destination.
+ */
+export function regexCompiles(body, flags = "") {
+  if (/\(\?>|[*+?}]\+|\\[AzZKG]|\(\?R|\(\?\||\(\?P|\(\?[0-9+-]|\(\?[a-zA-Z]*:|\(\?#/.test(body)) return true;
+  try { new RegExp(body, [...new Set(flags.replace(/[^imsu]/g, ""))].join("")); return true; } catch { return false; }
 }
 
 export function validateImportOptions(value, { requireCustom = false } = {}) {
