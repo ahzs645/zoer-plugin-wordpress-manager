@@ -12,6 +12,7 @@ export interface CopySettings {
   themes: ResourceMode;
   plugins: ResourceMode;
   /** Refresh: delete local files in placed theme/plugin folders that live no longer has. */ removeStale: boolean;
+  /** Also place wp-content/languages (translations; Zoer Connect 0.8.1 on the live site). */ languages: boolean;
   excludeRevisions: boolean;
   excludeSpam: boolean;
   postTypes: "all" | string[];
@@ -26,7 +27,7 @@ export interface CopySettings {
 export const ALL: ResourceMode = { mode: "all", items: [] };
 
 export function defaultCopySettings(refresh: boolean): CopySettings {
-  return { database: true, files: !refresh, media: "all", themes: ALL, plugins: ALL, removeStale: false, excludeRevisions: false, excludeSpam: false, postTypes: "all", tables: "all",
+  return { database: true, files: !refresh, media: "all", themes: ALL, plugins: ALL, removeStale: false, languages: false, excludeRevisions: false, excludeSpam: false, postTypes: "all", tables: "all",
     keepLocalDesign: true, activePlugins: "none", replacePaths: false, custom: [], pace: "normal" };
 }
 
@@ -72,6 +73,7 @@ export function copyInput(settings: CopySettings, refresh: boolean): Record<stri
     if (narrowed(settings.themes)) input.themes = settings.themes;
     if (narrowed(settings.plugins)) input.plugins = settings.plugins;
     if (refresh && settings.removeStale) input.removeStale = true;
+    if (settings.languages) input.languages = true;
   }
   if (settings.database) {
     const database: Record<string, unknown> = {};
@@ -98,6 +100,7 @@ export function copySettingsSummary(settings: CopySettings, refresh: boolean): s
   if (settings.files) {
     parts.push(settings.media === "none" ? "no media" : settings.media === "since-last" && refresh ? "new media only" : "all media");
     for (const kind of ["themes", "plugins"] as const) if (narrowed(settings[kind])) parts.push(`${settings[kind].mode === "active" ? "active" : settings[kind].mode === "except" ? "most" : "selected"} ${kind}`);
+    if (settings.languages) parts.push("translations");
     if (refresh && settings.removeStale) parts.push("deleted files removed");
   }
   if (settings.database) {
@@ -134,7 +137,7 @@ export function parseCopyPreset(record: { id: string; kind: string; data: Record
   const custom = Array.isArray(s.custom) ? s.custom.filter((row): row is ReplacementRow => !!row && typeof row === "object" && typeof (row as ReplacementRow).find === "string" && typeof (row as ReplacementRow).replace === "string")
     .slice(0, 40).map(row => ({ find: row.find, replace: row.replace, regex: row.regex === true, caseSensitive: row.caseSensitive !== false })) : [];
   return { id: record.id, name: d.name.trim(), updatedAt: typeof d.updatedAt === "string" ? d.updatedAt : "",
-    settings: { ...base, database: bool("database"), files: bool("files"), removeStale: bool("removeStale"), excludeRevisions: bool("excludeRevisions"), excludeSpam: bool("excludeSpam"), keepLocalDesign: bool("keepLocalDesign"), replacePaths: bool("replacePaths"),
+    settings: { ...base, database: bool("database"), files: bool("files"), removeStale: bool("removeStale"), languages: bool("languages"), excludeRevisions: bool("excludeRevisions"), excludeSpam: bool("excludeSpam"), keepLocalDesign: bool("keepLocalDesign"), replacePaths: bool("replacePaths"),
       media: ["all", "since-last", "none"].includes(s.media as string) ? s.media as CopySettings["media"] : "all",
       activePlugins: ["none", "local", "source"].includes(s.activePlugins as string) ? s.activePlugins as CopySettings["activePlugins"] : "none",
       pace: s.pace === "gentle" ? "gentle" : "normal", themes: modeOf(s.themes), plugins: modeOf(s.plugins), postTypes: listOf(s.postTypes, 100), tables: listOf(s.tables, 500), custom } };

@@ -50,7 +50,7 @@ export default function CopySettingsPanels({ id, refresh, settings, onSettings, 
   const customCount = settings.custom.filter(row => row.find).length;
   const filesSummary = !settings.files ? "Local files kept — no files copied"
     : [settings.media === "none" ? "Themes and plugins · existing media kept" : settings.media === "since-last" && refresh ? "Themes, plugins and new media" : "Themes, plugins and media",
-      settings.themes.mode !== "all" ? `${settings.themes.mode} themes` : "", settings.plugins.mode !== "all" ? `${settings.plugins.mode} plugins` : "", refresh && settings.removeStale ? "deleted files removed" : ""].filter(Boolean).join(" · ");
+      settings.themes.mode !== "all" ? `${settings.themes.mode} themes` : "", settings.plugins.mode !== "all" ? `${settings.plugins.mode} plugins` : "", settings.languages ? "translations" : "", refresh && settings.removeStale ? "deleted files removed" : ""].filter(Boolean).join(" · ");
   const databaseSummary = !settings.database ? "Local database kept"
     : [databaseOnly ? `${usersSummary(users).replace("All tables", "Other tables")} · local settings kept` : usersSummary(users),
       settings.excludeRevisions ? "no revisions" : "", settings.excludeSpam ? "no spam" : "", Array.isArray(settings.postTypes) ? `${settings.postTypes.length} post types` : "", refresh && Array.isArray(settings.tables) ? `${settings.tables.length} tables` : ""].filter(Boolean).join(" · ");
@@ -102,6 +102,7 @@ export default function CopySettingsPanels({ id, refresh, settings, onSettings, 
       {settings.media === "since-last" && refresh && <p className="text-xs text-text-secondary">Downloads uploads changed since the newest download of this site that included media, and places them beside the ones the copy has.</p>}
       <ModePicker kind="themes" mode={settings.themes} onChange={themesMode => set({ themes: themesMode })} items={themes} disabled={disabled} loading={diagnosticsLoading} />
       <ModePicker kind="plugins" mode={settings.plugins} onChange={pluginsMode => set({ plugins: pluginsMode })} items={plugins} disabled={disabled} loading={diagnosticsLoading} />
+      <OptionToggle label="Translations" description="Also copy wp-content/languages (WordPress, theme and plugin translation files). Needs Zoer Connect 0.8.1 on the live site." checked={settings.languages} onChange={value => set({ languages: value })} disabled={disabled} />
       {refresh && <OptionToggle label="Remove files deleted on the live site" description="In each theme and plugin folder copied, local files the live site no longer has are deleted, as WP Migrate replaces those folders whole. Hidden files (such as .git), node_modules and logs are kept, and other plugins are untouched. A recovery backup is taken first." checked={settings.removeStale} onChange={value => set({ removeStale: value })} disabled={disabled} />}
       <p className="text-xs text-text-secondary"><span className="font-medium text-text-primary">Left out:</span> WordPress core, wp-config.php, must-use plugins and drop-ins stay the local site's own. Executable files in uploads are refused.</p>
     </TransferPanel>}

@@ -735,6 +735,32 @@ describe("copy.local", () => {
     expect(w.catalog.records.get(`local-copy:${PULL2}`)!.data).toMatchObject({ pruned: 1, options: { media: "since-last", activePlugins: "source", removeStale: true, pace: "gentle" } });
   });
 
+  test("gentle pace downloads two chunks per request; an unknown pace is refused", async () => {
+    const { w } = world();
+    const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL, pace: "gentle" });
+    expect(result.status).toBe("succeeded");
+    const downloads = w.calls.filter(call => call.method === "transfer.download");
+    expect(downloads.length).toBeGreaterThan(0);
+    expect(downloads.every(call => call.input.maxChunks <= 2)).toBe(true);
+    expect(((await world().w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL, pace: "fast" })) as any).error.message).toContain("pace");
+  });
+
+  test("translations: the languages folder is placed when the source supports it, and refused clearly when it does not", async () => {
+    const w = new FakeWorld();
+    w.addSite("hostinger-1", sampleSite("https://source.example", { files: { ...sampleSite().options.files, "wp-content/languages/fr_FR.mo": "translation" } }));
+    const copied = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop", languages: true });
+    expect(copied.status).toBe("succeeded");
+    expect(w.ddev.sites.get((copied as any).output.targetId)!.files.has("wp-content/languages/fr_FR.mo")).toBe(true);
+    expect((copied as any).output.summary).toContain("translations included");
+    const plain = await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, name: "Shop" });
+    expect(plain.status).toBe("succeeded");
+    expect(w.ddev.sites.get((plain as any).output.targetId)!.files.has("wp-content/languages/fr_FR.mo")).toBe(false);
+    const old = new FakeWorld();
+    old.addSite("hostinger-1", sampleSite("https://source.example", { capabilities: { languages: false } }));
+    expect(((await old.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop", languages: true })) as any).error.message).toContain("Update Zoer Connect on the source to 0.8.1");
+    expect(old.ddev.sites.size).toBe(0);
+  });
+
   test("files-only refresh downloads no database, skips the import and keeps the database", async () => {
     const { w, source } = world();
     const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });

@@ -209,6 +209,21 @@ This adds the `hostinger-backup` file rules and a reviewed `wordpress.hostinger.
 
 Make a local copy and Restore from backup show their settings as collapsible panels with one-line summaries, like WP Migrate: **Database**, **Find & Replace**, **Files** and **After the import**. Run cards list their stages (pull, check, create, stage, import, place files, verify) and, when finished, the import summary (tables, rows, URL replacements, users, converted collations).
 
+**What to copy** (`copy.local`, unreleased). A local copy or refresh takes WP Migrate's pull settings; every choice is checked by the worker (`copy.js` `copyOptions`) before anything changes, and the dialog shows the same refusals before you start. Settings can be saved by name and loaded for any site (`refresh-preset:` catalog records).
+
+| Setting | Input | Notes |
+|---|---|---|
+| Database / files | `scope`: `complete`, `database`, `files` (and the earlier `without-media`) | Refresh only for anything but `complete`. `files` refreshes themes, plugins and media and keeps the database and settings. |
+| Media | `media`: `all`, `since-last`, `none` | `since-last` (refresh only) downloads uploads changed since the newest download of the site with media and places them beside the copy's own. |
+| Themes, plugins | `themes`, `plugins`: `{ mode: all\|active\|selected\|except, items }` | Only those folders are placed; the others stay as they are. |
+| Remove deleted files | `removeStale` | Refresh only. In each theme and plugin folder placed, local files the source no longer has are deleted after placing (`finish-copy.php` from the placed-file list). Hidden files and folders (such as `.git`), `node_modules` and logs, which Zoer Connect never exports, are kept; single-file plugins, uploads, must-use plugins and folders the source did not send are untouched. |
+| Database filters | `database`: `excludeRevisions`, `excludeSpam`, `postTypes`, `tables` | Unselected post types are removed from the copy, as in WP Migrate. `tables` is refresh-only and must include `posts` (and `options` unless database-only); other tables stay local. |
+| Active plugins | `activePlugins`: `none`, `local`, `source` | Full copies only. `none` (default) leaves every plugin inactive; `local` keeps the copy's activation (refresh); `source` takes the live site's list. Outgoing mail and HTTP stay blocked and cron stays off either way. |
+| Find & replace | `replacements`: `paths`, `custom` | After the address rules: the source's `ABSPATH` → `/var/www/html` (plain and JSON-escaped), then up to 40 custom rows (literal, case-insensitive literal, or delimited regex) in order, inside serialized values too. |
+| Pace | `pace`: `gentle` | Two chunks per request and a pause between slices, for shared hosts (also on `transfer.pull`). |
+
+A copy from an existing download (`pullSetId`) keeps that download's selection; only the import options apply to it.
+
 **User accounts** (`users` input of `copy.local` and `backup.restore-local`):
 
 - `local` (default, the earlier behavior): the source's `users` and `usermeta` tables are not imported. Posts are assigned to the local administrator and comments keep no account (`user_id` 0).

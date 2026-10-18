@@ -105,8 +105,8 @@ async function localSiteAddress(host, siteId, resource) {
 // Start: options, capability checks and the pull record skeleton.
 // ---------------------------------------------------------------------------------------------
 
-/** Pause between download slices at the "gentle" pace. */
-const GENTLE_PAUSE_MS = 3_000;
+/** Pause between download requests at the "gentle" pace. */
+const GENTLE_PAUSE_MS = 1_000;
 
 /** Newest ready media pull of the site (media "since-last"). */
 async function lastMediaDate(host, siteId) {
@@ -314,7 +314,7 @@ async function download(state, ctx, source) {
   const { host } = ctx;
   while (ctx.timeLeft() > 5_000) {
     // Each chunk read from a runtime peer (the DDEV bridge) is one runtime call.
-    // "gentle" pace (shared live hosts): two chunks per request, then a pause between slices.
+    // "gentle" pace (shared live hosts): two chunks per request and a pause between requests.
     const maxChunks = state.pace === "gentle" ? Math.min(2, source.runtime ? ctx.runtimeLeft() : 2) : source.runtime ? Math.min(8, ctx.runtimeLeft()) : state.paged ? 32 : 8;
     if (maxChunks < 1) return false;
     let result;
@@ -329,7 +329,11 @@ async function download(state, ctx, source) {
     await ctx.progress(progressOf(state));
     if (result.complete) return true;
     if (result.transient) throw new TransferError(result.transient.message || "The source is busy. Retrying shortly.", { transient: true, retryAfterMs: result.retryAfterMs });
-    if (result.stopped || state.pace === "gentle") return false;
+    if (result.stopped) return false;
+    if (state.pace === "gentle") {
+      if (ctx.timeLeft() < GENTLE_PAUSE_MS + 6_000) return false;
+      await new Promise(resolve => setTimeout(resolve, GENTLE_PAUSE_MS));
+    }
   }
   return false;
 }
@@ -417,7 +421,7 @@ export async function stepPull(state, input, ctx) {
     return ctx.continue(state, progressOf(state), 0);
   }
   if (state.phase === "downloading") {
-    if (!(await download(state, ctx, source))) return ctx.continue(state, progressOf(state), state.pace === "gentle" ? GENTLE_PAUSE_MS : undefined);
+    if (!(await download(state, ctx, source))) return ctx.continue(state, progressOf(state));
     state.phase = "sealing";
     return ctx.continue(state, { phase: "sealing", done: 0, total: state.total, unit: "files", message: "Verifying downloaded files" }, 0);
   }

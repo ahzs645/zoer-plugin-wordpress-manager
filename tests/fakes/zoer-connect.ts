@@ -116,7 +116,7 @@ export class FakeZoerConnect {
   failNext(pattern: RegExp, status: number, count = 1, retryAfter?: string) { this.failures.push({ pattern, status, count, retryAfter }); }
   get capabilities() {
     return { connectionKey: true, pull: true, blockDigestExport: true, pagedExport: this.options.pagedExport === true, databaseImport: true, selectivePush: true, batchUpload: true, chunkedFilePublication: true, largeTransfer: true,
-      replacementRules: true, replacementVariants: true, reviewPause: true, lateFence: true, siteReplace: true, cachePurge: true, databaseFilters: true, resourceModes: true, mediaSince: true, authorMapping: true, keepActivePlugins: true, createTables: true, importPauseResume: true, ...this.options.capabilities };
+      replacementRules: true, replacementVariants: true, reviewPause: true, lateFence: true, siteReplace: true, cachePurge: true, databaseFilters: true, resourceModes: true, mediaSince: true, languages: true, authorMapping: true, keepActivePlugins: true, createTables: true, importPauseResume: true, ...this.options.capabilities };
   }
   status() {
     return { target: this.options.origin, version: this.options.version ?? "0.5.0", apiVersion: 1, capabilities: this.capabilities, permissions: { pull: true, push: true }, stagingReady: true,
@@ -194,7 +194,7 @@ export class FakeZoerConnect {
     if (this.options.singleExport && [...this.exports.values()].some(job => job.status !== "cancelled")) throw new ExportRefused("Cancel an existing source export before starting another.");
     const profile = input.profile ?? {};
     const wanted = (path: string) => path === "database.sql" ? !!input.database
-      : path.startsWith("wp-content/themes/") ? profile.themes : path.startsWith("wp-content/plugins/") ? profile.plugins : path.startsWith("wp-content/uploads/") ? profile.media : path.startsWith("wp-content/mu-plugins/") ? profile.muplugins : profile.core;
+      : path.startsWith("wp-content/themes/") ? profile.themes : path.startsWith("wp-content/plugins/") ? profile.plugins : path.startsWith("wp-content/uploads/") ? profile.media : path.startsWith("wp-content/mu-plugins/") ? profile.muplugins : path.startsWith("wp-content/languages/") ? profile.languages : profile.core;
     const files = Object.entries(this.options.files).filter(([path]) => wanted(path)).map(([path, raw]) => {
       const data = Buffer.from(raw);
       const blocks = input.largeTransfer === true && data.length > BLOCK;

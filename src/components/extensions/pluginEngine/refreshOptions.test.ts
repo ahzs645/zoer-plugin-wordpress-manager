@@ -10,9 +10,9 @@ describe("copy settings → copy.local input", () => {
     expect(copyInput(refresh(), true)).toEqual({ scope: "database", keepLocalDesign: true });
   });
   test("a refresh with every option maps each one to the worker's fields", () => {
-    const input = copyInput(refresh({ files: true, media: "since-last", plugins: { mode: "selected", items: ["akismet"] }, themes: { mode: "except", items: [] }, removeStale: true, excludeRevisions: true, excludeSpam: true,
+    const input = copyInput(refresh({ files: true, media: "since-last", plugins: { mode: "selected", items: ["akismet"] }, themes: { mode: "except", items: [] }, removeStale: true, languages: true, excludeRevisions: true, excludeSpam: true,
       postTypes: ["post", "page"], tables: ["posts", "options", "postmeta"], activePlugins: "local", replacePaths: true, custom: [{ find: "Old", replace: "New", regex: false, caseSensitive: true }, { find: "", replace: "", regex: false, caseSensitive: true }], pace: "gentle" }), true);
-    expect(input).toEqual({ scope: "complete", media: "since-last", plugins: { mode: "selected", items: ["akismet"] }, removeStale: true,
+    expect(input).toEqual({ scope: "complete", media: "since-last", plugins: { mode: "selected", items: ["akismet"] }, removeStale: true, languages: true,
       database: { excludeRevisions: true, excludeSpam: true, postTypes: ["post", "page"], tables: ["posts", "options", "postmeta"] }, activePlugins: "local",
       replacements: { paths: true, custom: [{ find: "Old", replace: "New", regex: false, caseSensitive: true }] }, pace: "gentle" });
   });

@@ -42,6 +42,8 @@ export function validateExportOptions(value) {
   if (!isObject(value) || !isObject(value.resources)) fail("Choose valid export resources.");
   const resources = {};
   for (const key of ["database", "themes", "plugins", "media", "muplugins", "core"]) resources[key] = bool(value.resources[key], "resource");
+  // Translations (wp-content/languages, Zoer Connect 0.8.1): optional, so older callers stay valid.
+  resources.languages = value.resources.languages === undefined ? false : bool(value.resources.languages, "resource");
   if (!Object.values(resources).includes(true)) fail("Select at least one resource.");
   const db = value.database ?? defaultDatabaseFilters();
   if (!isObject(db)) fail("Choose valid database filters.");
@@ -81,6 +83,7 @@ export function exportOptionsToPull(options, lastMediaDate) {
     ...(r.themes && options.themes.mode !== "all" && !(options.themes.mode === "except" && !options.themes.items.length) ? { themesMode: options.themes.mode, themesItems: options.themes.items } : {}),
     ...(r.plugins && options.plugins.mode !== "all" && !(options.plugins.mode === "except" && !options.plugins.items.length) ? { pluginsMode: options.plugins.mode, pluginsItems: options.plugins.items } : {}),
     ...(mediaSince ? { mediaSince } : {}),
+    ...(r.languages ? { languages: true } : {}),
   };
   return { profile, database };
 }
@@ -96,6 +99,7 @@ export function validatePullExtensions(profile, database) {
     Object.assign(extensions, { [kind + "Mode"]: m, [kind + "Items"]: m === "active" ? [] : items });
   }
   if (profile.mediaSince !== undefined && profile.mediaSince !== null) { if (profile.media !== true) fail("Media date filters require media."); extensions.mediaSince = validDate(profile.mediaSince); }
+  if (profile.languages !== undefined && profile.languages !== false) { if (profile.languages !== true) fail("Choose valid export resources."); extensions.languages = true; }
   if (typeof database === "boolean") return { extensions, database };
   if (!isObject(database)) fail("Choose valid database filters.");
   const d = database;
@@ -122,6 +126,7 @@ export function assertExportCapabilities(pull, caps, where = "the source") {
   if ((pull.profile.themesMode || pull.profile.pluginsMode) && !caps?.resourceModes) missing.push("theme and plugin selection");
   if (pull.profile.mediaSince && !caps?.mediaSince) missing.push("media date filter");
   if (missing.length) fail(`Update Zoer Connect on ${where} to 0.4.0 to use ${missing.join(", ")}, or choose the default selection.`);
+  if (pull.profile.languages && !caps?.languages) fail(`Update Zoer Connect on ${where} to 0.8.1 to copy the translations folder, or leave translations out.`);
 }
 
 function row(value) {

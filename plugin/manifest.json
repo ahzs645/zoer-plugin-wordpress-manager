@@ -2613,6 +2613,10 @@
                 "gentle"
               ],
               "description": "gentle downloads two chunks per request and pauses between slices, for shared hosts."
+            },
+            "languages": {
+              "type": "boolean",
+              "description": "Also place wp-content/languages (translations). Needs Zoer Connect 0.8.1 on the source."
             }
           }
         },

@@ -89,6 +89,7 @@ function validName(value, max) {
  * - `activePlugins`: "none" (all inactive, default) | "local" (keep the copy's) | "source" (the source's).
  * - `replacements`: { paths, custom } — the source's file path → this site's, and custom find & replace rows.
  * - `pace`: "gentle" downloads in smaller requests with pauses (shared live hosts).
+ * - `languages`: also place wp-content/languages (translations; Zoer Connect 0.8.1 on the source).
  */
 export function copyOptions(input, scope, refresh) {
   const files = scope !== "database", database = scope !== "files";
@@ -137,6 +138,11 @@ export function copyOptions(input, scope, refresh) {
     if (!["normal", "gentle"].includes(input.pace)) fail("Choose a normal or gentle transfer pace.");
     if (input.pace === "gentle") opts.pace = "gentle";
   }
+  if (input.languages !== undefined) {
+    if (typeof input.languages !== "boolean") fail("Choose whether to copy the translations folder.");
+    if (input.languages && !files) fail("A database-only refresh does not copy translations.");
+    if (input.languages) opts.languages = true;
+  }
   return opts;
 }
 
@@ -151,6 +157,7 @@ export function copyExportOptions(scope, opts) {
   if (opts.database) exportOptions.database = opts.database;
   if (opts.themes) exportOptions.themes = opts.themes;
   if (opts.plugins) exportOptions.plugins = opts.plugins;
+  if (opts.languages) r.languages = true;
   return validateExportOptions(exportOptions);
 }
 
@@ -187,7 +194,7 @@ export async function startCopy(input, ctx) {
   }
   if (input.pullSetId !== undefined) {
     // An existing download carries its own selections: only the import options apply to it.
-    if (["media", "themes", "plugins", "database", "pace"].some(key => input[key] !== undefined)) fail("Choose files and tables when pulling; an existing download keeps the selection it was made with.");
+    if (["media", "themes", "plugins", "database", "pace", "languages"].some(key => input[key] !== undefined)) fail("Choose files and tables when pulling; an existing download keeps the selection it was made with.");
     const { pull } = await pullOfSet(host, input.pullSetId);
     if (pull.siteId !== input.siteId) fail("The download belongs to another site.");
     state.setId = input.pullSetId;
@@ -237,6 +244,7 @@ async function checkCopySource(state, ctx) {
     if (Array.isArray(database.tables) && !(owned && Array.isArray(opts.database?.tables))) fail("Create a Pull with every database table before creating a local copy.");
     if (database.postTypes && !(owned && Array.isArray(opts.database?.postTypes))) fail(scope === "database" ? "Choose a database-only Pull with all post types for this refresh." : "Choose all database tables, themes and plugins without media for this refresh.");
   }
+  if (profile.languages && !(owned && opts.languages)) fail("Create a Pull without the translations folder before creating a local copy.");
   if (profile.core || profile.muplugins || !hasOnlyMacMetadataExclusions(profile.excludes ?? [])) fail("Create a complete database, themes, plugins and media Pull before creating a local copy. Only Mac metadata exclusions (**/.DS_Store and **/__MACOSX/) are supported.");
   if (["themes", "plugins"].some(kind => (profile[kind] === true) !== wantFiles) || (profile.media === true) !== wantMedia) {
     fail(scope === "database" ? "Choose a database-only Pull with all post types for this refresh." : scope === "without-media" ? "Choose all database tables, themes and plugins without media for this refresh." : scope === "files" ? "Choose themes and plugins without the database for this refresh." : "Create a complete database, themes, plugins and media Pull before creating a local copy. Only Mac metadata exclusions (**/.DS_Store and **/__MACOSX/) are supported.");
@@ -249,7 +257,7 @@ async function checkCopySource(state, ctx) {
   for (const [index, f] of entries.entries()) {
     if (f.path === "database.sql") { if (!wantDatabase) fail("A files-only refresh cannot import a database."); dbIndex = index; continue; }
     if (!wantMedia && f.path.startsWith("wp-content/uploads/")) fail("A no-media refresh cannot place upload files.");
-    if (!/^wp-content\/(themes|plugins|uploads)\//.test(f.path)) fail("The download contains unsupported files for a local copy.");
+    if (!/^wp-content\/(themes|plugins|uploads)\//.test(f.path) && !(opts.languages && f.path.startsWith("wp-content/languages/"))) fail("The download contains unsupported files for a local copy.");
     if (EXECUTABLE_UPLOAD.test(f.path) && (f.bytes > 4096 || !isUploadPlaceholder(f.path, await readText(host, state.setId, f.path, 4096)))) fail("The download contains an executable upload that cannot be imported into a local copy.");
   }
   if (wantDatabase && dbIndex < 0) fail("The database snapshot is missing.");
@@ -500,6 +508,7 @@ export function copySummary(state, copied = "") {
   if (state.scope === "without-media" || (opts.media === "none" && state.scope !== "database" && state.scope !== "files")) notes.push("existing media retained");
   if (opts.media === "since-last") notes.push("only new media downloaded");
   for (const kind of ["themes", "plugins"]) if (narrowed(opts[kind])) notes.push(`${opts[kind].mode === "active" ? "active" : "selected"} ${kind} only`);
+  if (opts.languages) notes.push("translations included");
   if (state.pruned) notes.push(`${state.pruned.toLocaleString("en-US")} deleted ${state.pruned === 1 ? "file" : "files"} removed`);
   if (opts.activePlugins === "local") notes.push("local plugin activation kept");
   if (opts.activePlugins === "source") notes.push("source plugins activated");

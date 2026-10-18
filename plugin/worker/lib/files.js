@@ -34,7 +34,7 @@ export function validatePullFiles(files, seen = new Set()) {
     }
     // eslint-disable-next-line no-control-regex -- rejects control characters in untrusted input
     if (!f || typeof f.path !== "string" || f.path.length > 512 || /[\\\x00-\x1f\x7f-\x9f]/.test(f.path)) fail("The export manifest contains an invalid file path.");
-    if (!/^(?:database\.sql|wp-content\/(?:themes|plugins|uploads|mu-plugins)\/.+|wp-admin\/.+|wp-includes\/.+|[a-z][a-z0-9-]*\.php|readme\.html|license\.txt)$/.test(f.path)
+    if (!/^(?:database\.sql|wp-content\/(?:themes|plugins|uploads|mu-plugins|languages)\/.+|wp-admin\/.+|wp-includes\/.+|[a-z][a-z0-9-]*\.php|readme\.html|license\.txt)$/.test(f.path)
       || f.path.split("/").some((p, index, parts) => !allowedPart(p, index, parts, f.path)) || /(?:^|\/)wp-config\.php$/i.test(f.path) || /^wp-content\/plugins\/zoer-connect(?:\/|$)/i.test(f.path)) fail(`The export contains an unsupported file path: ${f.path}.`);
     if (seen.has(f.path.toLowerCase())) fail(`The export contains duplicate file paths: ${f.path}.`);
     if (!Number.isSafeInteger(f.bytes) || f.bytes < 0 || f.bytes > FILE_BYTES || !/^[a-f0-9]{64}$/.test(f.sha256)) fail(`The export has an invalid size or checksum for: ${f.path}.`);
@@ -48,7 +48,7 @@ export function validatePullFiles(files, seen = new Set()) {
 
 export function categoryOf(path) {
   return path === "database.sql" ? "database" : path.startsWith("wp-content/themes/") ? "themes" : path.startsWith("wp-content/plugins/") ? "plugins"
-    : path.startsWith("wp-content/uploads/") ? "media" : path.startsWith("wp-content/mu-plugins/") ? "muplugins" : "core";
+    : path.startsWith("wp-content/uploads/") ? "media" : path.startsWith("wp-content/mu-plugins/") ? "muplugins" : path.startsWith("wp-content/languages/") ? "languages" : "core";
 }
 
 /** Every file must belong to a selected resource (checkSelection). */
