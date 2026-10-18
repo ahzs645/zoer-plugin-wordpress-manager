@@ -761,6 +761,16 @@ describe("copy.local", () => {
     expect(old.ddev.sites.size).toBe(0);
   });
 
+  test("a copy frees its source export once downloaded, so one-export sources accept the next refresh", async () => {
+    const w = new FakeWorld();
+    const source = w.addSite("hostinger-1", sampleSite("https://source.example", { singleExport: true }));
+    const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    expect(first.status).toBe("succeeded");
+    const refreshed = await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, replaceSiteId: (first as any).output.targetId, scope: "files" });
+    expect(refreshed.status).toBe("succeeded");
+    expect([...source.exports.values()].filter(job => job.status !== "cancelled").length).toBe(0);
+  });
+
   test("files-only refresh downloads no database, skips the import and keeps the database", async () => {
     const { w, source } = world();
     const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });

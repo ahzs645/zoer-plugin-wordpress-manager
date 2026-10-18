@@ -378,6 +378,15 @@ async function startRemoval(kind, input, ctx) {
 const gone = (error) => error?.status === 404 || error?.status === 410 || /\b(not found|expired|unknown export)\b/i.test(String(error?.message ?? ""));
 
 /** Removes the source's export: `{ removed: true }`, or `{ removed: false, error }` to show the user. */
+/**
+ * Removes a finished pull's export from its source (best effort). A local copy uses it once its
+ * download is sealed: older Zoer Connect sources accept only one export at a time, so a kept export
+ * would refuse the next refresh ("Cancel an existing export before starting another").
+ */
+export async function releaseRemoteExport(state, ctx) {
+  return state?.remoteCreated ? removeRemoteExport(state, ctx).catch(() => ({ removed: false })) : { removed: false };
+}
+
 async function removeRemoteExport(state, ctx) {
   try {
     if (state.kind === "local-export") {

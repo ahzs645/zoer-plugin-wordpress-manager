@@ -7,7 +7,7 @@ import { commitRecords, historyRecord, listKind, readRecord, recordFailedTransfe
 import { EMPTY_SHA256, hasOnlyMacMetadataExclusions, isUploadPlaceholder } from "./files.js";
 import { deleteSet, describeSet, listEntries, readText } from "./filesets.js";
 import { defaultExportOptions, validateExportOptions, validateReplacementRows } from "./options.js";
-import { HEX32, pullOfSet, pullSpec, runHex } from "./pull.js";
+import { HEX32, pullOfSet, pullSpec, releaseRemoteExport, runHex } from "./pull.js";
 import { fail, TransferError, UPLOAD_RUNTIME_REQUESTS } from "./slices.js";
 import { validateUpdraftSet, validateHostingSet } from "./updraft.js";
 
@@ -410,6 +410,8 @@ export async function stepCopy(state, input, ctx) {
     const outcome = await pullSpec("pull").step(state.pull, input, nested(ctx));
     if (outcome.kind === "continue") return ctx.continue(state, { ...outcome.progress, phase: `pulling: ${outcome.progress?.phase ?? "working"}` }, outcome.waitMs);
     state.setId = outcome.output.setId;
+    // The verified download is on Zoer now; free the source for the next pull or refresh.
+    await releaseRemoteExport(state.pull, ctx);
     delete state.pull;
     state.phase = "checking";
   }
