@@ -81,6 +81,30 @@ function zoer_write(string $path, string $data, int $mode = 0600): void {
     if (!rename($tmp, $path)) { @unlink($tmp); throw new ZoerCommandError('Could not write the copy stage.'); }
 }
 
+/**
+ * The plan import-copy.php reads, from a wordpress.copy.database plan: only the checked keys travel
+ * (the importer validates them again). Refresh options: `activePlugins` and `replacements`
+ * (`custom` rows, `sourcePath`).
+ */
+function zoer_import_plan(array $plan): array {
+    $source = (string)($plan['databaseIndex'] ?? '');
+    $users = $plan['users'] ?? 'local';
+    $scope = $plan['scope'] ?? 'complete';
+    $out = ['id' => $plan['id'], 'prefix' => $plan['prefix'], 'sourceUrl' => $plan['sourceUrl'], 'targetUrl' => $plan['targetUrl'],
+        'databaseIndex' => ctype_digit($source) ? (int)$source : $source, 'databaseSha256' => $plan['databaseSha256'], 'users' => $users,
+        'scope' => $scope, 'keepLocalDesign' => $scope === 'database' && ($plan['keepLocalDesign'] ?? false)];
+    if (isset($plan['activePlugins'])) {
+        if (!in_array($plan['activePlugins'], ['none', 'local', 'source'], true)) throw new ZoerCommandError('The database import plan is invalid.');
+        $out['activePlugins'] = $plan['activePlugins'];
+    }
+    if (isset($plan['replacements'])) {
+        $r = $plan['replacements'];
+        if (!is_array($r) || !is_array($r['custom'] ?? []) || count($r['custom'] ?? []) > 40 || (isset($r['sourcePath']) && !is_string($r['sourcePath']))) throw new ZoerCommandError('The database import plan is invalid.');
+        $out['replacements'] = ['custom' => array_values($r['custom'] ?? []), ...(isset($r['sourcePath']) ? ['sourcePath' => $r['sourcePath']] : [])];
+    }
+    return $out;
+}
+
 /** PHP source requires a PHP string literal; JSON escapes slashes differently. */
 function zoer_copy_guard_source(string $pending): string {
     return "<?php if (is_file(" . var_export($pending, true) . ")) { if (PHP_SAPI !== 'cli') { http_response_code(503); exit('Local copy is being prepared.'); } } add_filter('pre_wp_mail', '__return_false'); add_filter('pre_http_request', static fn()=>new WP_Error('local_copy','Outbound requests are disabled in this local copy'));";

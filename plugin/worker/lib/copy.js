@@ -65,7 +65,8 @@ export function databaseSummary(value) {
     .map(c => ({ from: c.from, to: c.to, tables: count(c.tables) }));
   return { tables: count(value.tables), rows: count(value.rows), replacements: count(value.replacements),
     users: { mode: ["source", "exact"].includes(users.mode) ? users.mode : "local", copied: count(users.copied), meta: count(users.meta), droppedMeta: count(users.droppedMeta), roles: users.roles === "source" ? "source" : "local", loginChanged: users.loginChanged === true },
-    collations, ...(value.optionsPreserved === true ? { optionsPreserved: true, designPostsPreserved: count(value.designPostsPreserved) } : {}) };
+    collations, ...(value.optionsPreserved === true ? { optionsPreserved: true, designPostsPreserved: count(value.designPostsPreserved) } : {}),
+    ...(["local", "source"].includes(value.activePlugins) ? { activePlugins: value.activePlugins } : {}), ...(count(value.customRules) ? { customRules: count(value.customRules) } : {}), ...(value.pathReplaced === true ? { pathReplaced: true } : {}) };
 }
 
 function validName(value, max) {

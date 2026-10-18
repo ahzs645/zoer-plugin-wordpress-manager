@@ -358,6 +358,14 @@ describe("import-copy.php", () => {
 });
 
 describe("refresh options in import-copy.php", () => {
+  test("wordpress.copy.database forwards the refresh options to the importer's plan (and only checked keys)", () => {
+    const plan = { id: "a".repeat(32), prefix: "wp_", sourceUrl: "https://example.com", targetUrl: LOCAL_URL, databaseIndex: "0", databaseSha256: "b".repeat(64), users: "source", activePlugins: "source",
+      replacements: { custom: [{ find: "a", replace: "b" }], sourcePath: "/home/x/public_html" }, unexpected: "dropped" };
+    const out = JSON.parse(php(`require ${JSON.stringify(`${BUNDLE}/lib.php`)};echo json_encode(zoer_import_plan(json_decode(${JSON.stringify(JSON.stringify(plan))},true)));`));
+    expect(out).toEqual({ id: plan.id, prefix: "wp_", sourceUrl: plan.sourceUrl, targetUrl: LOCAL_URL, databaseIndex: 0, databaseSha256: plan.databaseSha256, users: "source", scope: "complete", keepLocalDesign: false,
+      activePlugins: "source", replacements: { custom: [{ find: "a", replace: "b" }], sourcePath: "/home/x/public_html" } });
+    expect(() => php(`require ${JSON.stringify(`${BUNDLE}/lib.php`)};zoer_import_plan(['id'=>'x','prefix'=>'wp_','sourceUrl'=>'','targetUrl'=>'','databaseSha256'=>'','activePlugins'=>'everything']);`)).toThrow();
+  });
   test("active plugins: none by default, the copy's own with local, the source's with source", () => {
     const paths = ["none", "local", "source"].map(mode => { const path = join(temp, `active-${mode}.sqlite`); localSite(path); const db = new Database(path); db.run("UPDATE wp_options SET option_value=? WHERE option_name='active_plugins'", ['a:1:{i:0;s:8:"mine.php";}']); db.close(); return path; });
     const summaries = ["none", "local", "source"].map((mode, i) => importCopy(paths[i]!, "wp_", undefined, mode === "none" ? {} : { plan: { activePlugins: mode } }));

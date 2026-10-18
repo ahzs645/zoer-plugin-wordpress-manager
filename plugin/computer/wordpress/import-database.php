@@ -22,9 +22,7 @@ zoer_main(function (): void {
         if ($bytes === false) throw new ZoerCommandError('The import scripts are missing from the plugin package.');
         zoer_write($stage . '/' . $name, $bytes);
     }
-    zoer_write($stage . '/plan.json', json_encode(['id' => $plan['id'], 'prefix' => $plan['prefix'], 'sourceUrl' => $plan['sourceUrl'], 'targetUrl' => $plan['targetUrl'],
-        'databaseIndex' => ctype_digit($source) ? (int)$source : $source, 'databaseSha256' => $plan['databaseSha256'], 'users' => $users,
-        'scope' => $scope, 'keepLocalDesign' => $scope === 'database' && ($plan['keepLocalDesign'] ?? false)], JSON_UNESCAPED_SLASHES));
+    zoer_write($stage . '/plan.json', json_encode(zoer_import_plan($plan), JSON_UNESCAPED_SLASHES));
     $out = zoer_wp(['eval-file', $stage . '/import-copy.php'], 'Local copy operation failed. The partial destination and private staging are retained for inspection or retry.', 1800);
     if (!str_contains($out, 'DATABASE_READY')) throw new ZoerCommandError('The local database import did not finish.');
     // The importer's summary (tables, rows, replacements, users) for the run output and catalog.
