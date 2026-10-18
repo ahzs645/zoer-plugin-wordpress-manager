@@ -654,6 +654,24 @@ describe("copy.local", () => {
     expect(site.backups).toBe(1);
   });
 
+  test("no-media refresh downloads code and database, preserves upload bytes and requires an existing copy", async () => {
+    const { w, source } = world();
+    const refused = await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, name: "Shop", scope: "without-media" });
+    expect((refused as any).error.message).toContain("existing linked local copy");
+    const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    const targetId = (first as any).output.targetId;
+    const site = w.ddev.sites.get(targetId)!;
+    site.files.set("wp-content/uploads/keep.jpg", Buffer.from("local media"));
+    const before = [...site.files].filter(([p]) => p.startsWith("wp-content/uploads/")).map(([p,b]) => [p,sha(b)]);
+    const refreshed = await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, replaceSiteId: targetId, scope: "without-media", users: "source" });
+    expect(refreshed.status).toBe("succeeded");
+    expect(source.exports.get(PULL2)!.files.some(f => f.path.startsWith("wp-content/uploads/"))).toBe(false);
+    expect(source.exports.get(PULL2)!.files.some(f => f.path.startsWith("wp-content/themes/"))).toBe(true);
+    expect([...site.files].filter(([p]) => p.startsWith("wp-content/uploads/")).map(([p,b]) => [p,sha(b)])).toEqual(before);
+    expect(site.backups).toBe(1);
+    expect(w.catalog.records.get(`local-copy:${PULL2}`)!.data.scope).toBe("without-media");
+  });
+
   test("database refresh rejects new sites and complete pulls before a local write", async () => {
     const { w } = world();
     expect((await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop", scope: "database" }) as any).error.message).toContain("existing linked local copy");

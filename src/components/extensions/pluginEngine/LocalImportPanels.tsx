@@ -50,8 +50,8 @@ function Choice({ name, value, checked, onChange, disabled, title, description }
  * each with a one-line summary. Only the user accounts are a choice; the other panels show the
  * rules the reviewed import scripts always apply.
  */
-export default function LocalImportPanels({ id, kind, users, onUsers, sourceUrl, disabled = false, databaseOnly = false }: {
-  id: string; kind: LocalImportKind; users: LocalUserMode; onUsers: (value: LocalUserMode) => void; sourceUrl?: string | null; disabled?: boolean; databaseOnly?: boolean;
+export default function LocalImportPanels({ id, kind, users, onUsers, sourceUrl, disabled = false, databaseOnly = false, keepMedia = false }: {
+  id: string; kind: LocalImportKind; users: LocalUserMode; onUsers: (value: LocalUserMode) => void; sourceUrl?: string | null; disabled?: boolean; databaseOnly?: boolean; keepMedia?: boolean;
 }) {
   const files = FILES[kind];
   const rules = localUrlRules(sourceUrl);
@@ -82,9 +82,9 @@ export default function LocalImportPanels({ id, kind, users, onUsers, sourceUrl,
       </div>
       <p className="text-xs text-text-secondary">Applied in one pass, longest match first, including inside serialized and JSON data, so a replaced address is never rewritten twice. {kind === "copy" ? "" : "The backup's address is read from its database. "}Post GUIDs are left unchanged.</p>
     </TransferPanel>
-    <TransferPanel title="Files" summary={databaseOnly ? "Local files kept — no files copied" : files.summary}>
+    <TransferPanel title="Files" summary={databaseOnly ? "Local files kept — no files copied" : keepMedia ? "Themes and plugins · existing media kept" : files.summary}>
       {databaseOnly ? <p className="text-xs text-text-secondary">Theme, plugin and media files are unchanged. New source uploads need a separate media transfer.</p> : <>
-      <p className="text-xs text-text-secondary"><span className="font-medium text-text-primary">Included:</span> {files.included}</p>
+      <p className="text-xs text-text-secondary"><span className="font-medium text-text-primary">Included:</span> {keepMedia ? "All theme and plugin files, checked against their SHA-256 digests. Existing media uploads stay in place and are not downloaded." : files.included}</p>
       <p className="text-xs text-text-secondary"><span className="font-medium text-text-primary">Left out:</span> {files.omitted}</p>
       </>}
     </TransferPanel>

@@ -2410,9 +2410,10 @@
               "type": "string",
               "enum": [
                 "complete",
-                "database"
+                "database",
+                "without-media"
               ],
-              "description": "database refreshes only an existing linked local copy, keeping its files and complete local options table."
+              "description": "database keeps files and local options; without-media refreshes database, themes and plugins but keeps existing uploads. Both require an existing linked local copy."
             },
             "keepLocalDesign": {
               "type": "boolean",

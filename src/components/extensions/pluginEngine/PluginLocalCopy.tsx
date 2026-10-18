@@ -33,7 +33,7 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   const [mode, setMode] = useState<"new" | "refresh">(refreshSiteId ? "refresh" : "new");
   const [name, setName] = useState(siteName ? `${siteName} local`.slice(0, 60) : "");
   const [replaceSiteId, setReplaceSiteId] = useState(refreshSiteId ?? "");
-  const [scope, setScope] = useState<"database" | "complete">("database");
+  const [scope, setScope] = useState<"database" | "complete" | "without-media">("database");
   const [keepLocalDesign, setKeepLocalDesign] = useState(true);
   const [dryRun, setDryRun] = useState(false);
   const [users, setUsers] = useState<LocalUserMode>("local");
@@ -98,18 +98,19 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
           </Select>
         </label>
         : <label className="block"><span className={fieldLabelClass}>Local site name</span><input className={controlClass("default", "text-base sm:text-[14px]")} value={name} maxLength={60} onChange={event => setName(event.target.value)} required disabled={starting || !available} /></label>}
-      <LocalImportPanels id={siteId} kind="copy" users={users} onUsers={setUsers} sourceUrl={sourceUrl} databaseOnly={refresh && scope === "database"} disabled={starting || !available} />
+      <LocalImportPanels id={siteId} kind="copy" users={users} onUsers={setUsers} sourceUrl={sourceUrl} databaseOnly={refresh && scope === "database"} keepMedia={refresh && scope === "without-media"} disabled={starting || !available} />
       {refresh && <div className="space-y-3">
         <label className="block"><span className={fieldLabelClass}>Refresh contents</span>
-          <Select aria-label="Refresh contents" className={selectClass("default", "w-full")} value={scope} onChange={event => setScope(event.target.value as "database" | "complete")} disabled={starting || !available}>
+          <Select aria-label="Refresh contents" className={selectClass("default", "w-full")} value={scope} onChange={event => setScope(event.target.value as "database" | "complete" | "without-media")} disabled={starting || !available}>
             <option value="database">Database only — keep development code and settings</option>
+            <option value="without-media">Database and code — keep existing media</option>
             <option value="complete">Complete site — replace files and database</option>
           </Select>
         </label>
         {scope === "database" ? <>
           <p className="text-xs text-text-secondary">Replaces content tables from live. Keeps local settings, credentials, active plugins, theme and site address.</p>
           <CheckboxField label="Keep local pages and block content" description="Retains matching local pages, templates, navigation and styles. New or conflicting local page identities stop the refresh for review." checked={keepLocalDesign} onChange={setKeepLocalDesign} disabled={starting || !available} />
-        </> : <p className="text-xs text-status-warning">Replaces local theme and plugin files and saved content. Plugins start inactive.</p>}
+        </> : <p className="text-xs text-status-warning">Replaces local theme and plugin files and saved content.{scope === "without-media" ? " Existing media is kept and is not downloaded." : ""} Plugins start inactive.</p>}
       </div>}
       {refresh && <p className="text-xs text-text-secondary">{users === "source" ? "The refresh replaces the copy's accounts with the source's; its local administrator is kept and marked so later refreshes find it."
         : users === "exact" ? "The refresh replaces the copy's accounts with exactly the source's, including its local administrator." : "The copy keeps the accounts it has now."}</p>}

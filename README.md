@@ -238,3 +238,17 @@ Choose files, database and core checks, then **Run scan** for read-only inspecti
 Remediation is separate from scanning. **Review quarantine** is offered only for eligible plugin-file findings; **Review core repair** requires a reported core mismatch or missing file. Quarantine remains partial where the runtime cannot move files atomically into private storage; its control is disabled with the filesystem reason while core repair stays separate. The host prepares an exact file manifest and fingerprint. Core plans show the bound WordPress release, version-file baseline, missing-file state and replacement byte digests. Applying it requires the matching typed phrase. Findings never trigger automatic cleanup. Action history includes the recorded remediation status, scope, errors and private recovery location, including imported operator actions when the host supplies them.
 
 **Tooling versions** distinguishes installed, repository and runtime versions/digests and supports an explicit upstream version check. Checking does not install scanner updates. **Performance profile** is opt-in isolated WP-CLI tooling: enable it, then run Stage or Hook profiling. It executes the local site's WordPress code and does not install a WordPress plugin. The compatible pinned official profile-command **2.1.5** supports Stage and Hook with WP-CLI **2.12.0**; Queries remains unavailable with a compatibility explanation. Stage output can still report database timing and query counts. Saved profile summaries show rounded timing and query/row counts; detailed rows are expandable and Download profile preserves the raw JSON values and tooling metadata. No global WP-CLI upgrade or automatic production deployment is performed.
+
+## Refresh an existing copy without media
+
+In a linked local site's **Overview → Pull from live**, select **Database and code — keep existing media**.
+This refreshes the complete database plus themes/plugins and excludes uploads from the remote
+export, verified file set and placement step. It is available only for an existing completed copy
+of the same source. The existing integrity-checked recovery backup runs before changes.
+Source accounts can be copied while retaining the local administrator. Plugins start inactive
+and the local outbound/cron guard stays in place. Core, must-use plugins and local configuration
+remain managed by the local runtime. Existing local files absent from the export are not deleted.
+
+Qualified on the named OTE local copy on 2026-10-18: 2,034 artifacts / 94,007,105 bytes,
+no uploads in the export, successful import and unchanged uploads metadata fingerprint.
+Desktop/phone refresh-scope switching and source-account controls were exercised through Expect.
