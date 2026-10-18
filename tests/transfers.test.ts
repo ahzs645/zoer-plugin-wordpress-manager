@@ -703,6 +703,89 @@ describe("copy.local", () => {
     expect(w.catalog.records.has(`local-copy:${COPY}`)).toBe(false);
   });
 
+  test("refresh options reach the pull and the import: new media, selected plugins, stale files, activation, find & replace", async () => {
+    const { w, source } = world();
+    const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    const targetId = (first as any).output.targetId;
+    const site = w.ddev.sites.get(targetId)!;
+    site.files.set("wp-content/plugins/akismet/removed-upstream.php", Buffer.from("stale"));
+    site.files.set("wp-content/plugins/akismet/.git/HEAD", Buffer.from("ref: main"));
+    site.files.set("wp-content/plugins/local-only/local.php", Buffer.from("developer plugin"));
+    const calls = w.ddev.commands.length;
+    const refreshed = await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, replaceSiteId: targetId, media: "since-last", plugins: { mode: "selected", items: ["akismet"] }, removeStale: true,
+      activePlugins: "source", database: { excludeRevisions: true, excludeSpam: true }, replacements: { paths: true, custom: [{ find: "Old Brand", replace: "New Brand", caseSensitive: false }] }, pace: "gentle" });
+    expect(refreshed.status).toBe("succeeded");
+    const profile = source.exports.get(PULL2)!.input.profile;
+    expect(profile).toMatchObject({ themes: true, plugins: true, media: true, pluginsMode: "selected", pluginsItems: ["akismet"] });
+    // The first copy downloaded media today, so "since-last" asks for files changed since then.
+    expect(profile.mediaSince).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(source.exports.get(PULL2)!.input.database).toMatchObject({ excludeRevisions: true, excludeSpam: true, postTypes: null });
+    const plan = w.ddev.commands.slice(calls).find(c => c.command === "wordpress.copy.database")!.plan;
+    expect(plan).toMatchObject({ activePlugins: "source", replacements: { sourcePath: "/var/www/html", custom: [{ find: "Old Brand", replace: "New Brand", regex: false, caseSensitive: false }] } });
+    expect(w.ddev.commands.slice(calls).find(c => c.command === "wordpress.copy.finish")!.plan.prune).toBe(true);
+    // Only the stale file inside the placed plugin folder went; hidden files and other plugins stayed.
+    expect(site.files.has("wp-content/plugins/akismet/removed-upstream.php")).toBe(false);
+    expect(site.files.has("wp-content/plugins/akismet/.git/HEAD")).toBe(true);
+    expect(site.files.has("wp-content/plugins/local-only/local.php")).toBe(true);
+    const output = (refreshed as any).output;
+    expect(output.summary).toContain("only new media downloaded");
+    expect(output.summary).toContain("selected plugins only");
+    expect(output.summary).toContain("1 deleted file removed");
+    expect(output.summary).toContain("source plugins activated");
+    expect(w.catalog.records.get(`local-copy:${PULL2}`)!.data).toMatchObject({ pruned: 1, options: { media: "since-last", activePlugins: "source", removeStale: true, pace: "gentle" } });
+  });
+
+  test("files-only refresh downloads no database, skips the import and keeps the database", async () => {
+    const { w, source } = world();
+    const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    const targetId = (first as any).output.targetId;
+    const site = w.ddev.sites.get(targetId)!;
+    const database = site.database!.toString();
+    const calls = w.ddev.commands.length;
+    const refreshed = await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, replaceSiteId: targetId, scope: "files", media: "none" });
+    expect(refreshed.status).toBe("succeeded");
+    expect(source.exports.get(PULL2)!.input.database).toBeFalsy();
+    expect(source.exports.get(PULL2)!.files.some(f => f.path === "database.sql" || f.path.startsWith("wp-content/uploads/"))).toBe(false);
+    expect(w.ddev.commands.slice(calls).map(c => c.command)).toEqual(["wordpress.copy.prepare", "wordpress.copy.files", "wordpress.copy.finish"]);
+    expect(w.ddev.commands.slice(calls).find(c => c.command === "wordpress.copy.finish")!.plan.scope).toBe("files");
+    expect(site.database!.toString()).toBe(database);
+    expect(site.backups).toBe(1);
+    expect((refreshed as any).output.summary).toContain("Local themes and plugins refreshed");
+  });
+
+  test("refresh options are refused where they do not apply, before anything changes", async () => {
+    const { w } = world();
+    const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    const targetId = (first as any).output.targetId;
+    const count = w.ddev.commands.length;
+    const refused = async (input: Record<string, unknown>) => ((await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, ...input })) as any).error?.message as string;
+    expect(await refused({ name: "Shop", media: "since-last" })).toContain("refreshing an existing local copy");
+    expect(await refused({ name: "Shop", activePlugins: "local" })).toContain("no plugin activation of its own");
+    expect(await refused({ name: "Shop", removeStale: true })).toContain("refreshing an existing copy");
+    expect(await refused({ name: "Shop", database: { tables: ["posts", "options"] } })).toContain("a new copy needs every table");
+    expect(await refused({ replaceSiteId: targetId, database: { tables: ["postmeta"] } })).toBe("Include the posts and options tables.");
+    expect(await refused({ replaceSiteId: targetId, scope: "database", activePlugins: "source" })).toContain("keeps the local site's active plugins");
+    expect(await refused({ replaceSiteId: targetId, scope: "files", users: "source" })).toContain("does not change user accounts");
+    expect(await refused({ replaceSiteId: targetId, scope: "files", replacements: { paths: true } })).toContain("no database");
+    expect(await refused({ replaceSiteId: targetId, scope: "without-media", media: "all" })).toContain("does not copy media");
+    expect(await refused({ replaceSiteId: targetId, pullSetId: `fs_${COPY}`, media: "none" })).toContain("an existing download keeps the selection");
+    expect(await refused({ replaceSiteId: targetId, replacements: { custom: [{ find: "not a regex", replace: "x", regex: true }] } })).toContain("delimiters");
+    expect(await refused({ replaceSiteId: targetId, pace: "fast" })).toContain("pace");
+    expect(w.ddev.commands.length).toBe(count);
+  });
+
+  test("a copy made before refresh options resumes with the old behaviour", async () => {
+    const { w } = world();
+    w.ddev.failCommand = { command: "wordpress.copy.finish", message: "Local website verification failed.", count: 1 };
+    const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    // A checkpoint written by 0.12 has no options; it still finishes with plugins inactive and no prune.
+    const checkpoint = JSON.parse(JSON.stringify(first.checkpoint));
+    delete checkpoint.options;
+    const resumed = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" }, { checkpoint, step: 20 });
+    expect(resumed.status).toBe("succeeded");
+    expect(w.ddev.commands.filter(c => c.command === "wordpress.copy.finish").at(-1)!.plan.prune).toBeUndefined();
+  });
+
   test("an executable upload that is not a placeholder is refused before anything is created", async () => {
     const w = new FakeWorld();
     w.addSite("hostinger-1", new FakeZoerConnect({ origin: "https://source.example", files: { "database.sql": "x", "wp-content/uploads/index.php": "<?php echo 1;" } }));

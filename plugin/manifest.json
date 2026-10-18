@@ -1941,6 +1941,14 @@
             },
             "recover": {
               "type": "boolean"
+            },
+            "pace": {
+              "type": "string",
+              "enum": [
+                "normal",
+                "gentle"
+              ],
+              "description": "gentle downloads two chunks per request and pauses between slices, for shared hosts."
             }
           }
         },
@@ -2349,7 +2357,7 @@
       {
         "id": "copy.local",
         "title": "Make a local copy",
-        "description": "Pull a Zoer Connect site (or use a verified pull) and restore it into a new or refreshed local DDEV site: staged verified files, the reviewed import scripts, its own address, plugins inactive. A dry run restores into a scratch site that is moved to the trash afterwards.",
+        "description": "Pull a Zoer Connect site (or use a verified pull) and restore it into a new or refreshed local DDEV site: staged verified files, the reviewed import scripts, its own address, plugins inactive unless chosen otherwise. Refresh options choose media (all, new since the last download or none), themes and plugins, removal of files the source deleted, database filters, plugin activation and extra find & replace. A dry run restores into a scratch site that is moved to the trash afterwards.",
         "effect": "local_write",
         "approval": "when_configured",
         "execution": {
@@ -2411,9 +2419,10 @@
               "enum": [
                 "complete",
                 "database",
-                "without-media"
+                "without-media",
+                "files"
               ],
-              "description": "database keeps files and local options; without-media refreshes database, themes and plugins but keeps existing uploads. Both require an existing linked local copy."
+              "description": "database keeps files and local options; without-media refreshes database, themes and plugins but keeps existing uploads; files refreshes themes, plugins and (optionally) media and keeps the database. All require an existing linked local copy."
             },
             "keepLocalDesign": {
               "type": "boolean",
@@ -2430,6 +2439,180 @@
                 "exact"
               ],
               "description": "local keeps the copy's own accounts (default); source copies the source's users and user meta with their IDs, keeping the local administrator; exact copies them with no extra administrator, like WP Migrate."
+            },
+            "media": {
+              "type": "string",
+              "enum": [
+                "all",
+                "since-last",
+                "none"
+              ],
+              "description": "all media; since-last only uploads changed since the newest download of this site with media (refresh only); none keeps existing uploads."
+            },
+            "themes": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "mode"
+              ],
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "all",
+                    "active",
+                    "selected",
+                    "except"
+                  ]
+                },
+                "items": {
+                  "type": "array",
+                  "maxItems": 500,
+                  "items": {
+                    "type": "string",
+                    "maxLength": 200
+                  }
+                }
+              },
+              "description": "Themes to place; others stay as they are."
+            },
+            "plugins": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "mode"
+              ],
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "all",
+                    "active",
+                    "selected",
+                    "except"
+                  ]
+                },
+                "items": {
+                  "type": "array",
+                  "maxItems": 500,
+                  "items": {
+                    "type": "string",
+                    "maxLength": 200
+                  }
+                }
+              },
+              "description": "Plugins to place; others stay as they are."
+            },
+            "removeStale": {
+              "type": "boolean",
+              "description": "Refresh only: in each theme and plugin folder placed, delete local files the source no longer has (hidden files, node_modules and logs are kept)."
+            },
+            "database": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "tables": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "all"
+                      ]
+                    },
+                    {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 500,
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_]{1,64}$"
+                      }
+                    }
+                  ]
+                },
+                "postTypes": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "all"
+                      ]
+                    },
+                    {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 100,
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9_-]{1,20}$"
+                      }
+                    }
+                  ]
+                },
+                "excludeRevisions": {
+                  "type": "boolean"
+                },
+                "excludeSpam": {
+                  "type": "boolean"
+                }
+              },
+              "description": "Database filters; tables (refresh only, must include posts and options) are replaced, unselected tables stay local. Unselected post types are removed from the copy."
+            },
+            "activePlugins": {
+              "type": "string",
+              "enum": [
+                "none",
+                "local",
+                "source"
+              ],
+              "description": "none (default) leaves every plugin inactive; local keeps the copy's activation (refresh); source activates the source's plugins."
+            },
+            "replacements": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "paths": {
+                  "type": "boolean"
+                },
+                "custom": {
+                  "type": "array",
+                  "maxItems": 40,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "find",
+                      "replace"
+                    ],
+                    "properties": {
+                      "find": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      },
+                      "replace": {
+                        "type": "string",
+                        "maxLength": 4096
+                      },
+                      "regex": {
+                        "type": "boolean"
+                      },
+                      "caseSensitive": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                }
+              },
+              "description": "paths replaces the source's file path with this site's; custom rows (literal or delimited regex) apply after the address rules."
+            },
+            "pace": {
+              "type": "string",
+              "enum": [
+                "normal",
+                "gentle"
+              ],
+              "description": "gentle downloads two chunks per request and pauses between slices, for shared hosts."
             }
           }
         },

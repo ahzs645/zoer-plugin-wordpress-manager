@@ -38,7 +38,7 @@ const FILES: Record<LocalImportKind, { summary: string; included: string; omitte
   updraft: { summary: "Plugins, themes, uploads and others", included: "The four UpdraftPlus file archives, member by member.", omitted: "Caches, drop-ins, must-use plugins, UpdraftPlus folders and .htaccess files are omitted. The site uses its installed WordPress core." },
 };
 
-function Choice({ name, value, checked, onChange, disabled, title, description }: { name: string; value: LocalUserMode; checked: boolean; onChange: (value: LocalUserMode) => void; disabled?: boolean; title: string; description: string }) {
+export function Choice({ name, value, checked, onChange, disabled, title, description }: { name: string; value: LocalUserMode; checked: boolean; onChange: (value: LocalUserMode) => void; disabled?: boolean; title: string; description: string }) {
   return <label className={`flex min-h-11 items-start gap-2.5 rounded-md border px-3 py-2.5 text-[13px] ${checked ? "border-accent bg-surface-hover" : "border-border-default"}`}>
     <input type="radio" name={name} value={value} className={`${radioClass} mt-0.5`} checked={checked} disabled={disabled} onChange={() => onChange(value)} />
     <span className="min-w-0"><span className="block text-text-primary">{title}</span><span className="block text-[12px] text-text-muted">{description}</span></span>
@@ -58,17 +58,7 @@ export default function LocalImportPanels({ id, kind, users, onUsers, sourceUrl,
   const from = kind === "copy" ? "source site" : "backup";
   return <div className="min-w-0 space-y-2">
     <TransferPanel title="Database" summary={databaseOnly ? `${usersSummary(users).replace("All tables", "Other tables")} · local settings kept` : usersSummary(users)}>
-      <fieldset className="min-w-0 space-y-2" disabled={disabled}>
-        <legend className="mb-1 text-xs font-medium text-text-secondary">User accounts</legend>
-        <Choice name={`local-users-${id}`} value="local" checked={users === "local"} onChange={onUsers} title="Keep only the local administrator"
-          description={`The ${from}'s users are not copied. Posts and pages are assigned to the local administrator and comments are kept without accounts. Good for content-only copies.`} />
-        <Choice name={`local-users-${id}`} value="source" checked={users === "source"} onChange={onUsers} title="Copy users and user metadata"
-          description={`Keeps user IDs, roles, profiles and plugin user data, such as membership or sign-in links, so authors and accounts match the ${from}. Users keep their passwords; login sessions and application passwords are removed.`} />
-        <Choice name={`local-users-${id}`} value="exact" checked={users === "exact"} onChange={onUsers} title={`Replace with the ${from}'s users exactly`}
-          description={`Like WP Migrate: the copy has exactly the ${from}'s accounts and no extra local administrator, so you sign in with the ${from}'s logins.`} />
-      </fieldset>
-      {users === "source" && <p className="text-xs text-text-secondary">The local administrator is added beside the copied accounts (with a new ID or login if the {from} already uses its own). Capability keys move to this site's table prefix. {databaseOnly ? "Local role definitions are retained." : "Source role definitions are copied."} Zoer's Admin button keeps working.</p>}
-      {users === "exact" && <p className="text-xs text-text-secondary">Zoer's Admin button then signs in as the {from}'s “admin” account, or as its only administrator. If neither exists, the import stops before anything is replaced and asks you to keep the local administrator. Capability keys and roles move to this site's table prefix; sessions and application passwords are removed.</p>}
+      <UserAccounts id={id} from={from} users={users} onUsers={onUsers} disabled={disabled} databaseOnly={databaseOnly} />
       <p className="text-xs text-text-secondary">{databaseOnly ? "The options table stays local. Other selected tables are staged and swapped in at once; the account choice above controls user tables." : `Always: every table with the ${from}'s prefix is imported into staged tables and swapped in at once. Transients are dropped; this site's address, admin e-mail and scheduled tasks are kept.`}</p>
     </TransferPanel>
     <TransferPanel title="Find & Replace" summary={`${rules.length} automatic URL rules · ${kind === "copy" ? "source" : "backup"} address → local address`}>
@@ -97,4 +87,21 @@ export default function LocalImportPanels({ id, kind, users, onUsers, sourceUrl,
       </ul>
     </TransferPanel>
   </div>;
+}
+
+/** The user-account choice of a local copy or restore, with what each mode does. */
+export function UserAccounts({ id, from, users, onUsers, disabled = false, databaseOnly = false }: { id: string; from: string; users: LocalUserMode; onUsers: (value: LocalUserMode) => void; disabled?: boolean; databaseOnly?: boolean }) {
+  return <>
+      <fieldset className="min-w-0 space-y-2" disabled={disabled}>
+        <legend className="mb-1 text-xs font-medium text-text-secondary">User accounts</legend>
+        <Choice name={`local-users-${id}`} value="local" checked={users === "local"} onChange={onUsers} title="Keep only the local administrator"
+          description={`The ${from}'s users are not copied. Posts and pages are assigned to the local administrator and comments are kept without accounts. Good for content-only copies.`} />
+        <Choice name={`local-users-${id}`} value="source" checked={users === "source"} onChange={onUsers} title="Copy users and user metadata"
+          description={`Keeps user IDs, roles, profiles and plugin user data, such as membership or sign-in links, so authors and accounts match the ${from}. Users keep their passwords; login sessions and application passwords are removed.`} />
+        <Choice name={`local-users-${id}`} value="exact" checked={users === "exact"} onChange={onUsers} title={`Replace with the ${from}'s users exactly`}
+          description={`Like WP Migrate: the copy has exactly the ${from}'s accounts and no extra local administrator, so you sign in with the ${from}'s logins.`} />
+      </fieldset>
+      {users === "source" && <p className="text-xs text-text-secondary">The local administrator is added beside the copied accounts (with a new ID or login if the {from} already uses its own). Capability keys move to this site's table prefix. {databaseOnly ? "Local role definitions are retained." : "Source role definitions are copied."} Zoer's Admin button keeps working.</p>}
+      {users === "exact" && <p className="text-xs text-text-secondary">Zoer's Admin button then signs in as the {from}'s “admin” account, or as its only administrator. If neither exists, the import stops before anything is replaced and asks you to keep the local administrator. Capability keys and roles move to this site's table prefix; sessions and application passwords are removed.</p>}
+  </>;
 }

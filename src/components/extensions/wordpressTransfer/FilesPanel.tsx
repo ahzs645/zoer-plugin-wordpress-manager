@@ -7,7 +7,7 @@ import { fieldLabelClass, selectClass, textareaClass } from "@zoer/plugin-ui/con
 import { filesSummary } from "./transferLabels";
 import { ItemPicker, OptionToggle, TransferPanel, Unavailable, type PickerItem } from "./TransferPanel";
 
-function ModePicker({ kind, mode, onChange, items, disabled, loading, codeOnly }: { kind: "themes" | "plugins"; mode: ResourceMode; onChange: (mode: ResourceMode) => void; items: PickerItem[]; disabled: boolean; loading?: boolean; codeOnly?: boolean }) {
+export function ModePicker({ kind, mode, onChange, items, disabled, loading, codeOnly }: { kind: "themes" | "plugins"; mode: ResourceMode; onChange: (mode: ResourceMode) => void; items: PickerItem[]; disabled: boolean; loading?: boolean; codeOnly?: boolean }) {
   const [query, setQuery] = useState("");
   const noun = kind === "themes" ? "theme" : "plugin";
   return <div className="min-w-0 space-y-2">

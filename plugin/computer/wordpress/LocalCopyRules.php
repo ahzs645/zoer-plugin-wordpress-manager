@@ -88,6 +88,62 @@ final class LocalCopyRules {
         return [null,($administrators?'The copy would have '.count($administrators).' administrators and none named “admin”':'The copy would have no administrator').', so Zoer\'s Admin button could not choose one to sign in. '.$instead];
     }
 
+    /**
+     * The import's replacement rules: the URL map first, then the source's file path (plain and
+     * JSON-escaped) → this site's, then custom rows in order. A case-insensitive literal row becomes
+     * a quoted regex; regex rows keep their delimiters (no `e` modifier, checked to compile).
+     */
+    public static function replacementRules(array $urlPairs,?string $sourcePath,string $targetPath,array $custom): array {
+        $rules=[['mode'=>'map','pairs'=>$urlPairs]];
+        if($sourcePath!==null){
+            $from=rtrim($sourcePath,'/');$to=rtrim($targetPath,'/');
+            if(!preg_match('#^/[^\x00-\x1f]{1,1023}$#D',$from)||in_array('..',explode('/',$from),true))throw new \InvalidArgumentException('Invalid source path.');
+            if($from!==$to&&$from!==''){$rules[]=['mode'=>'map','pairs'=>[$from.'/'=>$to.'/',str_replace('/','\/',$from.'/')=>str_replace('/','\/',$to.'/')]];}
+        }
+        if(count($custom)>40)throw new \InvalidArgumentException('Use at most 40 find & replace rows.');
+        foreach($custom as $row){
+            $find=$row['find']??null;$replace=$row['replace']??null;
+            if(!is_string($find)||$find===''||strlen($find)>4096||!is_string($replace)||strlen($replace)>4096||str_contains($find.$replace,"\0"))throw new \InvalidArgumentException('Invalid find & replace row.');
+            if(($row['regex']??false)===true){
+                if(strlen($find)>500||!preg_match('/^[^A-Za-z0-9\\\\\s][\s\S]+[^A-Za-z0-9\\\\\s]([a-zA-Z]*)$/D',$find,$m)||str_contains($m[1],'e')||@preg_match($find,'')===false)throw new \InvalidArgumentException('Invalid regular expression.');
+                $rules[]=['mode'=>'regex','find'=>$find,'replace'=>$replace];
+            }elseif(($row['caseSensitive']??true)===false){
+                $rules[]=['mode'=>'regex','find'=>'/'.preg_quote($find,'/').'/i','replace'=>str_replace(['\\','$'],['\\\\','\\$'],$replace)];
+            }else $rules[]=['mode'=>'literal','find'=>$find,'replace'=>$replace];
+        }
+        return $rules;
+    }
+
+    /**
+     * Theme and plugin folders a refresh placed (from the placed file paths): the folders whose
+     * other local files may be removed. Single-file plugins, uploads and must-use plugins are never roots.
+     */
+    public static function pruneRoots(array $placed): array {
+        $roots=[];
+        foreach($placed as $path){
+            if(!is_string($path)||!preg_match('#^wp-content/(themes|plugins)/([^/\x00-\x1f]+)/[^\x00-\x1f]+$#D',$path,$m)||in_array($m[2],['.','..','zoer-connect'],true))continue;
+            $roots['wp-content/'.$m[1].'/'.$m[2]]=true;
+        }
+        return array_keys($roots);
+    }
+
+    /**
+     * Local files a prune never removes because the source never sends them (Zoer Connect's exporter
+     * skips hidden files and folders, node_modules, .env files and logs): a developer's .git or build
+     * folder inside a local plugin survives a refresh.
+     */
+    public static function keepOnPrune(string $path): bool {
+        foreach(explode('/',$path) as $part)if(str_starts_with($part,'.')||$part==='node_modules')return true;
+        return str_ends_with($path,'.log');
+    }
+
+    /** Which plugins end active: "none" (all inactive), "local" (the copy's own), "source" (the source's). */
+    public static function activePluginsMode(mixed $value): string {
+        if($value===null)return 'none';
+        if(!in_array($value,['none','local','source'],true))throw new \InvalidArgumentException('Invalid active plugin choice.');
+        return $value;
+    }
+
     /** A login (or e-mail) that does not collide with the copied users. */
     public static function freeLogin(string $wanted,callable $taken): string {
         if(!$taken($wanted))return $wanted;

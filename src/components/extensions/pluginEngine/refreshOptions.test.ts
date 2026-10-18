@@ -1,0 +1,54 @@
+import { describe, expect, test } from "bun:test";
+import { copyInput, copyPresetRecord, copyScope, copySettingsProblem, copySettingsSummary, defaultCopySettings, parseCopyPreset, type CopySettings } from "./refreshOptions";
+
+const refresh = (patch: Partial<CopySettings> = {}) => ({ ...defaultCopySettings(true), ...patch });
+const fresh = (patch: Partial<CopySettings> = {}) => ({ ...defaultCopySettings(false), ...patch });
+
+describe("copy settings → copy.local input", () => {
+  test("defaults: a new copy takes everything; a refresh starts as database only and keeps local pages", () => {
+    expect(copyInput(fresh(), false)).toEqual({});
+    expect(copyInput(refresh(), true)).toEqual({ scope: "database", keepLocalDesign: true });
+  });
+  test("a refresh with every option maps each one to the worker's fields", () => {
+    const input = copyInput(refresh({ files: true, media: "since-last", plugins: { mode: "selected", items: ["akismet"] }, themes: { mode: "except", items: [] }, removeStale: true, excludeRevisions: true, excludeSpam: true,
+      postTypes: ["post", "page"], tables: ["posts", "options", "postmeta"], activePlugins: "local", replacePaths: true, custom: [{ find: "Old", replace: "New", regex: false, caseSensitive: true }, { find: "", replace: "", regex: false, caseSensitive: true }], pace: "gentle" }), true);
+    expect(input).toEqual({ scope: "complete", media: "since-last", plugins: { mode: "selected", items: ["akismet"] }, removeStale: true,
+      database: { excludeRevisions: true, excludeSpam: true, postTypes: ["post", "page"], tables: ["posts", "options", "postmeta"] }, activePlugins: "local",
+      replacements: { paths: true, custom: [{ find: "Old", replace: "New", regex: false, caseSensitive: true }] }, pace: "gentle" });
+  });
+  test("files only sends no database options; a new copy never sends refresh-only fields", () => {
+    expect(copyInput(refresh({ database: false, files: true, media: "none", activePlugins: "source", custom: [{ find: "a", replace: "b", regex: false, caseSensitive: true }] }), true)).toEqual({ scope: "files", media: "none" });
+    expect(copyInput(fresh({ media: "since-last", removeStale: true, tables: ["posts"], activePlugins: "local" }), false)).toEqual({});
+    expect(copyInput(fresh({ activePlugins: "source" }), false)).toEqual({ activePlugins: "source" });
+  });
+  test("scope and problems mirror the worker's refusals", () => {
+    expect(copyScope({ database: false, files: false })).toBeNull();
+    expect(copySettingsProblem(refresh({ database: false }), true)).toBe("Choose the database, the files, or both.");
+    expect(copySettingsProblem(fresh({ files: false }), false)).toBe("A new copy takes both the database and the files.");
+    expect(copySettingsProblem(refresh({ files: true, plugins: { mode: "selected", items: [] } }), true)).toContain("at least one of the plugins");
+    expect(copySettingsProblem(refresh({ files: true, tables: ["postmeta"] }), true)).toBe("Include the posts and options tables.");
+    expect(copySettingsProblem(refresh({ tables: ["posts"] }), true)).toBeNull();
+    expect(copySettingsProblem(fresh({ tables: ["posts", "options"] }), false)).toBe("A new copy needs every table.");
+    expect(copySettingsProblem(refresh({ custom: [{ find: "", replace: "x", regex: false, caseSensitive: true }] }), true)).toContain("empty find & replace");
+    expect(copySettingsProblem(refresh({ files: true }), true)).toBeNull();
+  });
+  test("summary names what the run takes", () => {
+    expect(copySettingsSummary(refresh({ files: true, media: "since-last", removeStale: true, activePlugins: "local", pace: "gentle" }), true))
+      .toBe("Database and files · new media only · deleted files removed · local plugins stay active · gentle pace");
+    expect(copySettingsSummary(refresh(), true)).toBe("Database only");
+    expect(copySettingsSummary(fresh(), false)).toBe("Database and files · all media · plugins inactive");
+  });
+});
+
+describe("saved presets", () => {
+  test("round-trip through a catalog record, with untrusted fields reset", () => {
+    const settings = refresh({ files: true, media: "none", plugins: { mode: "active", items: [] }, custom: [{ find: "a", replace: "b", regex: true, caseSensitive: false }] });
+    const record = copyPresetRecord("abc", "Code refresh", settings, new Date("2026-10-18T12:00:00Z"));
+    expect(record).toMatchObject({ id: "refresh-preset:abc", kind: "refresh-preset", title: "Code refresh" });
+    expect(parseCopyPreset(record)).toEqual({ id: "refresh-preset:abc", name: "Code refresh", updatedAt: "2026-10-18T12:00:00.000Z", settings });
+    const tampered = parseCopyPreset({ id: "refresh-preset:x", kind: "refresh-preset", data: { name: "X", settings: { media: "everything", activePlugins: "all", themes: { mode: "bogus" }, pace: 3, database: "yes" } } })!;
+    expect(tampered.settings).toMatchObject({ media: "all", activePlugins: "none", themes: { mode: "all", items: [] }, pace: "normal", database: true });
+    expect(parseCopyPreset({ id: "pull:x", kind: "pull", data: { name: "X" } })).toBeNull();
+    expect(parseCopyPreset({ id: "refresh-preset:y", kind: "refresh-preset", data: { name: "" } })).toBeNull();
+  });
+});

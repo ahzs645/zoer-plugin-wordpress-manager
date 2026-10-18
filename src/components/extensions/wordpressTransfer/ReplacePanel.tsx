@@ -22,8 +22,6 @@ export default function ReplacePanel({ options, onChange, caps, sourceUrl, desti
   const rep = options.replacements;
   const setRep = (patch: Partial<ImportOptions["replacements"]>) => onChange({ ...options, replacements: { ...rep, ...patch } });
   const setRows = (custom: ReplacementRow[]) => setRep({ custom });
-  const updateRow = (index: number, patch: Partial<ReplacementRow>) => setRows(rep.custom.map((row, i) => i === index ? { ...row, ...patch } : row));
-  const move = (index: number, delta: number) => { const next = [...rep.custom]; const [row] = next.splice(index, 1); next.splice(index + delta, 0, row); setRows(next); };
   return <TransferPanel title="Find & Replace" summary={replaceSummary(options, { replaceOnly })} defaultOpen={defaultOpen}>
     {!replaceOnly && <div className="min-w-0 space-y-2">
       <OptionToggle label="Automatic replacements" description="Recommended. Turn off only if you replace URLs yourself below." checked={rep.automatic} onChange={value => setRep({ automatic: value })} unavailable={rep.automatic ? null : rules} />
@@ -41,6 +39,21 @@ export default function ReplacePanel({ options, onChange, caps, sourceUrl, desti
     <div className="min-w-0 space-y-2">
       <p className="text-xs font-medium text-text-secondary">{replaceOnly ? "Replacement rules" : "Custom rules"} (applied in order{replaceOnly ? "" : ", after automatic rules"})</p>
       <Unavailable reason={rules} />
+      <CustomReplacementRows rows={rep.custom} onChange={setRows} disabled={!!rules} />
+    </div>
+    {!replaceOnly ? <OptionToggle label="Review changes before applying" description="Stages everything with the site online, then waits for you to check replacement counts and samples before anything goes live. Requires “Keep site online while staging”." checked={options.review} onChange={value => onChange({ ...options, review: value, ...(value ? { fence: "activation" as const } : {}) })} unavailable={review} />
+      : <p className="text-xs text-text-secondary">Find & Replace always stops for review: you see per-table counts and before/after samples, then apply or cancel.</p>}
+  </TransferPanel>;
+}
+
+/** Custom find & replace rows (literal or delimited regex), in order; shared by push, Find & Replace and local copies. */
+export function CustomReplacementRows({ rows, onChange, disabled = false, max = MAX_CUSTOM_REPLACEMENTS }: { rows: ReplacementRow[]; onChange: (rows: ReplacementRow[]) => void; disabled?: boolean; max?: number }) {
+  const rep = { custom: rows };
+  const rules = disabled ? "disabled" : null;
+  const setRows = onChange;
+  const updateRow = (index: number, patch: Partial<ReplacementRow>) => setRows(rows.map((row, i) => i === index ? { ...row, ...patch } : row));
+  const move = (index: number, delta: number) => { const next = [...rows]; const [row] = next.splice(index, 1); next.splice(index + delta, 0, row); setRows(next); };
+  return <>
       {rep.custom.map((row, index) => {
         const check = validateReplacementRow(row);
         const id = `replace-row-${index}`;
@@ -63,9 +76,6 @@ export default function ReplacePanel({ options, onChange, caps, sourceUrl, desti
           </p>
         </div>;
       })}
-      <Btn size="sm" icon={<Plus className="h-4 w-4" />} disabled={!!rules || rep.custom.length >= MAX_CUSTOM_REPLACEMENTS} onClick={() => setRows([...rep.custom, emptyRow()])}>Add rule</Btn>
-    </div>
-    {!replaceOnly ? <OptionToggle label="Review changes before applying" description="Stages everything with the site online, then waits for you to check replacement counts and samples before anything goes live. Requires “Keep site online while staging”." checked={options.review} onChange={value => onChange({ ...options, review: value, ...(value ? { fence: "activation" as const } : {}) })} unavailable={review} />
-      : <p className="text-xs text-text-secondary">Find & Replace always stops for review: you see per-table counts and before/after samples, then apply or cancel.</p>}
-  </TransferPanel>;
+      <Btn size="sm" icon={<Plus className="h-4 w-4" />} disabled={!!rules || rep.custom.length >= max} onClick={() => setRows([...rep.custom, emptyRow()])}>Add rule</Btn>
+  </>;
 }

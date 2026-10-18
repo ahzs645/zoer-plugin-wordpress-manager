@@ -101,13 +101,13 @@ export class FakeCatalog {
 // DDEV bridge and command bundles (emulated)
 // ---------------------------------------------------------------------------------------------
 
-type DdevSite = { id: string; name: string; status: string; state: "active" | "archived"; files: Map<string, Buffer>; database: Buffer | null; home: string | null; stage: Map<string, Map<string, Buffer>>; pending: Set<string>; backups: number; content?: FakeZoerConnect; inspections: number };
+type DdevSite = { id: string; name: string; status: string; state: "active" | "archived"; files: Map<string, Buffer>; database: Buffer | null; home: string | null; stage: Map<string, Map<string, Buffer>>; pending: Set<string>; placed: Set<string>; backups: number; content?: FakeZoerConnect; inspections: number };
 export class FakeDdev {
   readonly sites = new Map<string, DdevSite>();
   readonly commands: Array<{ command: string; resourceId: string; plan: any }> = [];
   failCommand?: { command: string; message: string; count: number };
   add(id: string, name: string, content?: FakeZoerConnect, status = "running") {
-    this.sites.set(id, { id, name, status, state: "active", files: new Map(), database: null, home: null, stage: new Map(), pending: new Set(), backups: 0, content, inspections: 0 });
+    this.sites.set(id, { id, name, status, state: "active", files: new Map(), database: null, home: null, stage: new Map(), pending: new Set(), placed: new Set(), backups: 0, content, inspections: 0 });
   }
   site(id: string) { const s = this.sites.get(id); if (!s) refuse("Runtime resource is unavailable or outside this grant.", "resource_unbound"); return s!; }
   /** Forced refusals of the next calls of one operation (code as Zoer reports it). */
@@ -190,10 +190,22 @@ export class FakeDdev {
           const data = f.bytes === 0 && f.sha256 === sha("") ? Buffer.alloc(0) : stage?.get(f.source);
           if (!data || sha(data) !== f.sha256) fail("Local copy operation failed.");
           s.files.set(f.path, data!);
+          s.placed.add(f.path);
         }
         return tail({ ok: true, placed: files.length });
       }
-      case "wordpress.copy.finish": if (!s.pending.has(plan.id)) fail("Local website verification failed."); s.home = plan.targetUrl; s.pending.delete(plan.id); return tail({ ok: true, http: 200 });
+      case "wordpress.copy.finish": {
+        if (!s.pending.has(plan.id)) fail("Local website verification failed.");
+        // finish-copy.php `prune`: other files in placed theme/plugin folders go (hidden files, node_modules and logs stay).
+        let pruned: number | undefined;
+        if (plan.prune === true) {
+          pruned = 0;
+          const roots = new Set([...s.placed].flatMap(path => { const m = /^(wp-content\/(?:themes|plugins)\/[^/]+)\//.exec(path); return m && !m[1]!.endsWith("/zoer-connect") ? [m[1]!] : []; }));
+          for (const path of [...s.files.keys()]) if ([...roots].some(root => path.startsWith(`${root}/`)) && !s.placed.has(path) && !path.split("/").some(part => part.startsWith(".") || part === "node_modules") && !path.endsWith(".log")) { s.files.delete(path); pruned++; }
+        }
+        s.placed.clear();
+        s.home = plan.targetUrl; s.pending.delete(plan.id); return tail({ ok: true, http: 200, ...(pruned !== undefined ? { pruned } : {}) });
+      }
       case "wordpress.updraft.prepare": {
         const byComponent = Object.fromEntries(plan.components.map((c: any) => [c.component, stage!.get(c.source)!]));
         for (const c of plan.components) if (!byComponent[c.component] || sha(byComponent[c.component]) !== c.sha256) fail("Upload failed its SHA-256 or size check.");

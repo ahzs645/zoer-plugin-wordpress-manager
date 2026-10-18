@@ -133,6 +133,12 @@ function row(value) {
   return { find: value.find, replace: value.replace, regex, caseSensitive };
 }
 
+/** Custom find & replace rows (literal or delimited regex), as push and Find & Replace validate them. */
+export function validateReplacementRows(value, max = 50) {
+  if (!Array.isArray(value) || value.length > max) fail(`Use at most ${max} find & replace rows.`);
+  return value.map(row);
+}
+
 export function validateImportOptions(value, { requireCustom = false } = {}) {
   if (!isObject(value) || !isObject(value.replacements)) fail("Choose valid import options.");
   const r = value.replacements;

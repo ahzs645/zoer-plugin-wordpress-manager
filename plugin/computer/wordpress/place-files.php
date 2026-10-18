@@ -17,7 +17,7 @@ zoer_main(function (): void {
         $files = $plan['files'] ?? null;
     }
     if (!is_array($files) || count($files) > 5000) throw new ZoerCommandError('The file batch is invalid.');
-    $placed = 0;
+    $placed = 0; $paths = [];
     foreach ($files as $f) {
         $path = (string)($f['path'] ?? ''); $sha = (string)($f['sha256'] ?? ''); $source = (string)($f['source'] ?? '');
         if (!preg_match('/^wp-content\/[^\x00-\x1f\\\\]{1,500}$/D', $path) || in_array('..', explode('/', $path), true) || in_array('', explode('/', $path), true) || in_array('.', explode('/', $path), true)) throw new ZoerCommandError('The file batch contains an unsupported path.');
@@ -33,7 +33,10 @@ zoer_main(function (): void {
         if ($empty ? file_put_contents($tmp, '') !== 0 : (!copy($s, $tmp) || hash_file('sha256', $tmp) !== $sha)) exit(6);
         chmod($tmp, 0644);
         if (!rename($tmp, $p)) exit(7);
-        $placed++;
+        $placed++; $paths[] = $path;
     }
+    // The placed paths, for removing files a source no longer has (finish-copy.php `prune`).
+    // A replayed batch appends its paths again; the reader de-duplicates.
+    if ($paths && file_put_contents($stage . '/placed.list', implode("\n", $paths) . "\n", FILE_APPEND | LOCK_EX) === false) throw new ZoerCommandError('Could not record the placed files.');
     echo json_encode(['ok' => true, 'placed' => $placed]), "\n";
 }, 'Local copy operation failed. The partial destination and private staging are retained for inspection or retry.');

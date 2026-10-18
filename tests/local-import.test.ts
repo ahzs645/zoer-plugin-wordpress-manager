@@ -61,6 +61,25 @@ describe("local copy rules", () => {
     expect(out[2]).toEqual(["(`a` text) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci", { utf8mb4_unicode_520_ci: "utf8mb4_unicode_ci" }]);
     expect(() => rules(`return LocalCopyRules::localCollations('(\`a\` text) ENGINE=InnoDB COLLATE=utf8mb4_0900_ai_ci',fn($c)=>$c==='latin1_swedish_ci');`)).toThrow(/collation utf8mb4_0900_ai_ci/);
   });
+  test("refresh replacement rules: URL map, then the source path, then custom rows; invalid rows are refused", () => {
+    const out = rules(`$r=LocalCopyRules::replacementRules(['https://a.test'=>'https://b.test'],'/home/u1/public_html','/var/www/html',[['find'=>'Old Brand','replace'=>'New \\$1 Brand','caseSensitive'=>false],['find'=>'/item-(\\d+)/','replace'=>'thing-$1','regex'=>true],['find'=>'Exact','replace'=>'Done']]);
+      return [array_column($r,'mode'),Replacement::apply('https://a.test/x /home/u1/public_html/wp-content/a.jpg {"p":"\\/home\\/u1\\/public_html\\/x"} OLD BRAND item-42 Exact exact',$r)];`);
+    expect(out[0]).toEqual(["map", "map", "regex", "regex", "literal"]);
+    expect(out[1]).toBe('https://b.test/x /var/www/html/wp-content/a.jpg {"p":"\\/var\\/www\\/html\\/x"} New \\$1 Brand thing-42 Done exact');
+    expect(() => rules(`return LocalCopyRules::replacementRules([],null,'/var/www/html',[['find'=>'no delimiters','replace'=>'x','regex'=>true]]);`)).toThrow("Invalid regular expression");
+    expect(() => rules(`return LocalCopyRules::replacementRules([],'relative/path','/var/www/html',[]);`)).toThrow("Invalid source path");
+    expect(() => rules(`return LocalCopyRules::replacementRules([],null,'/var/www/html',array_fill(0,41,['find'=>'a','replace'=>'b']));`)).toThrow("at most 40");
+    // The same path on both sides adds no rule.
+    expect(rules(`return count(LocalCopyRules::replacementRules(['x'=>'y'],'/var/www/html/','/var/www/html',[]));`)).toBe(1);
+  });
+  test("prune roots are the theme and plugin folders placed; hidden files, node_modules and logs are kept", () => {
+    expect(rules(`return LocalCopyRules::pruneRoots(['wp-content/plugins/akismet/a.php','wp-content/plugins/akismet/inc/b.php','wp-content/plugins/hello.php','wp-content/themes/two/style.css','wp-content/uploads/2024/x.jpg','wp-content/mu-plugins/m/x.php','wp-content/plugins/zoer-connect/z.php']);`))
+      .toEqual(["wp-content/plugins/akismet", "wp-content/themes/two"]);
+    expect(rules(`return [LocalCopyRules::keepOnPrune('wp-content/plugins/a/.git/HEAD'),LocalCopyRules::keepOnPrune('wp-content/plugins/a/node_modules/x/i.js'),LocalCopyRules::keepOnPrune('wp-content/plugins/a/debug.log'),LocalCopyRules::keepOnPrune('wp-content/plugins/a/old.php')];`))
+      .toEqual([true, true, true, false]);
+    expect(rules(`return [LocalCopyRules::activePluginsMode(null),LocalCopyRules::activePluginsMode('source')];`)).toEqual(["none", "source"]);
+    expect(() => rules(`return LocalCopyRules::activePluginsMode('all');`)).toThrow("Invalid active plugin choice");
+  });
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -146,7 +165,7 @@ let lastStage = "";
  * Runs import-copy.php in a stage named after its copy ID, as wordpress.copy.database does, optionally
  * with other source schemas and the collations of another local server.
  */
-function importCopy(dbPath: string, prefix: string, users?: "local" | "source" | "exact", options: { schemas?: Record<string, string>; collations?: string[]; edit?: (sql: string) => string; data?: string; scope?: "database"; keepLocalDesign?: boolean } = {}) {
+function importCopy(dbPath: string, prefix: string, users?: "local" | "source" | "exact", options: { schemas?: Record<string, string>; collations?: string[]; edit?: (sql: string) => string; data?: string; scope?: "database"; keepLocalDesign?: boolean; plan?: Record<string, unknown> } = {}) {
   const id = createHash("md5").update(`copy-${runs++}`).digest("hex");
   const stage = join(temp, "stage", id);
   mkdirSync(stage, { recursive: true });
@@ -154,7 +173,7 @@ function importCopy(dbPath: string, prefix: string, users?: "local" | "source" |
   for (const name of ["SnapshotStream.php", "SerializedReplacement.php", "Replacement.php", "LocalCopyRules.php", "import-copy.php"]) copyFileSync(join(BUNDLE, name), join(stage, name));
   const data = (options.edit ?? (sql => sql))(options.data ?? source(prefix, options.schemas));
   writeFileSync(join(stage, "0"), data);
-  writeFileSync(join(stage, "plan.json"), JSON.stringify({ id, prefix, sourceUrl: "https://example.com", targetUrl: LOCAL_URL, databaseIndex: 0, databaseSha256: createHash("sha256").update(data).digest("hex"), ...(users ? { users } : {}), ...(options.scope ? { scope: options.scope, keepLocalDesign: options.keepLocalDesign ?? false } : {}) }));
+  writeFileSync(join(stage, "plan.json"), JSON.stringify({ id, prefix, sourceUrl: "https://example.com", targetUrl: LOCAL_URL, databaseIndex: 0, databaseSha256: createHash("sha256").update(data).digest("hex"), ...(users ? { users } : {}), ...(options.scope ? { scope: options.scope, keepLocalDesign: options.keepLocalDesign ?? false } : {}), ...options.plan }));
   const out = php(`define('ABSPATH','/var/www/html/');require ${JSON.stringify(resolve("tests/fakes/wpdb.php"))};$wpdb=new FakeWpdb(${JSON.stringify(dbPath)},'wp_'${options.collations ? `,json_decode(${JSON.stringify(JSON.stringify(options.collations))})` : ""});require ${JSON.stringify(join(stage, "import-copy.php"))};`);
   expect(out).toContain("DATABASE_READY");
   return JSON.parse(readFileSync(join(stage, "database-complete.json"), "utf8"));
@@ -335,6 +354,33 @@ describe("import-copy.php", () => {
 
   test("an unknown user mode is refused", () => {
     expect(() => importCopy(join(temp, "bad.sqlite"), "wp_", "everyone" as "source")).toThrow();
+  });
+});
+
+describe("refresh options in import-copy.php", () => {
+  test("active plugins: none by default, the copy's own with local, the source's with source", () => {
+    const paths = ["none", "local", "source"].map(mode => { const path = join(temp, `active-${mode}.sqlite`); localSite(path); const db = new Database(path); db.run("UPDATE wp_options SET option_value=? WHERE option_name='active_plugins'", ['a:1:{i:0;s:8:"mine.php";}']); db.close(); return path; });
+    const summaries = ["none", "local", "source"].map((mode, i) => importCopy(paths[i]!, "wp_", undefined, mode === "none" ? {} : { plan: { activePlugins: mode } }));
+    expect(summaries.map(s => s.activePlugins)).toEqual(["none", "local", "source"]);
+    expect(paths.map(path => { const { db, option } = open(path); const value = option("active_plugins"); db.close(); return value; }))
+      .toEqual(["a:0:{}", 'a:1:{i:0;s:8:"mine.php";}', 'a:1:{i:0;s:9:"clerk.php";}']);
+  });
+  test("custom find & replace and the source path apply after the address rules, inside serialized values too", () => {
+    const path = join(temp, "replace.sqlite");
+    localSite(path);
+    const summary = importCopy(path, "wp_", undefined, {
+      edit: sql => sql.replace(hex('Visit https://example.com/page, http://example.com, //example.com/i.png and {"u":"https:\\/\\/example.com\\/x"}'), hex("Logo at /home/old/public_html/wp-content/logo.png by OLD BRAND, see https://example.com/about")),
+      plan: { replacements: { sourcePath: "/home/old/public_html", custom: [{ find: "old brand", replace: "New Brand", regex: false, caseSensitive: false }, { find: "/about$/", replace: "about-us", regex: true }] } },
+    });
+    expect(summary).toMatchObject({ customRules: 2, pathReplaced: true });
+    const { db } = open(path);
+    expect((db.query("SELECT post_content FROM wp_posts WHERE ID=1").get() as { post_content: string }).post_content).toBe(`Logo at /var/www/html/wp-content/logo.png by New Brand, see ${LOCAL_URL}/about-us`);
+    db.close();
+  });
+  test("a database-only refresh refuses an activation choice (it keeps the local options table)", () => {
+    const path = join(temp, "active-db.sqlite");
+    localSite(path);
+    expect(() => importCopy(path, "wp_", undefined, { scope: "database", plan: { activePlugins: "source" } })).toThrow("keeps the local active plugins");
   });
 });
 

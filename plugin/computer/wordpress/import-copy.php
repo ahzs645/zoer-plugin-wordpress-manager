@@ -21,6 +21,12 @@ $prefix=$plan['prefix'];if(!preg_match('/^[A-Za-z0-9_]{1,48}$/D',$prefix))throw 
 $mode=$plan['users']??'local';if(!in_array($mode,['local','source','exact'],true))throw new RuntimeException('Invalid user mode.');
 $scope=$plan['scope']??'complete';if(!in_array($scope,['complete','database'],true)||!is_bool($plan['keepLocalDesign']??false))throw new RuntimeException('Invalid refresh scope.');
 $databaseOnly=$scope==='database';$keepDesign=$databaseOnly&&($plan['keepLocalDesign']??false);
+// Plan `activePlugins`: "none" (default, every plugin inactive), "local" (the copy's own activation) or
+// "source" (the source's list). A database-only refresh keeps the whole local options table anyway.
+$activePlugins=Rules::activePluginsMode($plan['activePlugins']??null);
+if($databaseOnly&&$activePlugins!=='none')throw new RuntimeException('A database-only refresh keeps the local active plugins.');
+$custom=$plan['replacements']['custom']??[];$sourcePath=$plan['replacements']['sourcePath']??null;
+if(!is_array($custom)||($sourcePath!==null&&!is_string($sourcePath)))throw new RuntimeException('Invalid find & replace options.');
 $copyUsers=$mode!=='local';$keepLocalAdmin=$mode==='source';
 $source=$root.'/'.$plan['databaseIndex'];
 if(hash_file('sha256',$source)!==$plan['databaseSha256'])throw new RuntimeException('Database digest mismatch.');
@@ -73,10 +79,10 @@ if(!$admin)throw new RuntimeException('Local administrator missing.');
 $adminUser=$keepLocalAdmin?$wpdb->get_row($wpdb->prepare("SELECT * FROM `{$wpdb->users}` WHERE ID=%d",$admin),ARRAY_A):null;
 $adminMeta=$keepLocalAdmin?$wpdb->get_results($wpdb->prepare("SELECT meta_key,meta_value FROM `{$wpdb->usermeta}` WHERE user_id=%d ORDER BY umeta_id",$admin),ARRAY_A):[];
 if($keepLocalAdmin&&!$adminUser)throw new RuntimeException('Local administrator missing.');
-$rules=[['mode'=>'map','pairs'=>Rules::urlPairs($plan['sourceUrl'],$plan['targetUrl'])]];
+$rules=Rules::replacementRules(Rules::urlPairs($plan['sourceUrl'],$plan['targetUrl']),$sourcePath,rtrim(ABSPATH,'/'),$custom);
 // Source rows never imported; the local values of $keep are copied in below.
 // Zoer Connect's storage path, quota and pending markers describe the source's server, not this copy.
-$keep=['home','siteurl','admin_email','new_admin_email','cron','upload_path','upload_url_path','zoer_connect_connection','zoer_connect_profiles','zoer_connect_storage_dir','zoer_connect_transfer_quota_bytes','zoer_connect_rewrite_flush_pending','zoer_connect_cache_purge_pending','active_plugins'];
+$keep=['home','siteurl','admin_email','new_admin_email','cron','upload_path','upload_url_path','zoer_connect_connection','zoer_connect_profiles','zoer_connect_storage_dir','zoer_connect_transfer_quota_bytes','zoer_connect_rewrite_flush_pending','zoer_connect_cache_purge_pending',...($activePlugins==='source'?[]:['active_plugins'])];
 $skip=[...$keep,'blog_public'];
 $sourceRoles=$prefix.'user_roles';$localRoles=$wpdb->prefix.'user_roles';$copiedRoles=false;
 $cursor=\ZoerConnect\SnapshotStream::initial();$rows=0;$replaced=0;$userRows=0;$metaRows=0;$droppedMeta=0;
@@ -136,8 +142,9 @@ foreach($copiedRoles?$keep:[...$keep,$localRoles] as $key){
  $row=$wpdb->get_row($wpdb->prepare("SELECT option_name,option_value,autoload FROM `{$wpdb->options}` WHERE option_name=%s",$key),ARRAY_A);
  if($row&&$wpdb->replace($options,$row)===false)throw new RuntimeException('Local identity preservation failed.');
 }
-// Plugins start inactive in the copy: external mail/payment/integration jobs must not auto-run.
-$wpdb->replace($options,['option_name'=>'active_plugins','option_value'=>'a:0:{}','autoload'=>'yes']);
+// Plugins start inactive in the copy unless asked otherwise: external mail/payment/integration jobs
+// must not auto-run. ("local" kept the copy's row above; "source" imported the source's row.)
+if($activePlugins==='none')$wpdb->replace($options,['option_name'=>'active_plugins','option_value'=>'a:0:{}','autoload'=>'yes']);
 // The copy has a reachable address of its own: ask search engines not to index it.
 $wpdb->replace($options,['option_name'=>'blog_public','option_value'=>'0','autoload'=>'yes']);
 }
@@ -172,7 +179,7 @@ if($keepDesign){
   $designKept++;
  }
 }
-$summary=['tables'=>count($tables),'rows'=>$rows,'replacements'=>$replaced,'users'=>['mode'=>$mode,'copied'=>$userRows,'meta'=>$metaRows,'droppedMeta'=>$droppedMeta,'roles'=>$copiedRoles?'source':'local','loginChanged'=>$loginChanged],'localAdministrator'=>$localAdmin,'collations'=>array_values($collations),'optionsPreserved'=>$databaseOnly,'designPostsPreserved'=>$designKept];
+$summary=['tables'=>count($tables),'rows'=>$rows,'replacements'=>$replaced,'users'=>['mode'=>$mode,'copied'=>$userRows,'meta'=>$metaRows,'droppedMeta'=>$droppedMeta,'roles'=>$copiedRoles?'source':'local','loginChanged'=>$loginChanged],'localAdministrator'=>$localAdmin,'collations'=>array_values($collations),'optionsPreserved'=>$databaseOnly,'designPostsPreserved'=>$designKept,'activePlugins'=>$databaseOnly?'local':$activePlugins,'customRules'=>count($custom),'pathReplaced'=>$sourcePath!==null];
 file_put_contents($summaryFile,json_encode($summary,JSON_THROW_ON_ERROR));
 $renames=[];foreach($tables as $t){if($t['hadOld'])$renames[]='`'.$t['target'].'` TO `'.$t['backup'].'`';$renames[]='`'.$t['stage'].'` TO `'.$t['target'].'`';}
 $query('RENAME TABLE '.implode(',',$renames));

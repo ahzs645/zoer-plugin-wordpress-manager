@@ -6,7 +6,7 @@
 import { commitRecords, historyRecord, listKind, readRecord, recordFailedTransfer } from "./catalog.js";
 import { EMPTY_SHA256, hasOnlyMacMetadataExclusions, isUploadPlaceholder } from "./files.js";
 import { deleteSet, describeSet, listEntries, readText } from "./filesets.js";
-import { defaultExportOptions } from "./options.js";
+import { defaultExportOptions, validateExportOptions, validateReplacementRows } from "./options.js";
 import { HEX32, pullOfSet, pullSpec, runHex } from "./pull.js";
 import { fail, TransferError, UPLOAD_RUNTIME_REQUESTS } from "./slices.js";
 import { validateUpdraftSet, validateHostingSet } from "./updraft.js";
@@ -78,23 +78,98 @@ function validName(value, max) {
 // Start
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Refresh options (WP Migrate's pull settings): which files and rows a copy takes and what the import
+ * does with them. Each is checked against the scope here, so a refresh never half-applies one.
+ * - `media`: "all" | "since-last" (uploads changed since the newest download with media) | "none".
+ * - `themes` / `plugins`: { mode: all|active|selected|except, items } — only those folders are placed.
+ * - `removeStale`: after placing a theme or plugin folder, delete local files in it that the source no longer has.
+ * - `database`: { excludeRevisions, excludeSpam, postTypes, tables } — tables only when refreshing.
+ * - `activePlugins`: "none" (all inactive, default) | "local" (keep the copy's) | "source" (the source's).
+ * - `replacements`: { paths, custom } — the source's file path → this site's, and custom find & replace rows.
+ * - `pace`: "gentle" downloads in smaller requests with pauses (shared live hosts).
+ */
+export function copyOptions(input, scope, refresh) {
+  const files = scope !== "database", database = scope !== "files";
+  const opts = {};
+  if (input.media !== undefined) {
+    if (!["all", "since-last", "none"].includes(input.media)) fail("Choose all media, media new since the last download, or no media.");
+    if (!files || (scope === "without-media" && input.media !== "none")) fail("This refresh does not copy media; choose its scope instead.");
+    if (input.media === "since-last" && !refresh) fail("New media since the last download applies to refreshing an existing local copy.");
+  }
+  opts.media = scope === "without-media" || !files ? "none" : input.media ?? "all";
+  for (const kind of ["themes", "plugins"]) {
+    if (input[kind] === undefined) continue;
+    if (!files) fail(`A database-only refresh does not copy ${kind}.`);
+    opts[kind] = input[kind];
+  }
+  if (input.removeStale !== undefined) {
+    if (typeof input.removeStale !== "boolean") fail("Choose whether to remove files the source no longer has.");
+    if (input.removeStale && (!refresh || !files)) fail("Removing deleted files applies to refreshing an existing copy's themes and plugins.");
+    if (input.removeStale) opts.removeStale = true;
+  }
+  if (input.database !== undefined) {
+    if (!database) fail("A files-only refresh does not change the database.");
+    const d = input.database;
+    if (!d || typeof d !== "object" || Array.isArray(d)) fail("Choose valid database filters.");
+    if (d.tables !== undefined && d.tables !== "all") {
+      if (!refresh) fail("Choosing tables applies to refreshing an existing local copy; a new copy needs every table.");
+      if (!Array.isArray(d.tables) || !d.tables.includes("posts") || (scope !== "database" && !d.tables.includes("options"))) fail(scope === "database" ? "Include the posts table." : "Include the posts and options tables.");
+    }
+    opts.database = { tables: d.tables ?? "all", postTypes: d.postTypes ?? "all", excludeRevisions: d.excludeRevisions === true, excludeSpam: d.excludeSpam === true, excludeTransients: true };
+  }
+  if (input.activePlugins !== undefined) {
+    if (!["none", "local", "source"].includes(input.activePlugins)) fail("Choose which plugins are active after the copy.");
+    if ((scope === "database" || scope === "files") && input.activePlugins !== "local") fail("This refresh keeps the local site's active plugins.");
+    if (input.activePlugins === "local" && !refresh) fail("A new copy has no plugin activation of its own to keep.");
+    if (scope !== "database" && scope !== "files") opts.activePlugins = input.activePlugins;
+  }
+  if (input.replacements !== undefined) {
+    if (!database) fail("A files-only refresh has no database to search and replace.");
+    const r = input.replacements;
+    if (!r || typeof r !== "object" || Array.isArray(r)) fail("Choose valid find & replace options.");
+    if (r.paths !== undefined && typeof r.paths !== "boolean") fail("Choose whether to replace the source's file path.");
+    const custom = validateReplacementRows(r.custom ?? [], 40);
+    if (r.paths || custom.length) opts.replacements = { paths: r.paths === true, custom };
+  }
+  if (input.pace !== undefined) {
+    if (!["normal", "gentle"].includes(input.pace)) fail("Choose a normal or gentle transfer pace.");
+    if (input.pace === "gentle") opts.pace = "gentle";
+  }
+  return opts;
+}
+
+/** The pull a copy makes for itself (the selections `copyOptions` chose; validated like any Pull). */
+export function copyExportOptions(scope, opts) {
+  const exportOptions = defaultExportOptions();
+  const r = exportOptions.resources;
+  r.database = scope !== "files";
+  r.themes = r.plugins = scope !== "database";
+  r.media = scope !== "database" && opts.media !== "none";
+  if (opts.media === "since-last") exportOptions.media = { mode: "since-last" };
+  if (opts.database) exportOptions.database = opts.database;
+  if (opts.themes) exportOptions.themes = opts.themes;
+  if (opts.plugins) exportOptions.plugins = opts.plugins;
+  return validateExportOptions(exportOptions);
+}
+
 export async function startCopy(input, ctx) {
   const { host, request, now } = ctx;
   const copyId = input.copyId ?? runHex(request);
   if (!HEX32.test(copyId)) fail("A valid copy request ID is required.");
   const state = { v: 1, kind: "copy", copyId, siteId: input.siteId, phase: "pulling", dryRun: input.dryRun === true, users: userMode(input.users), fileOffset: 0, startedAt: new Date(now()).toISOString() };
-  if (input.scope !== undefined && !["complete", "database", "without-media"].includes(input.scope)) fail("Choose a complete, database-only or no-media refresh.");
+  if (input.scope !== undefined && !["complete", "database", "without-media", "files"].includes(input.scope)) fail("Choose a complete, database-only, no-media or files-only refresh.");
   if (input.keepLocalDesign !== undefined && typeof input.keepLocalDesign !== "boolean") fail("Choose whether to keep local pages and blocks.");
-  if (input.scope === "without-media") {
-    if (!input.replaceSiteId) fail("A no-media refresh requires an existing linked local copy.");
-    state.scope = "without-media";
-  }
-  if (input.scope === "database") {
-    if (!input.replaceSiteId) fail("Database-only refresh requires an existing linked local copy.");
-    state.scope = "database";
-    state.keepLocalDesign = input.keepLocalDesign === true;
-  } else if (input.keepLocalDesign === true) fail("Keeping local pages and blocks requires a database-only refresh.");
-  if (input.replaceSiteId !== undefined && input.replaceSiteId !== null) {
+  const scope = input.scope ?? "complete";
+  const refresh = input.replaceSiteId !== undefined && input.replaceSiteId !== null;
+  if (scope !== "complete" && !refresh) fail(scope === "database" ? "Database-only refresh requires an existing linked local copy." : scope === "files" ? "A files-only refresh requires an existing linked local copy." : "A no-media refresh requires an existing linked local copy.");
+  if (scope !== "complete") state.scope = scope;
+  if (scope === "database") state.keepLocalDesign = input.keepLocalDesign === true;
+  else if (input.keepLocalDesign === true) fail("Keeping local pages and blocks requires a database-only refresh.");
+  if (scope === "files" && state.users !== "local") fail("A files-only refresh does not change user accounts.");
+  const opts = copyOptions(input, scope, refresh);
+  state.options = opts;
+  if (refresh) {
     if (typeof input.replaceSiteId !== "string" || !input.replaceSiteId.startsWith("ddev-")) fail("Choose a local DDEV copy to refresh.");
     if (state.dryRun) fail("A dry run creates its own scratch site; refresh an existing copy without a dry run.");
     const copies = (await listKind(host, "local-copy")).map(r => r.data).filter(d => d?.targetId === input.replaceSiteId && d.sourceSiteId === input.siteId && d.phase === "complete");
@@ -110,15 +185,14 @@ export async function startCopy(input, ctx) {
     state.siteName = state.dryRun ? `zoer-dryrun-${copyId.slice(0, 8)}` : `${name}-${copyId.slice(0, 8)}`;
   }
   if (input.pullSetId !== undefined) {
+    // An existing download carries its own selections: only the import options apply to it.
+    if (["media", "themes", "plugins", "database", "pace"].some(key => input[key] !== undefined)) fail("Choose files and tables when pulling; an existing download keeps the selection it was made with.");
     const { pull } = await pullOfSet(host, input.pullSetId);
     if (pull.siteId !== input.siteId) fail("The download belongs to another site.");
     state.setId = input.pullSetId;
     state.phase = "checking";
   } else {
-    const exportOptions = defaultExportOptions();
-    if (state.scope === "database") for (const key of Object.keys(exportOptions.resources)) exportOptions.resources[key] = key === "database";
-    if (state.scope === "without-media") exportOptions.resources.media = false;
-    state.pull = await pullSpec("pull").start({ siteId: input.siteId, pullId: copyId, exportOptions }, ctx);
+    state.pull = await pullSpec("pull").start({ siteId: input.siteId, pullId: copyId, exportOptions: copyExportOptions(scope, opts), ...(opts.pace ? { pace: opts.pace } : {}) }, ctx);
     state.pullOwned = true;
   }
   return state;
@@ -139,31 +213,48 @@ export async function startRestore(input, ctx) {
 // Checks before anything is created
 // ---------------------------------------------------------------------------------------------
 
-/** The legacy createLocalCopy checks: a complete database/themes/plugins/media pull, safe files only. */
+/** Theme or plugin selection other than "all" (as `exportOptionsToPull` sends it). */
+const narrowed = (mode) => !!mode && mode.mode !== "all" && !(mode.mode === "except" && !mode.items?.length);
+
+/**
+ * The legacy createLocalCopy checks: the pull holds what this copy's scope and options take (a
+ * complete database/themes/plugins/media pull by default), safe files only. A pull the copy made
+ * itself may carry its own filters; an existing download must be a plain one for its scope.
+ */
 async function checkCopySource(state, ctx) {
   const { host } = ctx;
   const { pull } = await pullOfSet(host, state.setId);
+  const opts = state.options ?? {};
+  const scope = state.scope ?? "complete";
+  const owned = state.pullOwned === true;
   const database = pull.options?.database;
-  if (database && typeof database === "object" && Array.isArray(database.tables)) fail("Create a Pull with every database table before creating a local copy.");
   const profile = pull.options?.profile ?? {};
-  if (state.scope === "database") {
-    if (!pull.source || !database || ["themes", "plugins", "media", "core", "muplugins"].some(k => profile[k]) || (typeof database === "object" && database.postTypes)) fail("Choose a database-only Pull with all post types for this refresh.");
-  } else if (state.scope === "without-media") {
-    if (!pull.source || !database || !["themes", "plugins"].every(k => profile[k] === true) || profile.media || profile.core || profile.muplugins || !hasOnlyMacMetadataExclusions(profile.excludes ?? []) || (typeof database === "object" && database.postTypes)) fail("Choose all database tables, themes and plugins without media for this refresh.");
-  } else if (!pull.source || !database || !["themes", "plugins", "media"].every(k => profile[k] === true) || !hasOnlyMacMetadataExclusions(profile.excludes ?? []) || profile.core || profile.muplugins) {
-    fail("Create a complete database, themes, plugins and media Pull before creating a local copy. Only Mac metadata exclusions (**/.DS_Store and **/__MACOSX/) are supported.");
+  const wantDatabase = scope !== "files", wantFiles = scope !== "database";
+  const wantMedia = wantFiles && scope !== "without-media" && (opts.media ?? "all") !== "none";
+  if (!pull.source || (wantDatabase ? !database : !!database)) fail(wantDatabase ? "The database snapshot is missing." : "A files-only refresh needs a download without the database.");
+  if (database && typeof database === "object") {
+    if (Array.isArray(database.tables) && !(owned && Array.isArray(opts.database?.tables))) fail("Create a Pull with every database table before creating a local copy.");
+    if (database.postTypes && !(owned && Array.isArray(opts.database?.postTypes))) fail(scope === "database" ? "Choose a database-only Pull with all post types for this refresh." : "Choose all database tables, themes and plugins without media for this refresh.");
   }
+  if (profile.core || profile.muplugins || !hasOnlyMacMetadataExclusions(profile.excludes ?? [])) fail("Create a complete database, themes, plugins and media Pull before creating a local copy. Only Mac metadata exclusions (**/.DS_Store and **/__MACOSX/) are supported.");
+  if (["themes", "plugins"].some(kind => (profile[kind] === true) !== wantFiles) || (profile.media === true) !== wantMedia) {
+    fail(scope === "database" ? "Choose a database-only Pull with all post types for this refresh." : scope === "without-media" ? "Choose all database tables, themes and plugins without media for this refresh." : scope === "files" ? "Choose themes and plugins without the database for this refresh." : "Create a complete database, themes, plugins and media Pull before creating a local copy. Only Mac metadata exclusions (**/.DS_Store and **/__MACOSX/) are supported.");
+  }
+  for (const kind of ["themes", "plugins"]) if (profile[`${kind}Mode`] && profile[`${kind}Mode`] !== "all" && !(owned && narrowed(opts[kind]))) fail(`Create a Pull with all ${kind} before creating a local copy.`);
+  if (profile.mediaSince && !(owned && opts.media === "since-last")) fail("Create a Pull with all media before creating a local copy.");
   const entries = await listEntries(host, state.setId);
-  if (state.scope === "database" && (entries.length !== 1 || entries[0].path !== "database.sql")) fail("Database-only refresh cannot place source files on the local site.");
+  if (scope === "database" && (entries.length !== 1 || entries[0].path !== "database.sql")) fail("Database-only refresh cannot place source files on the local site.");
   let dbIndex = -1;
   for (const [index, f] of entries.entries()) {
-    if (f.path === "database.sql") { dbIndex = index; continue; }
-    if (state.scope === "without-media" && f.path.startsWith("wp-content/uploads/")) fail("A no-media refresh cannot place upload files.");
+    if (f.path === "database.sql") { if (!wantDatabase) fail("A files-only refresh cannot import a database."); dbIndex = index; continue; }
+    if (!wantMedia && f.path.startsWith("wp-content/uploads/")) fail("A no-media refresh cannot place upload files.");
     if (!/^wp-content\/(themes|plugins|uploads)\//.test(f.path)) fail("The download contains unsupported files for a local copy.");
     if (EXECUTABLE_UPLOAD.test(f.path) && (f.bytes > 4096 || !isUploadPlaceholder(f.path, await readText(host, state.setId, f.path, 4096)))) fail("The download contains an executable upload that cannot be imported into a local copy.");
   }
-  if (dbIndex < 0) fail("The database snapshot is missing.");
-  Object.assign(state, { dbIndex, dbSha256: entries[dbIndex].sha256, prefix: pull.source.prefix, sourceUrl: pull.source.url, fileCount: entries.length - 1, pullId: pull.pullId });
+  if (wantDatabase && dbIndex < 0) fail("The database snapshot is missing.");
+  Object.assign(state, { dbIndex, ...(dbIndex >= 0 ? { dbSha256: entries[dbIndex].sha256 } : {}), prefix: pull.source.prefix, sourceUrl: pull.source.url, fileCount: entries.length - (dbIndex >= 0 ? 1 : 0), pullId: pull.pullId,
+    ...(pull.source.abspath ? { sourceAbspath: pull.source.abspath } : {}) });
+  if (opts.replacements?.paths && !state.sourceAbspath) fail("The source did not report its file path, so it cannot be replaced. Turn path replacement off or update Zoer Connect on the source.");
 }
 
 /** Restore: the uploaded set must be one complete UpdraftPlus set (and, for a dry run, inspectable archives). */
@@ -342,7 +433,7 @@ export async function stepCopy(state, input, ctx) {
   }
   if (state.phase === "staging") {
     if (!(await stage(state, ctx))) return ctx.continue(state, progressOf(state, { done: state.staged ?? 0, unit: "bytes" }));
-    state.phase = state.kind === "restore" ? "updraft" : "database";
+    state.phase = state.kind === "restore" ? "updraft" : state.scope === "files" ? "files" : "database";
   }
   if (state.phase === "updraft") {
     const summary = await execCommand(host, state.targetId, state.backupFormat === "hostinger" ? "wordpress.hostinger.prepare" : "wordpress.updraft.prepare", { id: state.copyId, components: state.components });
@@ -353,7 +444,11 @@ export async function stepCopy(state, input, ctx) {
   }
   if (state.phase === "database") {
     if (ctx.timeLeft() < 60_000) return ctx.continue(state, progressOf(state));
-    const imported = await execCommand(host, state.targetId, "wordpress.copy.database", { id: state.copyId, prefix: state.prefix, sourceUrl: state.sourceUrl, targetUrl: state.targetUrl, databaseIndex: String(state.dbIndex), databaseSha256: state.dbSha256, users: state.users ?? "local", ...(state.scope === "database" ? { scope: "database", keepLocalDesign: state.keepLocalDesign === true } : {}) });
+    const opts = state.options ?? {};
+    const imported = await execCommand(host, state.targetId, "wordpress.copy.database", { id: state.copyId, prefix: state.prefix, sourceUrl: state.sourceUrl, targetUrl: state.targetUrl, databaseIndex: String(state.dbIndex), databaseSha256: state.dbSha256, users: state.users ?? "local",
+      ...(state.scope === "database" ? { scope: "database", keepLocalDesign: state.keepLocalDesign === true } : {}),
+      ...(opts.activePlugins && opts.activePlugins !== "none" ? { activePlugins: opts.activePlugins } : {}),
+      ...(opts.replacements ? { replacements: { custom: opts.replacements.custom, ...(opts.replacements.paths ? { sourcePath: state.sourceAbspath } : {}) } } : {}) });
     state.database = databaseSummary(imported?.summary);
     state.phase = state.scope === "database" ? "finish" : "files";
   }
@@ -362,7 +457,8 @@ export async function stepCopy(state, input, ctx) {
     state.phase = "finish";
   }
   if (state.phase === "finish") {
-    await execCommand(host, state.targetId, "wordpress.copy.finish", { id: state.copyId, targetUrl: state.targetUrl, updateDb: state.kind === "restore", ...(state.scope === "database" ? { scope: "database" } : {}) });
+    const finished = await execCommand(host, state.targetId, "wordpress.copy.finish", { id: state.copyId, targetUrl: state.targetUrl, updateDb: state.kind === "restore", ...(state.scope === "database" || state.scope === "files" ? { scope: state.scope } : {}), ...(state.options?.removeStale ? { prune: true } : {}) });
+    if (state.options?.removeStale) state.pruned = Number.isSafeInteger(finished?.pruned) && finished.pruned >= 0 ? finished.pruned : 0;
     state.phase = state.dryRun ? "archive" : "recording";
   }
   if (state.phase === "archive") {
@@ -379,12 +475,13 @@ export async function stepCopy(state, input, ctx) {
   const status = state.dryRun ? "dry-run" : "complete";
   const copied = state.database && state.database.users.mode !== "local" && state.database.users.copied !== null ? ` with ${state.database.users.copied.toLocaleString("en-US")} source users` : "";
   const records = [historyRecord({ kind: state.kind === "restore" ? "restore" : "local-copy", id: state.copyId, siteId: state.targetId, siteName: state.siteName, ...(state.siteId ? { sourceSiteId: state.siteId } : {}), status, startedAt: state.startedAt, finishedAt,
-    summary: state.dryRun ? `Dry run verified a scratch copy (${state.siteName})${copied}; it was moved to the trash.` : state.scope === "database" ? `Local database refreshed at ${state.targetUrl}${copied}; code and settings retained.` : `${state.kind === "restore" ? "Backup restored" : "Local copy"} ready at ${state.targetUrl}${copied}${state.scope === "without-media" ? "; existing media retained." : ""}`, runId: ctx.request.run?.id })];
+    summary: copySummary(state, copied), runId: ctx.request.run?.id })];
   if (!state.dryRun) {
     records.push({ id: `local-copy:${state.copyId}`, kind: "local-copy", title: state.siteName, data: { v: 1, copyId: state.copyId, kind: state.kind, sourceSiteId: state.siteId ?? `backup:${state.copyId}`, pullId: state.pullId ?? null, setId: state.setId,
       targetId: state.targetId, targetUrl: state.targetUrl, name: state.siteName, siteName: state.siteName, phase: "complete", users: state.users ?? "local", ...(state.database ? { database: state.database } : {}),
       ...(state.replaceSiteId ? { replaceSiteId: state.replaceSiteId, backup: state.backup } : {}), ...(state.warnings ? { warnings: state.warnings } : {}),
       ...(state.scope ? { scope: state.scope, ...(state.scope === "database" ? { keepLocalDesign: state.keepLocalDesign === true } : {}) } : {}),
+      ...(state.options && Object.keys(state.options).some(key => key !== "media" || state.options.media !== "all") ? { options: state.options } : {}), ...(state.pruned !== undefined ? { pruned: state.pruned } : {}),
       createdAt: state.startedAt, finishedAt, engine: "plugin" } });
     if (state.siteId) records.push({ id: `site-link:${state.targetId}`, kind: "site-link", title: state.siteName, data: { v: 1, targetSiteId: state.targetId, sourceSiteId: state.siteId, copyId: state.copyId, createdAt: finishedAt } });
   }
@@ -392,6 +489,23 @@ export async function stepCopy(state, input, ctx) {
   return ctx.done({ ...(state.kind === "restore" ? { restoreId: state.copyId } : { copyId: state.copyId }), status, targetId: state.targetId, targetUrl: state.dryRun ? null : state.targetUrl, siteName: state.siteName,
     ...(state.warnings ? { warnings: state.warnings } : {}), ...(state.metadata ? { metadata: state.metadata } : {}), ...(state.database ? { database: state.database } : {}),
     summary: records[0].data.summary }, { phase: "done" });
+}
+
+/** The history line of a finished copy, refresh or restore. */
+export function copySummary(state, copied = "") {
+  if (state.dryRun) return `Dry run verified a scratch copy (${state.siteName})${copied}; it was moved to the trash.`;
+  const opts = state.options ?? {};
+  const notes = [];
+  if (state.scope === "without-media" || (opts.media === "none" && state.scope !== "database" && state.scope !== "files")) notes.push("existing media retained");
+  if (opts.media === "since-last") notes.push("only new media downloaded");
+  for (const kind of ["themes", "plugins"]) if (narrowed(opts[kind])) notes.push(`${opts[kind].mode === "active" ? "active" : "selected"} ${kind} only`);
+  if (state.pruned) notes.push(`${state.pruned.toLocaleString("en-US")} deleted ${state.pruned === 1 ? "file" : "files"} removed`);
+  if (opts.activePlugins === "local") notes.push("local plugin activation kept");
+  if (opts.activePlugins === "source") notes.push("source plugins activated");
+  const tail = notes.length ? `; ${notes.join(", ")}.` : "";
+  if (state.scope === "database") return `Local database refreshed at ${state.targetUrl}${copied}; code and settings retained${tail || "."}`.replace(/\.\.$/, ".");
+  if (state.scope === "files") return `Local themes and plugins refreshed at ${state.targetUrl}; database and settings retained${tail || "."}`.replace(/\.\.$/, ".");
+  return `${state.kind === "restore" ? "Backup restored" : "Local copy"} ready at ${state.targetUrl}${copied}${tail}`;
 }
 
 /** Cleanup after a cancel while still pulling: the embedded pull's remote export and partial set go. */

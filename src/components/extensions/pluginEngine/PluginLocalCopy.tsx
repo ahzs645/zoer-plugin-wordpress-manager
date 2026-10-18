@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Btn, CheckboxField, Select, controlClass, fieldLabelClass, radioClass, selectClass } from "@zoer/plugin-ui/controls";
-import { engineKeys, startEngineAction, useCatalogKind, useRecentRuns } from "../../../lib/queries/plugin-engine";
+import { Btn, CheckboxField, Select, controlClass, fieldLabelClass, radioClass, selectClass, useDialogs } from "@zoer/plugin-ui/controls";
+import { commitCatalog, engineKeys, startEngineAction, useCatalogKind, useRecentRuns } from "../../../lib/queries/plugin-engine";
+import { useWordPressDiagnostics } from "../../../lib/queries/wordpress-transfer";
 import { resourceQueries } from "../../../lib/queries/resources";
 import { wordpressQueries } from "../../../lib/queries/wordpress";
-import LocalImportPanels, { type LocalUserMode } from "./LocalImportPanels";
+import CopySettingsPanels from "./CopySettingsPanels";
+import { type LocalUserMode } from "./LocalImportPanels";
+import { copyInput, copyPresetRecord, copySettingsProblem, copySettingsSummary, defaultCopySettings, parseCopyPreset, type CopyPreset, type CopySettings } from "./refreshOptions";
 import PluginRunCard, { localCopyStages } from "./PluginRunCard";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
 import { existingCopies, parseLocalCopyRecord, refreshCandidates, type LocalCopyRecord, type PullRecord } from "./records";
@@ -33,8 +36,13 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   const [mode, setMode] = useState<"new" | "refresh">(refreshSiteId ? "refresh" : "new");
   const [name, setName] = useState(siteName ? `${siteName} local`.slice(0, 60) : "");
   const [replaceSiteId, setReplaceSiteId] = useState(refreshSiteId ?? "");
-  const [scope, setScope] = useState<"database" | "complete" | "without-media">("database");
-  const [keepLocalDesign, setKeepLocalDesign] = useState(true);
+  const [settingsByMode, setSettingsByMode] = useState<Record<"new" | "refresh", CopySettings>>(() => ({ new: defaultCopySettings(false), refresh: defaultCopySettings(true) }));
+  const presets = useCatalogKind("refresh-preset");
+  const presetList = (presets.data ?? []).map(parseCopyPreset).filter((preset): preset is CopyPreset => !!preset).sort((a, b) => a.name.localeCompare(b.name));
+  const [presetId, setPresetId] = useState("");
+  const dialogs = useDialogs();
+  // The live site's inventory fills the post type, table, theme and plugin pickers.
+  const diagnostics = useWordPressDiagnostics(siteId, { enabled: available });
   const [dryRun, setDryRun] = useState(false);
   const [users, setUsers] = useState<LocalUserMode>("local");
   const [starting, setStarting] = useState(false);
@@ -53,7 +61,32 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   }, [siteRuns, client]);
 
   const refresh = mode === "refresh";
-  const canStart = available && !starting && !running && (refresh ? !!replaceSiteId : !!name.trim() && name.trim().length <= 60);
+  const settings = settingsByMode[mode];
+  const setSettings = (next: CopySettings) => setSettingsByMode(current => ({ ...current, [mode]: next }));
+  const problem = copySettingsProblem(settings, refresh);
+  const canStart = available && !starting && !running && !problem && (refresh ? !!replaceSiteId : !!name.trim() && name.trim().length <= 60);
+  async function savePreset() {
+    const current = presetList.find(preset => preset.id === presetId);
+    const name = (await dialogs.prompt({ title: "Save copy settings", description: "Saved settings can be loaded for any site's local copy or refresh.", label: "Name", defaultValue: current?.name ?? "", submitLabel: current ? "Save" : "Save settings" }))?.trim();
+    if (!name) return;
+    if (name.length > 60) { setError("Use a name of up to 60 characters."); return; }
+    const existing = presetList.find(preset => preset.name.toLowerCase() === name.toLowerCase());
+    const id = existing ? existing.id.slice("refresh-preset:".length) : newHexId();
+    try {
+      await commitCatalog({ records: [copyPresetRecord(id, name, settings)] }, "refresh-preset");
+      await client.invalidateQueries({ queryKey: engineKeys.catalog("refresh-preset") });
+      setPresetId(`refresh-preset:${id}`);
+    } catch (caught) { setError(engineErrorMessage(caught, "The settings could not be saved.")); }
+  }
+  async function deletePreset() {
+    const current = presetList.find(preset => preset.id === presetId);
+    if (!current || !await dialogs.confirm({ title: `Delete “${current.name}”?`, description: "Only the saved settings are deleted.", confirmLabel: "Delete", tone: "danger" })) return;
+    try {
+      await commitCatalog({ deletes: [current.id] }, "refresh-preset");
+      await client.invalidateQueries({ queryKey: engineKeys.catalog("refresh-preset") });
+      setPresetId("");
+    } catch (caught) { setError(engineErrorMessage(caught, "The settings could not be deleted.")); }
+  }
   async function start(event: React.FormEvent) {
     event.preventDefault();
     if (!canStart) return;
@@ -62,7 +95,8 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
       await startEngineAction(ENGINE_ACTIONS.copy, {
         siteId, copyId: newHexId(),
         ...(refresh ? { replaceSiteId } : { name: name.trim() }),
-        ...(refresh ? { scope, ...(scope === "database" ? { keepLocalDesign } : {}) } : {}),
+        // An existing download keeps the selection it was made with; only the import options apply.
+        ...(pull?.setId ? Object.fromEntries(Object.entries(copyInput(settings, refresh)).filter(([key]) => !["media", "themes", "plugins", "database", "pace"].includes(key))) : copyInput(settings, refresh)),
         ...(pull?.setId ? { pullSetId: pull.setId } : {}),
         ...(dryRun && !refresh ? { dryRun: true } : {}),
         ...(users !== "local" ? { users } : {}),
@@ -98,20 +132,23 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
           </Select>
         </label>
         : <label className="block"><span className={fieldLabelClass}>Local site name</span><input className={controlClass("default", "text-base sm:text-[14px]")} value={name} maxLength={60} onChange={event => setName(event.target.value)} required disabled={starting || !available} /></label>}
-      <LocalImportPanels id={siteId} kind="copy" users={users} onUsers={setUsers} sourceUrl={sourceUrl} databaseOnly={refresh && scope === "database"} keepMedia={refresh && scope === "without-media"} disabled={starting || !available} />
-      {refresh && <div className="space-y-3">
-        <label className="block"><span className={fieldLabelClass}>Refresh contents</span>
-          <Select aria-label="Refresh contents" className={selectClass("default", "w-full")} value={scope} onChange={event => setScope(event.target.value as "database" | "complete" | "without-media")} disabled={starting || !available}>
-            <option value="database">Database only — keep development code and settings</option>
-            <option value="without-media">Database and code — keep existing media</option>
-            <option value="complete">Complete site — replace files and database</option>
+      <div className="flex min-w-0 flex-wrap items-end gap-2">
+        <label className="min-w-0 flex-1 basis-48"><span className={fieldLabelClass}>Saved settings</span>
+          <Select aria-label="Saved copy settings" className={selectClass("default", "w-full")} value={presetId} disabled={starting} onChange={event => {
+            const preset = presetList.find(item => item.id === event.target.value);
+            setPresetId(event.target.value);
+            if (preset) setSettings({ ...preset.settings, ...(refresh ? {} : { database: true, files: true }) });
+          }}>
+            <option value="">{presetList.length ? "Choose saved settings" : "No saved settings yet"}</option>
+            {presetList.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
           </Select>
         </label>
-        {scope === "database" ? <>
-          <p className="text-xs text-text-secondary">Replaces content tables from live. Keeps local settings, credentials, active plugins, theme and site address.</p>
-          <CheckboxField label="Keep local pages and block content" description="Retains matching local pages, templates, navigation and styles. New or conflicting local page identities stop the refresh for review." checked={keepLocalDesign} onChange={setKeepLocalDesign} disabled={starting || !available} />
-        </> : <p className="text-xs text-status-warning">Replaces local theme and plugin files and saved content.{scope === "without-media" ? " Existing media is kept and is not downloaded." : ""} Plugins start inactive.</p>}
-      </div>}
+        <Btn size="sm" disabled={starting} onClick={() => void savePreset()}>{presetId ? "Save changes" : "Save settings"}</Btn>
+        {presetId && <Btn size="sm" variant="ghost" disabled={starting} onClick={() => void deletePreset()}>Delete</Btn>}
+      </div>
+      <p className="text-xs text-text-secondary">{copySettingsSummary(settings, refresh)}{pull ? ". This download's own selection of files and tables applies." : ""}</p>
+      <CopySettingsPanels id={siteId} refresh={refresh} settings={settings} onSettings={setSettings} users={users} onUsers={setUsers} sourceUrl={sourceUrl} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} disabled={starting || !available} />
+      {problem && <p role="status" className="text-xs text-status-warning">{problem}</p>}
       {refresh && <p className="text-xs text-text-secondary">{users === "source" ? "The refresh replaces the copy's accounts with the source's; its local administrator is kept and marked so later refreshes find it."
         : users === "exact" ? "The refresh replaces the copy's accounts with exactly the source's, including its local administrator." : "The copy keeps the accounts it has now."}</p>}
       {!refresh && <CheckboxField label="Dry run" description={refresh ? "Not available when refreshing an existing copy." : "Builds a scratch site named zoer-dryrun-…, verifies the import and archives the scratch site. Your sites are unchanged."} checked={dryRun && !refresh} onChange={setDryRun} disabled={refresh || starting} />}
