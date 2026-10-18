@@ -20,6 +20,15 @@ interface CaptureReview { id: string; fingerprint: string; unchanged: string[]; 
 
 const TYPE_LABEL = { template: "Template", part: "Template part", styles: "Styles" } as const;
 
+export const themeOverridesKey = (base: string) => [getApiBase(), "theme-overrides", base];
+export const fetchThemeOverrides = (base: string) => json<Overrides>(`${base}/theme-overrides`);
+
+/** Files of an update that a Site Editor copy on the site shows instead (so the page will not change). */
+export function hiddenBySiteEditor(changes: { path: string }[], items: { path: string }[]): string[] {
+  const copied = new Set(items.map(item => item.path));
+  return changes.map(change => change.path).filter(path => copied.has(path));
+}
+
 /** Where one saved copy stands: in the repository, installed on the site, and whether removing it is safe. */
 export function overrideState(item: ThemeOverride): { label: string; tone: "ok" | "todo" | "warn" } {
   if (item.safeToRemove) return { label: "Saved in the theme files", tone: "ok" };
@@ -30,8 +39,8 @@ export function overrideState(item: ThemeOverride): { label: string; tone: "ok" 
 
 export default function ThemeSiteEditorChanges({ base, theme, siteRunning, locked, onChanged }: { base: string; theme: string; siteRunning: boolean; locked: boolean; onChanged: () => void }) {
   const client = useQueryClient();
-  const key = [getApiBase(), "theme-overrides", base];
-  const query = useQuery({ queryKey: key, queryFn: () => json<Overrides>(`${base}/theme-overrides`), enabled: siteRunning, retry: false, staleTime: 15_000 });
+  const key = themeOverridesKey(base);
+  const query = useQuery({ queryKey: key, queryFn: () => fetchThemeOverrides(base), enabled: siteRunning, retry: false, staleTime: 15_000 });
   const [chosen, setChosen] = useState<number[]>([]);
   const [review, setReview] = useState<CaptureReview | null>(null);
   const [busy, setBusy] = useState(""), [error, setError] = useState(""), [notice, setNotice] = useState("");
