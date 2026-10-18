@@ -113,7 +113,7 @@ for (const size of [{ n: "desk", w: 1440, h: 900 }, { n: "phone", w: 390, h: 844
   // Transfer history, backups
   await go(page, `${base}&tab=history`);
   const history = await page.evaluate(() => document.body.innerText);
-  await shot("history", { earlierEngine: (history.match(/Earlier engine/g) ?? []).length });
+  await shot("history", { earlierEngine: (history.match(/Before 0\.8\.0/g) ?? []).length });
   await go(page, `${base}&tab=backups`); await shot("backups");
 
   // Trash dialog (header button, or the More actions menu on narrow screens)
