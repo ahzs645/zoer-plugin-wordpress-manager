@@ -222,7 +222,7 @@ Make a local copy and Restore from backup show their settings as collapsible pan
 | Find & replace | `replacements`: `paths`, `custom` | After the address rules: the source's `ABSPATH` → `/var/www/html` (plain and JSON-escaped), then up to 40 custom rows (literal, case-insensitive literal, or delimited regex) in order, inside serialized values too. |
 | Pace | `pace`: `gentle` | Two chunks per request and a pause between slices, for shared hosts (also on `transfer.pull`). |
 
-A copy from an existing download (`pullSetId`) keeps that download's selection; only the import options apply to it.
+A copy from an existing download (`pullSetId`) keeps that download's selection; only the import options apply to it. A copy removes its own export from the source once its download is verified, so sources that allow one export at a time (Zoer Connect before 0.6) accept the next refresh. Translations need the `languages` capability (Zoer Connect 0.8.1). Multisite networks are not supported yet; see [the multisite proposal](docs/proposals/multisite-local-copies.md).
 
 **User accounts** (`users` input of `copy.local` and `backup.restore-local`):
 
