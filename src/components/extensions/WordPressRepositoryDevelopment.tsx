@@ -10,15 +10,15 @@ const PATHWAY = [
  {title:"Repository",detail:"Create, clone or import the source in Repos."},
  {title:"Build and install locally",detail:"Inspect, build and install it on a local site or local copy."},
  {title:"Edit and update locally",detail:"Edit in Repos; builds run on save. Review, then Update local site."},
- {title:"Push code to live",detail:"Push only this code; live content stays as it is."},
+ {title:"Push code to live",detail:"Push to live from Overview or Publish, choosing code only; live content stays as it is."},
 ];
 
 /** The plugin development pathway, ending in the guided Push to live (code only). */
 function Pathway({current,onPushToLive}:{current:number;onPushToLive?:()=>void}) {
  return <ol className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Development steps">
-  {PATHWAY.map((step,index)=><li key={step.title} aria-current={index===current?"step":undefined} className={`min-w-0 rounded-lg border p-2.5 text-sm ${index===current?"border-accent bg-surface-hover":"border-border-default"}`}>
+  {PATHWAY.map((step,index)=><li key={step.title} aria-current={index===current?"step":undefined} className={`min-w-0 border-l-2 py-1 pl-2.5 text-sm ${index===current?"border-accent":"border-border-default"}`}>
    <p className="font-medium text-text-primary"><span className="mr-1.5 text-text-secondary">{index+1}.</span>{step.title}</p>
-   <p className="hidden text-[12px] leading-4 text-text-muted sm:block">{step.detail}</p>
+   <p className="mt-0.5 text-[12px] leading-4 text-text-muted">{step.detail}</p>
    {index===3&&onPushToLive&&<button type="button" className="mt-1.5 min-h-11 text-[13px] text-accent underline sm:min-h-0" onClick={onPushToLive}>Push to live</button>}
   </li>)}
  </ol>;
@@ -27,7 +27,7 @@ function Pathway({current,onPushToLive}:{current:number;onPushToLive?:()=>void})
 export default function WordPressRepositoryDevelopment({targetPlugin,onPushToLive}:{targetPlugin?:InstalledPluginTarget;/** Opens Push to live for the selected local site. */onPushToLive?:()=>void}={}) {
  const [repoId,setRepoId]=useResourceSelection<string|null>("repo",null);
  const [selectedSiteId,setSelectedSiteId]=useResourceSelection<string|null>("site",null);
- const query=useQuery({queryKey:[getApiBase(),"development-repositories"],queryFn:()=>json<{repositories:DevelopmentRepository[]}>("/repository-development"),enabled:!isDemoMode(),refetchInterval:5000});
+ const query=useQuery({queryKey:[getApiBase(),"development-repositories"],queryFn:()=>json<{repositories:DevelopmentRepository[]}>("/repository-development"),enabled:!isDemoMode(),refetchInterval:15000});
  const linksSiteId=targetPlugin?.siteId??selectedSiteId;
  const links=useQuery({queryKey:[getApiBase(),"site-repository-development",linksSiteId],queryFn:()=>json<{repositories:SiteRepositorySource[]}>(`/wordpress-manager/sites/${encodeURIComponent(linksSiteId!)}/repository-development`),enabled:!!linksSiteId&&!isDemoMode(),refetchInterval:5000});
  const available=targetPlugin?sourcesForPlugin(links.data?.repositories??[],targetPlugin.siteId,targetPlugin.slug):null;

@@ -50,7 +50,7 @@ export default function ConnectionCard({ connection, diagnostics, diagnosticsErr
       {warnings.map(warning => <li key={warning.code} className="flex items-start gap-1.5 text-xs text-status-warning"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" /><span className="min-w-0 break-words">{warning.message}</span></li>)}
     </ul>}
     {diagnosticsError && <p className="mt-2 text-xs text-text-secondary">Diagnostics unavailable: {diagnosticsError}</p>}
-    <details data-zoer-disclosure className="mt-3"><summary className="text-text-secondary">Connection details</summary>
+    <details className="mt-3"><summary data-zoer-disclosure="" className="text-text-secondary">Connection details</summary>
       {enabled.length > 0 && <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Capabilities">{enabled.map(cap => <li key={cap} className="rounded border border-border-muted px-1.5 py-0.5 text-[12px] text-text-secondary">{CAPABILITY_NAMES[cap] ?? cap}</li>)}</ul>}
       <dl className="mt-3 grid grid-cols-1 gap-x-3 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
         <dt className="text-text-secondary">Checked</dt><dd>{new Date(connection.testedAt).toLocaleString()}{status.apiVersion ? ` · API v${status.apiVersion}` : ""}{status.migrationMode ? ` · ${MODE_NAMES[status.migrationMode] ?? status.migrationMode}` : ""}</dd>

@@ -93,8 +93,8 @@ function LocalExportSource({ destinationSiteId, draft, update, guidedSourceId, c
       {site && !guidedSourceId && <PluginPulls siteId={siteId} siteName={site.name} />}
   </>;
   if (guidedSourceId) return <div className="min-w-0 space-y-3">{body}</div>;
-  return <details data-zoer-disclosure className="min-w-0 rounded-lg border border-border-default">
-    <summary className="flex min-h-11 cursor-pointer flex-col justify-center px-3 py-2"><span className="text-sm font-medium">Export a local DDEV site</span><span className="text-xs text-text-secondary">Prepare a verified export of a local site, then choose it above.</span></summary>
+  return <details className="min-w-0 rounded-lg border border-border-default">
+    <summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer flex-col justify-center px-3 py-2"><span className="text-sm font-medium">Export a local DDEV site</span><span className="text-xs text-text-secondary">Prepare a verified export of a local site, then choose it above.</span></summary>
     <div className="min-w-0 space-y-3 border-t border-border-muted p-3">{body}</div>
   </details>;
 }

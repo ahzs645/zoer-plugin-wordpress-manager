@@ -150,8 +150,8 @@ function RunOutput({ output }: { output: Output }) {
       </li>)}
     </ul>}
     {warnings.map(warning => <p key={warning} className="break-words text-status-warning">{warning}</p>)}
-    {skipped && skipped.files.length > 0 && <details data-zoer-disclosure className="min-w-0">
-      <summary className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Skipped files ({skipped.count.toLocaleString()}, {skipped.reason})</summary>
+    {skipped && skipped.files.length > 0 && <details className="min-w-0">
+      <summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Skipped files ({skipped.count.toLocaleString()}, {skipped.reason})</summary>
       <ul className="mt-1 min-w-0 space-y-0.5" aria-label="Skipped files">
         {skipped.files.map(file => <li key={file.path} className="break-all"><span className="text-text-primary">{file.path}</span> <span className="text-text-secondary">· {file.reason}</span></li>)}
         {skipped.count > skipped.files.length && <li className="text-text-secondary">and {(skipped.count - skipped.files.length).toLocaleString()} more</li>}

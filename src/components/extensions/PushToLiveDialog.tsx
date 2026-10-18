@@ -71,7 +71,7 @@ export default function PushToLiveDialog({ source, sites, onClose, onHosting, on
 
       {connection && ready && busy && <p role="status" className="text-status-warning">Another transfer to {host(connection.url)} is still running. Finish, roll back or cancel it under Recent transfers first.</p>}
       {connection && ready && <GuidedPush key={destination!.id} source={source} onStartSource={onStartSource} destinationId={destination!.id} connection={connection} destination={diagnostics.data} />}
-      {destination && <details data-zoer-disclosure open={busy || undefined} className="min-w-0"><summary className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Recent transfers to {host(destination.url)}</summary><div className="mt-2"><PluginSiteRuns siteId={destination.id} /></div></details>}
+      {destination && <details open={busy || undefined} className="min-w-0"><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Recent transfers to {host(destination.url)}</summary><div className="mt-2"><PluginSiteRuns siteId={destination.id} /></div></details>}
       {onHosting && <p className="border-t border-border-muted pt-3 text-xs text-text-secondary">Publishing to a Hostinger site without Zoer Connect? <button type="button" className="underline" onClick={onHosting}>Use your Hostinger account instead</button>.</p>}
     </div>
   </Modal>;

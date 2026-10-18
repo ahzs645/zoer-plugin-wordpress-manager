@@ -85,8 +85,8 @@ export default function PublicationStatus({ siteId, siteUrl, importId = null, se
       <Btn size="sm" icon={<RefreshCw className="h-3.5 w-3.5" />} disabled={!!active || starting} loading={starting} onClick={() => void verify(importId && !relevant ? "finish" : "recheck")}>{relevant ? "Recheck" : "Check now"}</Btn>
       {relevant && check?.status !== "not-verifiable" && <Btn size="sm" icon={<Trash2 className="h-3.5 w-3.5" />} disabled={!!active || starting} onClick={() => setClearing(true)}>Clear caches and recheck</Btn>}
     </div>
-    {relevant && check && check.results.length > 0 && <details data-zoer-disclosure className="text-xs">
-      <summary className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Checked requests ({check.results.length})</summary>
+    {relevant && check && check.results.length > 0 && <details className="text-xs">
+      <summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Checked requests ({check.results.length})</summary>
       <ul className="mt-2 space-y-1">{check.results.map(result => <li key={`${result.url}:${result.variant}:${result.kind}`} className="min-w-0 break-all rounded border border-border-muted px-2 py-1">
         <span className={isProblem(result.status) ? "text-status-warning" : "text-status-success"}>{RESULT_LABELS[result.status] ?? result.status}</span> · {result.variant} · {result.url.replace(/^https?:\/\/[^/]+/, "") || "/"}{result.httpStatus ? ` · HTTP ${result.httpStatus}` : ""}{cacheHint(result.headers) ? ` · ${cacheHint(result.headers)}` : ""}{result.redirects?.length ? ` · ${result.redirects.length} redirect${result.redirects.length === 1 ? "" : "s"}` : ""}
         {result.detail && <span className="block text-text-secondary">{result.detail}</span>}
@@ -99,8 +99,8 @@ export default function PublicationStatus({ siteId, siteUrl, importId = null, se
 }
 
 function PurgeSummary({ receipt }: { receipt: PurgeReceipt }) {
-  return <details data-zoer-disclosure className="text-xs">
-    <summary className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Last cache clearing · {receipt.requestedAt ? new Date(receipt.requestedAt).toLocaleString() : ""}</summary>
+  return <details className="text-xs">
+    <summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Last cache clearing · {receipt.requestedAt ? new Date(receipt.requestedAt).toLocaleString() : ""}</summary>
     <ul className="mt-2 space-y-1">{receipt.layers.map(layer => <li key={layer.layer} className="min-w-0 break-words"><span className="font-medium text-text-primary">{LAYER_LABELS[layer.layer]}</span>: {LAYER_STATE_LABELS[layer.state]} · {layer.detail}</li>)}</ul>
   </details>;
 }

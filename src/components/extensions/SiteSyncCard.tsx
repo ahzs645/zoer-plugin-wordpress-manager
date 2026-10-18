@@ -17,7 +17,7 @@ function Node({ icon, label, site }: { icon: React.ReactNode; label: string; sit
  * moves between them. Push opens the guided Push to live dialog; Pull refreshes the local copy
  * (or makes one, from the live side).
  */
-export default function SiteSyncCard({ site, live, copies, onPush, onRefresh, onSelect, makeCopy }: {
+export default function SiteSyncCard({ site, live, copies, onPush, onRefresh, onSelect, makeCopy, paused = false }: {
   site: WordPressManagedSite;
   /** For a local site: the live site it was copied from, if any. */ live: WordPressManagedSite | null;
   /** For a live site: its local copies. */ copies: WordPressManagedSite[];
@@ -25,6 +25,7 @@ export default function SiteSyncCard({ site, live, copies, onPush, onRefresh, on
   onRefresh: (local: WordPressManagedSite, live: WordPressManagedSite) => void;
   onSelect: (site: WordPressManagedSite) => void;
   /** The live site's "Make a local copy" button. */ makeCopy?: React.ReactNode;
+  /** A transfer is changing this site: pushing and pulling wait for it. */ paused?: boolean;
 }) {
   const local = site.provider === "ddev";
   const arrows = <div className="flex shrink-0 items-center justify-center gap-0.5 text-text-secondary sm:flex-col" aria-hidden="true"><ArrowUp className="h-4 w-4" /><ArrowDown className="h-4 w-4" /></div>;
@@ -37,13 +38,13 @@ export default function SiteSyncCard({ site, live, copies, onPush, onRefresh, on
         <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onSelect(live)}><Node icon={<Globe2 className="h-3.5 w-3.5" aria-hidden="true" />} label="Live site" site={live} /></button>
       </div>
       <div className="flex flex-col gap-2 sm:flex-row">
-        <Btn variant="primary" icon={<ArrowUp className="h-4 w-4" />} onClick={() => onPush(site)}>Push to live</Btn>
-        <Btn icon={<ArrowDown className="h-4 w-4" />} onClick={() => onRefresh(site, live)}>Pull from live</Btn>
+        <Btn variant="primary" icon={<ArrowUp className="h-4 w-4" />} disabled={paused} onClick={() => onPush(site)}>Push to live</Btn>
+        <Btn icon={<ArrowDown className="h-4 w-4" />} disabled={paused} onClick={() => onRefresh(site, live)}>Pull from live</Btn>
       </div>
-      <p className="text-xs text-text-secondary">Push sends your local changes (code only, or everything) with a review before the live site switches. Pull refreshes this copy from live.</p>
+      <p className="text-xs text-text-secondary">{paused ? "A transfer is changing this site. Push and pull are available again when it finishes." : "Push sends your local changes (code only, or everything) with a review before the live site switches. Pull refreshes this copy from live."}</p>
     </> : <>
       <p className="text-sm text-text-secondary">Not linked to a live site.</p>
-      <Btn icon={<ArrowUp className="h-4 w-4" />} onClick={() => onPush(site)}>Push to a live site</Btn>
+      <Btn icon={<ArrowUp className="h-4 w-4" />} disabled={paused} onClick={() => onPush(site)}>Push to a live site</Btn>
     </>}
   </section>;
   return <section aria-label="Local copies" className="space-y-3 rounded-lg border border-border-default p-4">

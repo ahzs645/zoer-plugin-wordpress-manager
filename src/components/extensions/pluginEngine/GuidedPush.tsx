@@ -221,7 +221,7 @@ export default function GuidedPush({ source, onStartSource, destinationId, conne
             : <><div className="grid min-w-0 gap-3 sm:grid-cols-2"><Checklist label="Themes" items={themeItems} selected={themes} onChange={setThemes} empty="No themes found." /><Checklist label="Plugins" items={pluginItems} selected={plugins} onChange={setPlugins} empty="No plugins found." /></div>
               {themes.length > 0 && <ThemeOverrideWarnings themes={themes} sourceId={source.id} sourceLocal={source.provider === "ddev"} sourceName={source.name} destinationId={destinationId} destinationHost={host(target)} capabilities={caps} />}</>)}
       {mode === "everything" && <p className="text-xs text-status-warning">Live edits made since your local copy (new posts, orders, sign-ups) will be overwritten.</p>}
-      <details data-zoer-disclosure className="text-sm"><summary className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Advanced: files to leave out</summary>
+      <details className="text-sm"><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Advanced: files to leave out</summary>
         <label className="mt-2 block"><span className={fieldLabelClass}>One pattern per line</span><textarea className={textareaClass("compact", "w-full font-mono")} rows={4} value={excludes} onChange={event => setExcludes(event.target.value)} spellCheck={false} /></label>
       </details>
       <div className="flex flex-wrap items-center gap-3"><Btn variant="primary" disabled={!!whatError || exportErrors.length > 0 || (mode === "code" && !running)} onClick={() => { setSetId(null); setStep("export"); }}>Continue</Btn>{(whatError ?? exportErrors[0]) && <span className="text-xs text-text-secondary">{whatError ?? exportErrors[0]}</span>}</div>
@@ -233,7 +233,7 @@ export default function GuidedPush({ source, onStartSource, destinationId, conne
       {!running && <p role="status" className="text-xs text-status-warning">Start {source.name} to export it.{onStartSource && <> <button type="button" className="underline" onClick={onStartSource}>Start site</button></>}</p>}
       {exportRun && exportStatus.data && <PluginRunCard recent={{ runId: exportRun.runId, actionId: ENGINE_ACTIONS.localExport, status: exportStatus.data.status, createdAt: exportStatus.data.createdAt ?? new Date().toISOString(), input: { siteId: source.id, pullId: exportRun.pullId } }} title="Export" />}
       {exportFailed && <Btn size="sm" onClick={() => { setExportRun(null); void exportNow(); }}>Try again</Btn>}
-      {compatible.length > 0 && !exportRun && <details data-zoer-disclosure className="text-sm"><summary className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Or use an earlier export ({compatible.length})</summary>
+      {compatible.length > 0 && !exportRun && <details className="text-sm"><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Or use an earlier export ({compatible.length})</summary>
         <ul className="mt-2 space-y-1">{compatible.slice(0, 5).map(pull => <li key={pull.pullId} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-muted px-3 py-2"><span className="min-w-0 break-words text-xs">{exportLabel(pull)}</span><Btn size="sm" onClick={() => { setSetId(pull.setId); void goCompare(pull.setId); }}>Use this export</Btn></li>)}</ul>
       </details>}
     </StepCard>
@@ -252,7 +252,7 @@ export default function GuidedPush({ source, onStartSource, destinationId, conne
           {changed === 0
             ? <p role="status" className="rounded-md border border-status-success/30 bg-status-success/10 px-3 py-2 text-sm text-status-success">{host(target)} already has these files ({counts}). Nothing to push.</p>
             : <p role="status" className="text-sm">{plural(selected.size, "file")} will be pushed <span className="text-text-secondary">({counts})</span>.</p>}
-          <details data-zoer-disclosure className="min-w-0 text-sm"><summary className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Review files</summary><div className="mt-2"><PreviewSelection files={files} selected={selected} onChange={setSelected} disabled={!!busy} /></div></details>
+          <details className="min-w-0 text-sm"><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Review files</summary><div className="mt-2"><PreviewSelection files={files} selected={selected} onChange={setSelected} disabled={!!busy} /></div></details>
           {changed === 0 && <Btn size="sm" onClick={() => setStep("what")}>Choose something else</Btn>}
         </>;
       })()}
@@ -262,7 +262,7 @@ export default function GuidedPush({ source, onStartSource, destinationId, conne
 
     <StepCard n={4} step={STEPS[3]} current={step === "push"} done={false}>
       <p className="text-sm">Push {comparing ? plural(selected.size, "file") : "everything in the export"} from <strong>{source.name}</strong> to <strong>{host(target)}</strong>.</p>
-      {mode === "everything" && <details data-zoer-disclosure className="min-w-0 text-sm"><summary className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Database and address options (defaults suit most pushes)</summary>
+      {mode === "everything" && <details className="min-w-0 text-sm"><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Database and address options (defaults suit most pushes)</summary>
         <div className="mt-2 min-w-0 space-y-3"><DatabasePanel importOptions={importOptions} onImport={setImportOptions} destinationCaps={caps} /><ReplacePanel options={importOptions} onChange={setImportOptions} caps={caps} sourceUrl={chosen?.source?.url ?? null} destinationUrl={target} sourcePath={chosen?.source?.abspath} destinationPath={destination?.wordpress?.abspath} /></div>
       </details>}
       <p className="text-xs text-text-secondary">Zoer asks you to approve, then stages the changes. The live site only switches when you choose <strong>Finish</strong>, and Roll back stays available.</p>

@@ -6,6 +6,7 @@ import type { WordPressManagedSite } from "../../../lib/api/types/wordpress-mana
 import { useCatalogKind, useRecentRuns } from "../../../lib/queries/plugin-engine";
 import { wordpressQueries } from "../../../lib/queries/wordpress";
 import { formatTransferBytes } from "../wordpressPullProgress";
+import { tidyTransferSummary } from "../wordpressNames";
 import { formatDuration } from "../wordpressTransfer/transferLabels";
 import { ENGINE_ACTIONS, engineErrorMessage } from "./runState";
 import { ENGINE_HISTORY_LABELS, filterEngineHistory, historyEmptyText, historySummaryHint, mergeEngineHistory, parseHistoryRecord, type EngineHistoryItem } from "./records";
@@ -25,7 +26,7 @@ const statusText = (status: string) => status === "dry-run" ? "Dry run" : status
  * migrated by Zoer's `wordpress-manager.transfers-to-plugin`) merged with `runs.recent` of the
  * transfer actions. With `siteId` the list is fixed to that site.
  */
-export default function PluginTransferHistory({ siteId: fixedSiteId, sites: givenSites, canonicalId = id => id, disclosure = false }: { siteId?: string; sites?: WordPressManagedSite[]; canonicalId?: (id: string) => string; /** With `siteId`: a collapsed "History" disclosure whose heading says how many entries there are. */ disclosure?: boolean }) {
+export default function PluginTransferHistory({ siteId: fixedSiteId, sites: givenSites, canonicalId = id => id, disclosure = false, heading = true }: { siteId?: string; sites?: WordPressManagedSite[]; canonicalId?: (id: string) => string; /** With `siteId`: a collapsed "History" disclosure whose heading says how many entries there are. */ disclosure?: boolean; /** Every site's list: its own heading and introduction (off where the page already has them). */ heading?: boolean }) {
   const [siteId, setSiteId] = useState("");
   const [kind, setKind] = useState("");
   const listed = useQuery({ ...wordpressQueries.sites(), enabled: !givenSites });
@@ -42,8 +43,8 @@ export default function PluginTransferHistory({ siteId: fixedSiteId, sites: give
 
   const list = <section className="min-w-0 space-y-4" aria-label="Transfer history">
     {!fixedSiteId && <>
-      <div className="flex items-center gap-2"><History className="h-4 w-4 shrink-0" aria-hidden="true" /><h4 className="text-base font-semibold text-text-heading">Transfers</h4></div>
-      <p className="text-sm text-text-secondary">Pulls, pushes, Find &amp; Replace, local copies and restores of every site, including transfers made before WordPress Manager 0.8.0. Open a site's Transfers dialog to control a running transfer.</p>
+      {heading && <><div className="flex items-center gap-2"><History className="h-4 w-4 shrink-0" aria-hidden="true" /><h4 className="text-base font-semibold text-text-heading">Transfers</h4></div>
+      <p className="text-sm text-text-secondary">Pulls, pushes, Find &amp; Replace, local copies and restores of every site, including transfers made before WordPress Manager 0.8.0. Open a site's Transfers dialog to control a running transfer.</p></>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block min-w-0 text-sm"><span className={fieldLabelClass}>Site</span>
           <Select searchable aria-label="Filter transfers by site" className={selectClass("default", "w-full")} value={siteId ? canonicalId(siteId) : ""} onChange={event => setSiteId(event.target.value)}>
@@ -71,10 +72,10 @@ export default function PluginTransferHistory({ siteId: fixedSiteId, sites: give
             <div className="min-w-0">
               <p className="text-[13px] font-medium text-text-primary">
                 <span className="mr-2 rounded border border-border-muted px-1.5 py-0.5 text-[12px] font-normal text-text-secondary">{ENGINE_HISTORY_LABELS[item.kind]}</span>
-                {item.engine === "legacy" && <span className="mr-2 rounded border border-border-muted px-1.5 py-0.5 text-[12px] font-normal text-text-secondary" title="Recorded by Zoer's earlier transfer engine and migrated">Earlier engine</span>}
+                {item.engine === "legacy" && <span className="mr-2 rounded border border-border-muted px-1.5 py-0.5 text-[12px] font-normal text-text-secondary" title="Recorded by Zoer's earlier transfer engine (before WordPress Manager 0.8.0) and migrated">Before 0.8.0</span>}
                 <span className="break-words">{item.sourceSiteId ? `${name(item.sourceSiteId)} → ${site}` : site}</span>
               </p>
-              {item.summary && <p className="mt-1 break-words text-[13px] text-text-secondary">{item.summary}</p>}
+              {item.summary && <p className="mt-1 break-words text-[13px] text-text-secondary">{tidyTransferSummary(item.summary)}</p>}
             </div>
             <span className={`shrink-0 text-[12px] font-medium ${statusTone(item.status)}`}>{statusText(item.status)}</span>
           </div>
@@ -90,8 +91,8 @@ export default function PluginTransferHistory({ siteId: fixedSiteId, sites: give
   </section>;
   if (!(disclosure && fixedSiteId)) return list;
   const hint = historySummaryHint({ loading, count: items.length });
-  return <details data-zoer-disclosure className="min-w-0">
-    <summary className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">History{hint && <span className="text-xs font-normal text-text-secondary">{hint}</span>}</summary>
+  return <details className="min-w-0">
+    <summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">History{hint && <span className="text-xs font-normal text-text-secondary">{hint}</span>}</summary>
     <div className="mt-2">{list}</div>
   </details>;
 }

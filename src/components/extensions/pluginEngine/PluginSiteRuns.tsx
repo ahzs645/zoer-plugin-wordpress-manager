@@ -19,21 +19,25 @@ export function runTitle(run: RecentRun) {
  * it): the cards are how such a transfer is followed and controlled. `compact` (the site page's
  * summary) renders nothing until the site has a transfer.
  */
-export default function PluginSiteRuns({ siteId, compact = false }: { siteId: string; compact?: boolean }) {
+export default function PluginSiteRuns({ siteId, compact = false, activeOnly = false }: { siteId: string; compact?: boolean; /** Only running transfers and recent failures that can be retried, with their controls; nothing when there are none (Activity lists the rest). */ activeOnly?: boolean }) {
   const runs = useRecentRuns(SITE_RUN_ACTIONS);
   const siteRuns = runsOfSite(runs.data ?? [], siteId);
   const active = siteRuns.filter(run => !isTerminalStatus(run.status));
   const recent = recentTransferRuns(siteRuns);
   const pinned = recent.filter(endedBadly).length;
   if (compact && !siteRuns.length) return null;
+  // A failure stays "needs attention" for a week, until the same kind of transfer succeeds again.
+  const failed = recent.filter(run => endedBadly(run) && Date.now() - Date.parse(run.finishedAt ?? run.createdAt) <= 7 * 24 * 3_600_000 && !siteRuns.some(other => other.actionId === run.actionId && other.status === "succeeded" && other.createdAt > run.createdAt));
+  if (activeOnly && !active.length && !failed.length) return null;
   const card = (run: RecentRun) => <PluginRunCard allowRecovery={!siteRuns.some(other => other.runId !== run.runId && other.createdAt > run.createdAt && runInput(other).pullId === runInput(run).pullId)} key={run.runId} recent={run} siteId={siteId} title={runTitle(run)} kind={run.actionId === ENGINE_ACTIONS.push ? "push" : run.actionId === ENGINE_ACTIONS.replace ? "replace" : "other"} />;
   return <section className="min-w-0 space-y-2" aria-label="Transfers of this site">
-    <h4 className="text-sm font-semibold text-text-heading">Transfers</h4>
+    <h4 className="text-sm font-semibold text-text-heading">{activeOnly ? active.length ? "Running now" : "Needs attention" : "Transfers"}</h4>
     {runs.isLoading && <p className="text-sm text-text-secondary">Loading transfers…</p>}
     {runs.error && <p role="alert" className="text-sm text-status-error">Could not load transfers: {engineErrorMessage(runs.error)} <Btn size="sm" onClick={() => void runs.refetch()}>Retry</Btn></p>}
     {active.length > 0 && <p className="text-xs text-text-secondary">Transfers run on the Zoer server. You can close this dialog or leave the page.</p>}
     {active.map(card)}
-    {recent.length > 0 && <details data-zoer-disclosure open={!active.length || undefined}><summary className="flex min-h-11 cursor-pointer items-center text-sm text-text-secondary">Recent transfers ({recent.length}{pinned ? `, ${pinned} failed` : ""})</summary><div className="mt-2 space-y-2">{recent.map(card)}</div></details>}
-    {runs.data && !siteRuns.length && <p className="text-sm text-text-secondary">No transfers of this site yet.</p>}
+    {activeOnly && failed.length > 0 && <>{active.length > 0 && <h4 className="pt-2 text-sm font-semibold text-text-heading">Needs attention</h4>}{failed.map(card)}</>}
+    {!activeOnly && recent.length > 0 && <details open={!active.length || undefined}><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-sm text-text-secondary">Recent transfers ({recent.length}{pinned ? `, ${pinned} failed` : ""})</summary><div className="mt-2 space-y-2">{recent.map(card)}</div></details>}
+    {!activeOnly && runs.data && !siteRuns.length && <p className="text-sm text-text-secondary">No transfers of this site yet.</p>}
   </section>;
 }

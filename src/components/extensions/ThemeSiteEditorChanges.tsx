@@ -100,8 +100,8 @@ export default function ThemeSiteEditorChanges({ base, theme, siteRunning, locke
       <div className="space-y-3 text-sm">
         <p className="text-text-secondary">Writes these files into the repository's saved files. Nothing is committed; undo from Development history. Template part theme names are removed so the files work under any theme folder name.</p>
         {!!review.unchanged.length && <p className="text-text-secondary">Already in the repository: {review.unchanged.join(", ")}.</p>}
-        {review.changes.map(change => <details key={change.path} data-zoer-disclosure className="rounded-md border border-border-muted p-2">
-          <summary className="cursor-pointer"><span className="font-medium">{change.title}</span> <span className="text-text-secondary">· {change.kind === "added" ? "new file" : "replaces"} {change.path}</span></summary>
+        {review.changes.map(change => <details key={change.path} className="rounded-md border border-border-muted p-2">
+          <summary data-zoer-disclosure="" className="cursor-pointer"><span className="font-medium">{change.title}</span> <span className="text-text-secondary">· {change.kind === "added" ? "new file" : "replaces"} {change.path}</span></summary>
           {change.warnings.map(warning => <p key={warning} className="mt-1 flex items-start gap-1 text-xs text-status-warning"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />{warning}</p>)}
           {change.content && <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-surface-secondary p-2 text-xs">{change.content}</pre>}
         </details>)}

@@ -110,7 +110,7 @@ function ExportStackDialog({ site, onClose }: { site: WordPressManagedSite; onCl
             </li>;
           })}
         </ul>
-        <details data-zoer-disclosure><summary className="cursor-pointer text-text-secondary">Show the file</summary><pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-surface-secondary p-2 text-xs">{stack ? stackText(stack) : ""}</pre></details>
+        <details><summary data-zoer-disclosure="" className="cursor-pointer text-text-secondary">Show the file</summary><pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-surface-secondary p-2 text-xs">{stack ? stackText(stack) : ""}</pre></details>
       </>}
       {save && stack && <SaveToRepository text={stackText(stack)} onClose={() => setSave(false)} />}
     </div>
