@@ -2,11 +2,11 @@
 
 Independent source and releases for the `wordpress-manager` native plugin. This repository owns its interface and isolated workers. Zoer provides reviewed host services, shared controls and provider credential storage. The first extracted release is **0.5.0**; **0.5.1** adds the shared public type snapshot and reliable source resolution, preserving the existing plugin ID and site/account/backup/transfer state.
 
-## Stack files and theme Site Editor changes (0.12.0, development)
+## Stack files and theme Site Editor changes (0.12.0)
 
 The **Development** tab exports a site's plugins and themes as `zoer-wordpress.json` (Playground source names: `wordpress.org/plugins`, `url` with `sha256`, `git:directory`), as a Playground blueprint or into a repository, and applies one from a repository, a GitHub link or a paste. A theme developed from a repository can save its Site Editor changes into the repository and remove matching Site Editor copies, and **Push to live** warns when Site Editor copies would not travel or would hide the update (Zoer Connect 0.7.0). Needs the matching Zoer host and upgrade review. See [release notes](docs/releases/0.12.0.md).
 
-## Local ⇄ live and public verification (0.11.0, development)
+## Local ⇄ live and public verification (0.11.0, released with 0.12.0)
 
 Every site's **Overview** starts with **Local and live**: **Push to live** (one guided dialog: readiness, *Code only* or *Everything*, export, compare, push, review, Finish) and **Pull from live** (refresh the copy). After Finish, `publication.verify` checks what anonymous visitors receive (home and changed pages, desktop and mobile, changed CSS/JS) against Zoer Connect 0.6.0's publication identity and reports **Current on checked pages**, **Old content detected**, **Check failed** or **Not verifiable**, separately from the transfer result. **Clear caches and recheck** clears WordPress, hosting and CDN layers with separate receipts and rechecks with a bounded backoff. Needs the matching Zoer host (`endpoint-public` scope) and upgrade review. See [release notes](docs/releases/0.11.0.md) and [public verification](docs/public-verification.md). **Development** now builds themes as well as plugins (needs the matching Zoer host), and *Transfer history* is part of **Transfer & publish**. Proposals: [portable site stack manifest](docs/proposals/site-stack-manifest.md), [theme development pathway](docs/proposals/theme-development.md) (steps 1–3 partly implemented).
 
