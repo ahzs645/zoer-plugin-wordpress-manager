@@ -180,10 +180,14 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const scannerSites = useQuery({ ...wordpressQueries.securitySites(), enabled: section === "security" });
   const sitesQuery = fullSites.data || section !== "security" ? fullSites : scannerSites;
   const inventoryQuery = section === "security" ? wordpressQueries.securitySites() : wordpressQueries.sites();
+  // DDEV sites follow the scanner list there (status, and sites trashed or created meanwhile);
+  // live sites keep their last full-list state until Security is left.
   const inventory = useMemo(() => {
     if (sitesQuery !== fullSites || section !== "security" || !fullSites.data || !scannerSites.data) return sitesQuery.data;
-    const fresh = new Map(scannerSites.data.map(site => [site.id, site.status]));
-    return fullSites.data.map(site => fresh.has(site.id) ? { ...site, status: fresh.get(site.id)! } : site);
+    const fresh = new Map(scannerSites.data.map(site => [site.id, site]));
+    const kept = fullSites.data.flatMap(site => site.provider !== "ddev" ? [site] : fresh.has(site.id) ? [{ ...site, status: fresh.get(site.id)!.status }] : []);
+    const known = new Set(kept.map(site => site.id));
+    return [...kept, ...scannerSites.data.filter(site => !known.has(site.id))];
   }, [sitesQuery.data, fullSites.data, scannerSites.data, section]); // eslint-disable-line react-hooks/exhaustive-deps
   const [separatedConnections, setSeparatedConnections] = useState(readSeparatedSiteConnections);
   // Local copies point at their source through `site-link:` records (copy.local, or migrated legacy
@@ -350,6 +354,11 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   // A local site's Publish form always starts from that site.
   const fixedSourceId = selected?.capabilities.deploySource ? selected.id : "";
   useEffect(() => { if (tab === "deployments" && fixedSourceId) setPublishSource(fixedSourceId); }, [tab, fixedSourceId]);
+  // A Hostinger site's Publish form starts with that site as the destination.
+  useEffect(() => {
+    if (tab !== "deployments" || selected?.provider !== "hostinger") return;
+    setPublishMode("replace"); setPublishDomain(selected.domain || ""); if (selected.connectionId) setPublishConnection(selected.connectionId);
+  }, [tab, selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openSite = async (site: WordPressManagedSite, _admin: boolean) => {
     setError(null);

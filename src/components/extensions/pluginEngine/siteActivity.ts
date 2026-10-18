@@ -4,7 +4,7 @@ import { ENGINE_ACTIONS, isTerminalStatus, runInput, runsOfSite, type RecentRun 
 export interface ActiveSiteRun { run: RecentRun; siteId: string; writes: boolean; title: string; /** Waiting for a decision (review, approval, reconnect). */ needsUser: boolean }
 
 /** Actions that change the site they run on; pulls and local exports only read it. */
-const WRITING_ACTIONS: readonly string[] = [ENGINE_ACTIONS.push, ENGINE_ACTIONS.replace, ENGINE_ACTIONS.control, ENGINE_ACTIONS.restore];
+const WRITING_ACTIONS: readonly string[] = [ENGINE_ACTIONS.push, ENGINE_ACTIONS.replace, ENGINE_ACTIONS.control];
 
 function activeTitle(run: RecentRun, siteId: string) {
   const input = runInput(run);
@@ -15,7 +15,6 @@ function activeTitle(run: RecentRun, siteId: string) {
     case ENGINE_ACTIONS.push: return "Pushing to this site";
     case ENGINE_ACTIONS.replace: return "Find & Replace";
     case ENGINE_ACTIONS.control: return "Finishing an import";
-    case ENGINE_ACTIONS.restore: return "Restoring a backup";
     default: return "Transfer";
   }
 }
@@ -34,7 +33,7 @@ export function activeSiteRuns(runs: readonly RecentRun[], siteIds: readonly str
       seen.add(run.runId);
       const input = runInput(run);
       const writes = (run.actionId === ENGINE_ACTIONS.copy && input.replaceSiteId === siteId) || (WRITING_ACTIONS.includes(run.actionId) && input.siteId === siteId);
-      const needsUser = run.resumable?.state === "needs-user" || run.resumable?.state === "resume-needed";
+      const needsUser = run.status === "waiting_for_approval" || run.resumable?.state === "needs-user" || run.resumable?.state === "resume-needed";
       active.push({ run, siteId, writes, title: activeTitle(run, siteId), needsUser });
     }
   }

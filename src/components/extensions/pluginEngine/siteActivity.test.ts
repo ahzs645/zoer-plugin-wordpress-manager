@@ -24,6 +24,9 @@ describe("activeSiteRuns", () => {
     const runs = [{ ...run("p", "transfer.push", "running", { siteId: "live" }), resumable: { state: "needs-user" as const, slices: 1, progress: null, nextStepAt: null, lastError: null, consecutiveFailures: 0, lockKey: null } }];
     expect(activeSiteRuns(runs, ["live"])[0]?.needsUser).toBe(true);
   });
+  test("a run waiting for Zoer's approval is flagged too", () => {
+    expect(activeSiteRuns([run("a", "transfer.push", "waiting_for_approval", { siteId: "live" })], ["live"])[0]?.needsUser).toBe(true);
+  });
   test("a run matching two connections of one website is listed once", () => {
     const runs = [run("r", "transfer.pull", "running", { siteId: "zc", replaceSiteId: "hostinger" })];
     expect(activeSiteRuns(runs, ["hostinger", "zc"])).toHaveLength(1);

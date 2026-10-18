@@ -53,8 +53,8 @@ export default function PluginPulls({ siteId, siteName, onLocalCopy, collapsed =
   }
 
   const Wrapper = collapsed ? "details" : "section";
-  return <Wrapper className="min-w-0 space-y-2" aria-label="Downloads" {...(collapsed ? { "data-zoer-disclosure": true } : {})}>
-    {collapsed ? <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-text-heading sm:min-h-0">Downloads on the Zoer server{pulls.length ? ` (${pulls.length})` : ""}</summary> : <h4 className="text-sm font-semibold text-text-heading">Downloads on the Zoer server</h4>}
+  return <Wrapper className="min-w-0 space-y-2" aria-label="Downloads">
+    {collapsed ? <summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-text-heading sm:min-h-0">Downloads on the Zoer server{pulls.length ? ` (${pulls.length})` : ""}</summary> : <h4 className="text-sm font-semibold text-text-heading">Downloads on the Zoer server</h4>}
     {records.isLoading && <p className="text-sm text-text-secondary">Loading downloads…</p>}
     {records.error && <p role="alert" className="text-sm text-status-error">Could not load downloads: {engineErrorMessage(records.error)} <Btn size="sm" onClick={() => void records.refetch()}>Retry</Btn></p>}
     {records.data && !pulls.length && <p className="text-sm text-text-secondary">No downloads of this site yet.</p>}
