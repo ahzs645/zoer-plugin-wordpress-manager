@@ -100,7 +100,7 @@ export default function WordPressDevelopmentPanel({repo, unsaved=false, requeste
       <p className="text-xs text-text-muted">Updates replace this {kind} folder after a review; PHP is syntax-checked. Activation is a separate step.</p>
       <Btn disabled={locked||site?.status!=="running"} onClick={()=>void reviewActivation()}>Review {kind} activation</Btn>
     </div>}
-    {link&&kind==="theme"&&<ThemeSiteEditorChanges base={base} theme={link.slug} siteRunning={site?.status==="running"} locked={locked} onChanged={()=>void client.invalidateQueries({queryKey:key})}/>}
+    {link&&kind==="theme"&&<ThemeSiteEditorChanges base={base} theme={link.slug} siteRunning={site?.status==="running"} locked={locked} onChanged={()=>void client.invalidateQueries({queryKey:key})} reviewing={busy==="review"} onReviewLocalUpdate={locked||unsaved||site?.status!=="running"?undefined:async()=>{const result=await action<Review>("review","/review");if(result)setReview(result);}}/>}
     {unsaved&&<p role="status" className="text-sm">Save or discard the open Files edits before reviewing an update.</p>}
     {state?.busy&&<p role="status" className="text-sm">Development operation is running. You can leave this page; progress is saved.</p>}
     <div className="flex flex-wrap gap-3 text-sm"><a className="text-accent underline" href={`/#/repos/${encodeURIComponent(repo.id)}/files`}>Edit repository files</a><a className="text-accent underline" href={`/#/repos/${encodeURIComponent(repo.id)}/scripts`}>Build and test scripts</a><a className="text-accent underline" href={`/#/repos/${encodeURIComponent(repo.id)}/status`}>Commit and Git actions</a></div>

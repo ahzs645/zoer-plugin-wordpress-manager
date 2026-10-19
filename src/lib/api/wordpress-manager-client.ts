@@ -15,6 +15,11 @@ import type {
   HostingerSetupInventory,
 } from "./types";
 
+export interface WordPressSiteDeletePreview {
+  trash: { purgeAfterDays: number; purgeAt?: string; kept: string[]; removedAtPurge: string[] };
+  erase: { available: boolean; reason?: string; removes: string[] };
+}
+
 export interface ExtensionChangeInput {
   siteId: string;
   kind: WordPressExtensionKind;
@@ -34,7 +39,7 @@ export const wordpressManagerClient = {
   checkWordPressCoreUpdates: (siteId: string) => json<WordPressCoreUpdateState>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/core-updates/check`, { method: "POST", body: "{}" }),
   applyWordPressCoreUpdate: (siteId: string, check: WordPressCoreCheck) => json<WordPressCoreUpdateState>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/core-updates/update`, { method: "POST", body: JSON.stringify({ installed: check.installed, latest: check.latest, checkedAt: check.checkedAt }) }),
   listWordPressManagedSites: (fresh = false) => json<{ sites: WordPressManagedSite[] }>(`/wordpress-manager/sites${fresh ? "?fresh=1" : ""}`),
-  renameLocalWordPressSite: (id: string, name: string) => json<{ name: string; managedUrl: string }>(`/wordpress-manager/sites/${encodeURIComponent(id)}/display-name`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  renameLocalWordPressSite: (id: string, name: string) => json<{ name: string; managedUrl: string | null; /** Newer hosts return the updated site, so the list needn't be rebuilt. */ site?: WordPressManagedSite }>(`/wordpress-manager/sites/${encodeURIComponent(id)}/display-name`, { method: "PATCH", body: JSON.stringify({ name }) }),
   getWordPressManagedSite: (id: string, section = "all") => json<WordPressSiteDetails>(`/wordpress-manager/sites/${encodeURIComponent(id)}?section=${encodeURIComponent(section)}`),
   createWordPressPortableBackup: (siteId: string, retainInFiles: boolean) => json<{ backup: WordPressPortableBackup }>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/portable-backups`, { method: "POST", body: JSON.stringify({ retainInFiles }) }),
   downloadWordPressPortableBackup: (siteId: string, exportId: string, sha256: string) => blob(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/portable-backups/${encodeURIComponent(exportId)}/download?sha256=${encodeURIComponent(sha256)}`),
@@ -47,6 +52,12 @@ export const wordpressManagerClient = {
   /** Replaces an expired sign-in or revoked token in place (same account; sites and recovery points stay). */
   reconnectWordPressManagerConnection: (id: string, input: { oauthConnectionId: string } | { token: string }) => json<{ connection: HostingerConnectionPublic }>(`/wordpress-manager/connections/${encodeURIComponent(id)}/reconnect`, { method: "POST", body: JSON.stringify(input) }),
   deleteWordPressManagerConnection: (id: string) => json<{ ok: boolean }>(`/wordpress-manager/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  /** Renames an account in WordPress Manager (needs a Zoer host with PATCH /connections/:id). */
+  renameWordPressManagerConnection: (id: string, name: string) => json<{ connection: HostingerConnectionPublic }>(`/wordpress-manager/connections/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  /** What moving a local site to the trash keeps, and what deleting it everything removes. */
+  getWordPressSiteDeletePreview: (siteId: string) => json<WordPressSiteDeletePreview>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/delete-preview`),
+  /** Removes a local DDEV site and everything it left behind, now. The typed name must match. */
+  eraseWordPressSite: (siteId: string, confirmName: string) => json<{ erased: string[]; warnings: string[] }>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/erase`, { method: "POST", body: JSON.stringify({ confirmName }) }),
   createWordPressAdminLink: (siteId: string) => json<{ url: string }>("/wordpress-manager/admin-link", { method: "POST", body: JSON.stringify({ siteId }) }),
   recordWordPressRecoveryPoint: (input: { connectionId: string; domain: string; label: string; confirmed: true }) => json<{ recoveryPoint: WordPressRecoveryPoint }>("/wordpress-manager/recovery-points", { method: "POST", body: JSON.stringify(input) }),
   planWordPressExtensionChange: (input: ExtensionChangeInput) => json<{ plan: WordPressExtensionPlan }>("/wordpress-manager/extension-actions/plan", { method: "POST", body: JSON.stringify(input) }),
