@@ -193,7 +193,7 @@ export default function GuidedPush({ source, sourceBusy = false, onStartSource, 
   const comparing = canCompare && (mode === "code" || !!preview);
   const selectedDatabase = !!files?.some(file => file.state === "database" && selected.has(file.path));
   const selectedFiles = files ? files.filter(file => file.state !== "database" && selected.has(file.path)).length : selected.size;
-  const selectionText = `${selectedDatabase ? `The database and ${plural(selectedFiles, "file")}` : plural(selectedFiles, "file")}`;
+  const selectionText = selectedDatabase ? (selectedFiles ? `The database and ${plural(selectedFiles, "file")}` : "Only the database") : plural(selectedFiles, "file");
   const compareReady = !comparing || (!!preview && preview.setId === setId && previewDone && !!files && selected.size > 0 && selected.size <= MAX_SELECTED_PATHS);
   const requested = mode === "code" ? { ...importOptions, review: true, fence: "activation" as const, keepActivePlugins: true, keepActiveTheme: true, createTables: false, replaceGuids: false, replacements: { automatic: false, variants: false, paths: false, custom: [] } } : { ...importOptions, review: true };
   const gated = applyImportCapabilities(requested, caps).options;
