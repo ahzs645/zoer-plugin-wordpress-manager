@@ -12,6 +12,10 @@ A site's page has seven sections: **Overview** (Local and live, WordPress core u
 - **Plugin rows** keep the common change as a button; Delete and *Develop from a repository* are in the row's menu. Slug-only names are shown readably (UpdraftPlus, Twenty Twenty-Five). A stopped local site says to start it instead of listing nothing.
 - Recovery points and transfer summaries read as text (*Before refreshing from live*, *45.8 MB*), every collapsible shows a chevron, and the scanner's capability check is cached for five minutes.
 
+## Transfer review pass (0.12.2)
+
+*Everything* pushes compare by SHA-256 and upload only the database and files that differ; Push to live, Pull from &lt;site&gt; and Transfers were reviewed and consolidated; local exports free earlier bridge stagings themselves and `wpcli.read` locks only itself. The read-lock change needs the host's capability review (Extensions → Enable). See [release notes](docs/releases/0.12.2.md).
+
 ## Stack files and theme Site Editor changes (0.12.0)
 
 The **Development** tab exports a site's plugins and themes as `zoer-wordpress.json` (Playground source names: `wordpress.org/plugins`, `url` with `sha256`, `git:directory`), as a Playground blueprint or into a repository, and applies one from a repository, a GitHub link or a paste. A theme developed from a repository can save its Site Editor changes into the repository and remove matching Site Editor copies, and **Push to live** warns when Site Editor copies would not travel or would hide the update (Zoer Connect 0.7.0). Needs the matching Zoer host and upgrade review. See [release notes](docs/releases/0.12.0.md).
