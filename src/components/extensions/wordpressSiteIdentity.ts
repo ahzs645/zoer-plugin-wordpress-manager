@@ -11,13 +11,17 @@ export function writeSeparatedSiteConnections(ids: ReadonlySet<string>) {
   try { localStorage.setItem(KEY, JSON.stringify([...ids])); } catch { /* Optional display preference. */ }
 }
 
-/** Match installation addresses, never titles, shared accounts, www aliases or redirects. */
+/**
+ * Match installation addresses, never titles, shared accounts, www aliases or redirects. Hostinger keeps
+ * the address a site was installed with, often http:// for a new website, so its http address counts as https.
+ */
 export function wordPressInstallationAddress(site: WordPressManagedSite): string | null {
   if (!["hostinger", "zoer-connect"].includes(site.provider) || !site.url) return null;
   try {
     const url = new URL(site.url);
-    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) return null;
-    return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+    const secure = url.protocol === "https:" || (site.provider === "hostinger" && url.protocol === "http:" && !url.port);
+    if (!secure || url.username || url.password || url.search || url.hash) return null;
+    return `https://${url.host}${url.pathname.replace(/\/+$/, "")}`;
   } catch { return null; }
 }
 

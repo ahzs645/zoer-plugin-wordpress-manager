@@ -590,6 +590,15 @@ describe("transfer.preview and transfer.push", () => {
     expect((create as any).output.plan.missingTables).toBeUndefined();
   });
 
+  test("a push stops before uploading when the destination lacks tables and Create missing tables is off", async () => {
+    const { w, destination } = world();
+    await pulled(w);
+    (destination.options as any).tables = ["options"];
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
+    expect(JSON.stringify(result)).toContain("The destination has no table for posts. Turn on “Create missing tables” (Database and address options) and push again. Nothing was sent.");
+    expect(destination.imports.has(IMPORT)).toBe(false);
+  });
+
   test("dry run plans the push and sends nothing that writes", async () => {
     const { w, destination } = world();
     await pulled(w);

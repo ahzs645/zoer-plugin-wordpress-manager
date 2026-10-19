@@ -423,9 +423,12 @@ export async function stepPush(state, input, ctx) {
       state.fileCount = built.order.length;
       if (built.warnings.length) state.warnings = built.warnings;
       if (built.skipped?.length) state.skipped = skippedSummary(built.skipped, 20);
+      const missingTables = await missingDestinationTables(built, client);
+      const missingText = missingTables.length ? `The destination has no ${missingTables.length === 1 ? "table" : "tables"} for ${missingTables.slice(0, 10).join(", ")}${missingTables.length > 10 ? ", …" : ""}.` : "";
+      // Zoer Connect would refuse the import only after every file is uploaded; a new or empty site lacks plugin tables.
+      if (missingTables.length && !state.dryRun) fail(`${missingText} Turn on “Create missing tables” (Database and address options) and push again. Nothing was sent.`);
       if (state.dryRun) {
-        const missingTables = await missingDestinationTables(built, client);
-        if (missingTables.length) built.warnings.push(`The destination has no ${missingTables.length === 1 ? "table" : "tables"} for ${missingTables.slice(0, 10).join(", ")}${missingTables.length > 10 ? ", …" : ""}. Turn on “Create missing tables”, or Zoer Connect will refuse the import.`);
+        if (missingTables.length) built.warnings.push(`${missingText} Turn on “Create missing tables”, or Zoer Connect will refuse the import.`);
         return ctx.done({ importId: state.importId, kind: state.kind, status: "dry-run", phase: "planned",
           plan: { target: status.target, ...(state.codeOnly ? { codeOnly: true } : {}), files: built.manifest.files?.length ?? 0, database: !!built.manifest.database, bytes: state.totalBytes, batchUpload: built.caps.batchUpload === true && built.order.length > 0,
             options: built.manifest.options ?? null, resources: built.manifest.resources ?? null, warnings: built.warnings, ...(built.skipped?.length ? { skipped: skippedSummary(built.skipped, 50) } : {}),

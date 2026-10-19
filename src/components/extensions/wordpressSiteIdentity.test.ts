@@ -68,3 +68,14 @@ test("history filters include transfers owned by either connection and local-cop
   expect(transfers.filter(item => wordPressTransferMatchesSite(item, hosted.id, separated.canonicalId))).toEqual([transfers[1]]);
   expect(wordPressTransferMatchesSite(transfers[3], "", identity.canonicalId)).toBe(true);
 });
+
+test("a Hostinger website still listed with its http install address is the same installation as its https connection", () => {
+  const installed = site("installed", "hostinger", "http://example.org/");
+  const identity = consolidateWordPressSites([installed, external]);
+  expect(identity.sites).toEqual([installed]);
+  expect(identity.connector(installed)).toBe(external);
+  expect(wordPressInstallationAddress(installed)).toBe("https://example.org");
+  // Only Hostinger's own record gets this allowance, and only on the default port.
+  expect(wordPressInstallationAddress(site("plain", "zoer-connect", "http://example.org"))).toBeNull();
+  expect(wordPressInstallationAddress(site("port", "hostinger", "http://example.org:8080"))).toBeNull();
+});
