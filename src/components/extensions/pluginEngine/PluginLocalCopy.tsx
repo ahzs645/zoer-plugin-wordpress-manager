@@ -10,7 +10,7 @@ import { type LocalUserMode } from "./LocalImportPanels";
 import { copyInput, copyInputForDownload, copyPresetRecord, copySettingsProblem, copySettingsSummary, defaultCopySettings, parseCopyPreset, type CopyPreset, type CopySettings } from "./refreshOptions";
 import PluginRunCard, { localCopyStages } from "./PluginRunCard";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
-import { existingCopies, parseLocalCopyRecord, refreshCandidates, type LocalCopyRecord, type PullRecord } from "./records";
+import { parseLocalCopyRecord, refreshCandidates, type LocalCopyRecord, type PullRecord } from "./records";
 
 const COPY_ACTIONS = [ENGINE_ACTIONS.copy] as const;
 
@@ -18,9 +18,9 @@ const COPY_ACTIONS = [ENGINE_ACTIONS.copy] as const;
  * `copy.local`: a new DDEV copy or a refresh of an earlier copy (`replaceSiteId`), optionally from
  * an existing verified pull (`pullSetId`). Dry runs create a scratch site and archive it afterwards;
  * they cannot refresh an existing copy. Earlier copies (`local-copy:` records, including copies the
- * legacy host engine made, migrated by Zoer) are listed and can be refreshed.
+ * legacy host engine made, migrated by Zoer) are listed as destinations beside a new copy.
  */
-export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pull = null, onClearPull, refreshSiteId }: { siteId: string; siteName: string; sourceUrl?: string | null; pull?: PullRecord | null; onClearPull?: () => void; /** Opens on "Refresh" with this local copy chosen. */ refreshSiteId?: string }) {
+export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pull = null, onClearPull, refreshSiteId, heading = true }: { siteId: string; siteName: string; sourceUrl?: string | null; pull?: PullRecord | null; onClearPull?: () => void; /** Opens with this local copy chosen; null or omitted chooses a new copy. */ refreshSiteId?: string | null; /** False inside a dialog whose title already names the action. */ heading?: boolean }) {
   const client = useQueryClient();
   const connectors = useQuery({ ...resourceQueries.connectors(), refetchInterval: 10_000 });
   const ddev = connectors.data?.find(c => c.id === "ddev");
@@ -29,13 +29,18 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   const copyRecords = (copies.data ?? []).map(parseLocalCopyRecord).filter((c): c is LocalCopyRecord => !!c);
   const candidates = refreshCandidates(copyRecords, siteId);
   const sites = useQuery(wordpressQueries.sites()).data ?? [];
-  const existing = existingCopies(copyRecords, siteId);
   const runs = useRecentRuns(COPY_ACTIONS);
   const siteRuns = (runs.data ?? []).filter(run => runInput(run).siteId === siteId).slice(0, 5);
   const running = siteRuns.some(run => !isTerminalStatus(run.status));
-  const [mode, setMode] = useState<"new" | "refresh">(refreshSiteId ? "refresh" : "new");
-  const [name, setName] = useState(siteName ? `${siteName} local`.slice(0, 60) : "");
+  // One destination list: each earlier copy of this site (refresh it) or a new copy.
   const [replaceSiteId, setReplaceSiteId] = useState(refreshSiteId ?? "");
+  const mode: "new" | "refresh" = replaceSiteId ? "refresh" : "new";
+  const [name, setName] = useState(siteName ? `${siteName} local`.slice(0, 60) : "");
+  const siteLabel = (id: string) => sites.find(site => site.id === id)?.name;
+  const targets = [
+    ...candidates.map(copy => ({ id: copy.targetId, name: siteLabel(copy.targetId) ?? copy.name ?? copy.siteName ?? copy.targetId, url: copy.targetUrl })),
+    ...(refreshSiteId && !candidates.some(copy => copy.targetId === refreshSiteId) ? [{ id: refreshSiteId, name: siteLabel(refreshSiteId) ?? refreshSiteId, url: sites.find(site => site.id === refreshSiteId)?.managedUrl ?? null }] : []),
+  ];
   const [settingsByMode, setSettingsByMode] = useState<Record<"new" | "refresh", CopySettings>>(() => ({ new: defaultCopySettings(false), refresh: defaultCopySettings(true) }));
   const presets = useCatalogKind("refresh-preset");
   const presetList = (presets.data ?? []).map(parseCopyPreset).filter((preset): preset is CopyPreset => !!preset).sort((a, b) => a.name.localeCompare(b.name));
@@ -110,31 +115,23 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   }
 
   return <section className="min-w-0 space-y-3 rounded-lg border border-border-default p-3" aria-label="Local copies">
-    {!refreshSiteId && <h3 className="font-medium">Local copy</h3>}
-    <p className="text-xs text-text-secondary">{refreshSiteId ? "Downloads a fresh copy of the live site and applies it to your local copy." : `Creates or refreshes a separate DDEV site from ${pull ? `the download of ${new Date(pull.createdAt).toLocaleString()}` : "a new pull of this site"}.`} Runs on the Zoer server; you can close this dialog.</p>
+    {heading && <h3 className="font-medium">Local copy</h3>}
+    <p className="text-xs text-text-secondary">Copies {pull ? `the download of ${new Date(pull.createdAt).toLocaleString()}` : `a fresh pull of ${siteName || "this site"}`} into a local DDEV site: a new one, or one of its earlier copies. Runs on the Zoer server; you can close this dialog.</p>
     {pull && onClearPull && <Btn size="sm" variant="ghost" onClick={onClearPull}>Pull again instead</Btn>}
     {!available && <p role="status" className="text-sm text-status-warning">{connectors.isLoading ? "Checking local WordPress availability…" : ddev?.unavailableReason || "DDEV is unavailable. Complete server setup before creating a local copy."}</p>}
     <form onSubmit={start} className="min-w-0 space-y-3">
-      {!refreshSiteId && <fieldset className="min-w-0 space-y-2" disabled={!available || starting}>
-        <legend className="sr-only">Local copy destination</legend>
+      <fieldset className="min-w-0 space-y-2" disabled={!available || starting}>
+        <legend className={fieldLabelClass}>Into</legend>
+        {targets.map(target => <label key={target.id} className="flex min-h-11 items-start gap-2.5 rounded-md border border-border-default px-3 py-2.5 text-[13px]">
+          <input type="radio" name={`plugin-copy-target-${siteId}`} className={`${radioClass} mt-0.5`} checked={replaceSiteId === target.id} onChange={() => setReplaceSiteId(target.id)} />
+          <span className="min-w-0"><span className="block break-words text-text-primary">{target.name}</span><span className="block break-words text-[12px] text-text-muted">{target.url ? `${target.url.replace(/^https?:\/\//, "")} · ` : ""}refresh this copy; database only keeps its code and local settings</span></span>
+        </label>)}
         <label className="flex min-h-11 items-start gap-2.5 rounded-md border border-border-default px-3 py-2.5 text-[13px]">
-          <input type="radio" name={`plugin-copy-mode-${siteId}`} className={`${radioClass} mt-0.5`} checked={!refresh} onChange={() => setMode("new")} />
-          <span><span className="block text-text-primary">Create new local copy</span><span className="block text-[12px] text-text-muted">A new DDEV site with its own administrator account.</span></span>
+          <input type="radio" name={`plugin-copy-target-${siteId}`} className={`${radioClass} mt-0.5`} checked={!replaceSiteId} onChange={() => setReplaceSiteId("")} />
+          <span><span className="block text-text-primary">A new local copy</span><span className="block text-[12px] text-text-muted">A separate DDEV site with its own administrator account.</span></span>
         </label>
-        <label className={`flex min-h-11 items-start gap-2.5 rounded-md border border-border-default px-3 py-2.5 text-[13px] ${candidates.length ? "" : "opacity-60"}`}>
-          <input type="radio" name={`plugin-copy-mode-${siteId}`} className={`${radioClass} mt-0.5`} checked={refresh} disabled={!candidates.length} onChange={() => setMode("refresh")} />
-          <span><span className="block text-text-primary">Refresh an earlier local copy</span><span className="block text-[12px] text-text-muted">{candidates.length ? "Choose database only to keep development code and local settings." : "No local copy of this site yet."}</span></span>
-        </label>
-      </fieldset>}
-      {refresh && refreshSiteId ? <p className="text-sm">Refreshes <strong>{sites.find(site => site.id === refreshSiteId)?.name ?? candidates.find(copy => copy.targetId === refreshSiteId)?.name ?? refreshSiteId}</strong> from <strong>{siteName}</strong>.</p>
-        : refresh
-        ? <label className="block"><span className={fieldLabelClass}>Local copy to refresh</span>
-          <Select aria-label="Local copy to refresh" className={selectClass("default", "w-full")} value={replaceSiteId} onChange={event => setReplaceSiteId(event.target.value)} disabled={starting || !available}>
-            <option value="">Choose local copy</option>
-            {candidates.map(copy => <option key={copy.targetId} value={copy.targetId}>{copy.name || copy.siteName || copy.targetId}{copy.targetUrl ? ` · ${copy.targetUrl.replace(/^https?:\/\//, "")}` : ""}</option>)}
-          </Select>
-        </label>
-        : <label className="block"><span className={fieldLabelClass}>Local site name</span><input className={controlClass("default", "text-base sm:text-[14px]")} value={name} maxLength={60} onChange={event => setName(event.target.value)} required disabled={starting || !available} /></label>}
+      </fieldset>
+      {!refresh && <label className="block"><span className={fieldLabelClass}>Local site name</span><input className={controlClass("default", "text-base sm:text-[14px]")} value={name} maxLength={60} onChange={event => setName(event.target.value)} required disabled={starting || !available} /></label>}
       <div className="flex min-w-0 flex-wrap items-end gap-2">
         <label className="min-w-0 flex-1 basis-48"><span className={fieldLabelClass}>Saved settings</span>
           <Select aria-label="Saved copy settings" className={selectClass("default", "w-full")} value={presetId} disabled={starting} onChange={event => {
@@ -162,15 +159,5 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
     {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
     {runs.error && <p role="alert" className="text-sm text-status-error">Could not load local copies: {engineErrorMessage(runs.error)}</p>}
     {siteRuns.length > 0 && <div className="min-w-0 space-y-2">{siteRuns.map(run => <PluginRunCard key={run.runId} recent={run} title={runInput(run).replaceSiteId ? "Refresh local copy" : "Local copy"} stages={localCopyStages(runInput(run))} />)}</div>}
-    {existing.length > 0 && !refreshSiteId && <div className="min-w-0 space-y-2">
-      <h4 className="text-sm font-semibold text-text-heading">Local copies of this site</h4>
-      <ul className="min-w-0 space-y-1.5">{existing.map(copy => {
-        const listed = sites.find(site => site.id === copy.targetId);
-        return <li key={copy.copyId} className="min-w-0 rounded-md border border-border-muted bg-surface-primary/50 px-3 py-2 text-[13px]">
-          <p className="break-words font-medium text-text-primary">{listed?.name ?? copy.name ?? copy.siteName ?? copy.targetId}</p>
-          <p className="break-words text-[12px] text-text-secondary">{copy.targetUrl ? copy.targetUrl.replace(/^https?:\/\//, "") : copy.targetId}{copy.finishedAt ? ` · ${new Date(copy.finishedAt).toLocaleString()}` : ""}{listed ? "" : " · no longer listed"}</p>
-        </li>;
-      })}</ul>
-    </div>}
   </section>;
 }

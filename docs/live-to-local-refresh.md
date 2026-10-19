@@ -7,8 +7,10 @@ three-way merge of changes made independently on both sites.
 
 ## Refresh an existing linked copy
 
-Open the live source in WordPress Manager, choose **Make a local copy**, then
-**Refresh an earlier local copy** and select its existing DDEV destination.
+Open the linked local copy and choose **Pull from live**, or open the live source
+and choose **Pull** beside the copy. Both open the same **Pull from …** dialog with
+the copy selected under **Into** (the same dialog **Make a local copy** opens, with
+**A new local copy** selected).
 Choose **Database only — keep development code and settings**. If starting from
 an existing download, it must contain only `database.sql`, all database tables
 and all post types. Otherwise the action makes a new database-only Pull.

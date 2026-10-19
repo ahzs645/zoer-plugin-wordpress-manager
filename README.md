@@ -106,7 +106,7 @@ Live testing against a real Zoer, including by an agent working inside a Zoer co
 
 ## One-operation local copies (0.5.8)
 
-Hostinger and connected external sites expose **Overview → Make a local copy**.
+Hostinger and connected external sites expose **Overview → Make a local copy**. It, **Pull** beside a copy and a copy's **Pull from live** open one dialog, **Pull from <site>**, whose **Into** list holds the site's earlier copies and **A new local copy**. Without Zoer Connect, the setup steps open instead; connection status, remote Pulls and backups stay in **Transfers**.
 Choose a name or an existing copy to refresh, then create. The Zoer host must
 provide `/connect/:siteId/copy-workflows`: the server persists the destination,
 prepares a complete read-only Pull, verifies the download and runs the existing
