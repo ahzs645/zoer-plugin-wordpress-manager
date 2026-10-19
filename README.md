@@ -2,6 +2,16 @@
 
 Independent source and releases for the `wordpress-manager` native plugin. This repository owns its interface and isolated workers. Zoer provides reviewed host services, shared controls and provider credential storage. The first extracted release is **0.5.0**; **0.5.1** adds the shared public type snapshot and reliable source resolution, preserving the existing plugin ID and site/account/backup/transfer state.
 
+## Hostinger websites with Zoer Connect (unreleased)
+
+**Create Hostinger website → WordPress with Zoer Connect** (Hostinger connections, and Publish → More Hostinger options) creates a site ready for Push to live, on any connected Hostinger account: choose the account's hosting plan (plans of every connected account are in one list), a free temporary domain, an unassigned account domain or another owned domain, and confirm `CREATE <domain>`. Zoer then, on the host:
+
+1. starts Hostinger's website setup with WordPress (`POST /api/hosting/v1/orders/{id}/onboardings`) and waits for it to complete;
+2. uploads the pinned Zoer Connect release (0.8.0, SHA-256 checked) with Hostinger's file upload and activates it;
+3. signs in as the generated administrator, generates the connection key in Tools → Zoer Connect and adds the site as a Zoer Connect site, so it appears in Push to live.
+
+It takes about 5 to 15 minutes; progress, **Retry** (continues from the last finished step) and **Delete this site** are under *Websites created here*. The administrator gets a generated password that is kept only as a host-only secret until pairing finishes, then deleted; open the site's admin later through Hostinger. The administrator email defaults to the one used by the account's other WordPress sites. **Delete this site** asks for `DELETE <domain>` and permanently deletes only websites created here (`DELETE /api/hosting/v1/websites/{domain}`), with their Zoer Connect connection. **Empty website** keeps the earlier target for publishing through Hostinger's import. Needs the matching Zoer host (`/wordpress-manager/connections/:id/test-sites`).
+
 ## Site page layout (unreleased)
 
 A site's page has seven sections: **Overview** (Local and live, WordPress core updates, Site Health), **Plugins & themes** (one list with a Plugins | Themes switch), **Development**, **Publish** (Push to live and Hostinger publishing), **Backups** (download, automatic recovery points, restore into a new local site), **Activity** and **Security** (local DDEV sites; formerly *Scan & report*). Earlier routes keep working: `themes` opens the Themes half, `updates` and `history` open Activity.

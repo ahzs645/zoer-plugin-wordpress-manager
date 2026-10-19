@@ -63,7 +63,7 @@ export interface WordPressRecoveryPoint {
 
 export interface WordPressDeployment {
   id: string;
-  type: "full-site" | "site-create" | "extension-change";
+  type: "full-site" | "site-create" | "site-provision" | "extension-change";
   sourceSiteId: string | null;
   targetSiteId: string | null;
   connectionId: string | null;

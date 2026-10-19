@@ -107,6 +107,7 @@ A stale fingerprint answers 409 `stale_upgrade_plan`: fetch the plan again. (Add
   bun tools/live-gate/zoer.ts start site.start '{"siteId":"ddev-zoer-connect-040-destination"}'
   bun tools/live-gate/zoer.ts start site.stop  '{"siteId":"ddev-zoer-connect-040-destination"}'
   ```
+- **Disposable Hostinger websites.** A website created with *Create Hostinger website → WordPress with Zoer Connect* (Hostinger connections, or Publish → More Hostinger options) is a test destination too: push to it freely, then remove it with **Delete this site** in the same panel. That deletes only websites Zoer created there (it checks the receipt and asks for `DELETE <domain>`). Don't create one without a reason, keep at most one at a time, and never delete any other Hostinger website.
 - **Hilltop Childcare is never touched**: `lightpink-vulture-195751` (Hostinger) and every `ddev-hilltop-childcare-*` site. Don't read, pull, copy, open or screenshot them.
 - **All other sites are the user's development sites.** Treat them as read-only unless the user asks for something specific. Reads are fine: listing, diagnostics, opening their pages read-only.
 - **Restore 040-destination to its baseline after every real push**: snapshot first, push, roll back, clean up, then compare with the snapshot. Leave **no open approvals**. `bun tools/live-gate/zoer.ts approvals` must print `[]` when you finish, so decline anything you started but won't finish.

@@ -63,7 +63,7 @@ export default function PushToLiveDialog({ source, sites, onClose, onHosting, on
       {endpoints.error && <p role="alert" className="text-status-error">Could not load live sites. <Btn size="sm" onClick={() => void endpoints.refetch()}>Retry</Btn></p>}
       {endpoints.isSuccess && !destinations.length && <div className="space-y-2 rounded-lg border border-border-default p-3">
         <p className="font-medium">No live site connected yet</p>
-        <p className="text-text-secondary">Install Zoer Connect on the live WordPress site, then use <strong>Connect existing site</strong> on the WordPress page.</p>
+        <p className="text-text-secondary">Install Zoer Connect on the live WordPress site, then use <strong>Connect existing site</strong> on the WordPress page. Or create a new Hostinger website with <strong>WordPress with Zoer Connect</strong> under Hostinger connections; it appears here when it's ready.</p>
       </div>}
 
       {destination && conn.isLoading && <p role="status" className="text-text-secondary">Checking {host(destination.url)}…</p>}
