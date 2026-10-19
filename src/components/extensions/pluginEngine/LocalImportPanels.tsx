@@ -90,12 +90,13 @@ export default function LocalImportPanels({ id, kind, users, onUsers, sourceUrl,
 }
 
 /** The user-account choice of a local copy or restore, with what each mode does. */
-export function UserAccounts({ id, from, users, onUsers, disabled = false, databaseOnly = false }: { id: string; from: string; users: LocalUserMode; onUsers: (value: LocalUserMode) => void; disabled?: boolean; databaseOnly?: boolean }) {
+export function UserAccounts({ id, from, users, onUsers, disabled = false, databaseOnly = false, refresh = false }: { id: string; from: string; users: LocalUserMode; onUsers: (value: LocalUserMode) => void; disabled?: boolean; databaseOnly?: boolean; /** Refreshing an existing copy, which already has accounts. */ refresh?: boolean }) {
   return <>
       <fieldset className="min-w-0 space-y-2" disabled={disabled}>
         <legend className="mb-1 text-xs font-medium text-text-secondary">User accounts</legend>
-        <Choice name={`local-users-${id}`} value="local" checked={users === "local"} onChange={onUsers} title="Keep only the local administrator"
-          description={`The ${from}'s users are not copied. Posts and pages are assigned to the local administrator and comments are kept without accounts. Good for content-only copies.`} />
+        <Choice name={`local-users-${id}`} value="local" checked={users === "local"} onChange={onUsers} title={refresh ? "Keep the copy's accounts" : "Keep only the local administrator"}
+          description={refresh ? `The ${from}'s users are not copied and the copy's accounts stay as they are. Imported posts and pages are assigned to its administrator; comments are kept without accounts.`
+            : `The ${from}'s users are not copied. Posts and pages are assigned to the local administrator and comments are kept without accounts. Good for content-only copies.`} />
         <Choice name={`local-users-${id}`} value="source" checked={users === "source"} onChange={onUsers} title="Copy users and user metadata"
           description={`Keeps user IDs, roles, profiles and plugin user data, such as membership or sign-in links, so authors and accounts match the ${from}. Users keep their passwords; login sessions and application passwords are removed.`} />
         <Choice name={`local-users-${id}`} value="exact" checked={users === "exact"} onChange={onUsers} title={`Replace with the ${from}'s users exactly`}

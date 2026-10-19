@@ -197,7 +197,7 @@ Open **WordPress** and select a site. External sites show **Connect Zoer** in th
 - **Connected site card:** URL, last verification, plugin version, API version and migration mode; Push, Pull, Publish and Private staging chips; one chip per advertised 0.4 capability; diagnostics warnings (plus a table-prefix mismatch warning during Push); "Update available" when the plugin's own update check reports a newer version, or an "older Zoer Connect" hint when `apiVersion` is below 2. **Connection details and diagnostics** lists WordPress, PHP, database size, MU plugins and drop-ins, with **Test connection**, **Replace key** and **Disconnect from Zoer**.
 - **What do you want to do?** Pull, Push, Find & Replace, Backup or Export. An unavailable action stays visible with its reason (Pull disabled, private storage unavailable, Push disabled, no import-capable plugin, or "Requires Zoer Connect 0.4.0" for Find & Replace).
 - **Saved profiles** bar: load, save, overwrite, rename and delete profiles of the current settings.
-- **View local copies**, and a note that transfers keep running on the server when the dialog closes.
+- **Downloads on the Zoer server**: each can be saved to this device or used for a local copy (**Make a local copy** opens the same Into list as the site page's Pull). Older complete or files downloads that a newer verified one with the same contents supersedes fold under **Older downloads with the same contents**; database-only downloads (which may be backups) never fold. A note says transfers keep running on the server when the dialog closes.
 
 Settings panels are collapsible with a one-line summary. Defaults for a new run:
 

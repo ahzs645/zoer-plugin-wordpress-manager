@@ -19,7 +19,7 @@ export function runTitle(run: RecentRun) {
  * it): the cards are how such a transfer is followed and controlled. `compact` (the site page's
  * summary) renders nothing until the site has a transfer.
  */
-export default function PluginSiteRuns({ siteId, compact = false, activeOnly = false }: { siteId: string; compact?: boolean; /** Only what can still be acted on: running transfers, recent failures and recent pushes (rollback, clean up), with their controls; nothing when there are none (Activity lists the rest). */ activeOnly?: boolean }) {
+export default function PluginSiteRuns({ siteId, compact = false, activeOnly = false, heading = true }: { siteId: string; compact?: boolean; /** False where the surrounding disclosure already names the list. */ heading?: boolean; /** Only what can still be acted on: running transfers, recent failures and recent pushes (rollback, clean up), with their controls; nothing when there are none (Activity lists the rest). */ activeOnly?: boolean }) {
   const runs = useRecentRuns(SITE_RUN_ACTIONS);
   const siteRuns = runsOfSite(runs.data ?? [], siteId);
   const active = siteRuns.filter(run => !isTerminalStatus(run.status));
@@ -36,7 +36,7 @@ export default function PluginSiteRuns({ siteId, compact = false, activeOnly = f
   if (activeOnly && !active.length && !failed.length && !undoable.length) return null;
   const card = (run: RecentRun) => <PluginRunCard allowRecovery={!siteRuns.some(other => other.runId !== run.runId && other.createdAt > run.createdAt && runInput(other).pullId === runInput(run).pullId)} key={run.runId} recent={run} siteId={siteId} title={runTitle(run)} kind={run.actionId === ENGINE_ACTIONS.push ? "push" : run.actionId === ENGINE_ACTIONS.replace ? "replace" : "other"} />;
   return <section className="min-w-0 space-y-2" aria-label="Transfers of this site">
-    {(!activeOnly || active.length > 0) && <h4 className="text-sm font-semibold text-text-heading">{activeOnly ? "Running now" : "Transfers"}</h4>}
+    {(activeOnly ? active.length > 0 : heading) && <h4 className="text-sm font-semibold text-text-heading">{activeOnly ? "Running now" : "Transfers"}</h4>}
     {runs.isLoading && <p className="text-sm text-text-secondary">Loading transfers…</p>}
     {runs.error && <p role="alert" className="text-sm text-status-error">Could not load transfers: {engineErrorMessage(runs.error)} <Btn size="sm" onClick={() => void runs.refetch()}>Retry</Btn></p>}
     {active.length > 0 && <p className="text-xs text-text-secondary">Transfers run on the Zoer server. You can close this dialog or leave the page.</p>}
@@ -44,6 +44,7 @@ export default function PluginSiteRuns({ siteId, compact = false, activeOnly = f
     {activeOnly && failed.length > 0 && <><h4 className={`${active.length ? "pt-2 " : ""}text-sm font-semibold text-text-heading`}>Needs attention</h4>{failed.map(card)}</>}
     {activeOnly && undoable.length > 0 && <><h4 className={`${active.length || failed.length ? "pt-2 " : ""}text-sm font-semibold text-text-heading`}>Recent pushes</h4><p className="text-xs text-text-secondary">Roll back or clean up a finished push here.</p>{undoable.map(card)}</>}
     {!activeOnly && recent.length > 0 && <details open={!active.length || undefined}><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-sm text-text-secondary">Recent transfers ({recent.length}{pinned ? `, ${pinned} failed` : ""})</summary><div className="mt-2 space-y-2">{recent.map(card)}</div></details>}
-    {!activeOnly && runs.data && !siteRuns.length && <p className="text-sm text-text-secondary">No transfers of this site yet.</p>}
+    {/* runs.recent holds only the plugin's newest runs, so older transfers of this site are not here: say what is known. */}
+    {!activeOnly && runs.data && !siteRuns.length && <p className="text-sm text-text-secondary">Nothing running now.</p>}
   </section>;
 }

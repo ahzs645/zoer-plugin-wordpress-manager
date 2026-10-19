@@ -59,8 +59,8 @@ export default function FilesPanel({ action, options, onChange, diagnostics, dia
     {pullOnly && <div className="min-w-0 space-y-2 rounded-md border border-border-muted p-2">
       <p className="text-xs text-text-secondary">Download only — cannot be pushed to another site.</p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <OptionToggle label="Must-use plugins" description="Download only — cannot be pushed." checked={r.muplugins} onChange={value => setResource("muplugins", value)} />
-        <OptionToggle label="WordPress core" description="Download only — cannot be pushed." checked={r.core} onChange={value => setResource("core", value)} />
+        <OptionToggle label="Must-use plugins" description="wp-content/mu-plugins." checked={r.muplugins} onChange={value => setResource("muplugins", value)} />
+        <OptionToggle label="WordPress core" description="wp-admin, wp-includes and the root PHP files." checked={r.core} onChange={value => setResource("core", value)} />
       </div>
     </div>}
     <label className="block text-sm"><span className={fieldLabelClass}>Exclude files (one glob per line, e.g. <code>*.log</code> or <code>uploads/cache/*</code>)</span>

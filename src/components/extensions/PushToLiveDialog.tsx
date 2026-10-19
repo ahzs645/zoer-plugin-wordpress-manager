@@ -7,12 +7,14 @@ import type { WordPressManagedSite } from "../../lib/api";
 import { useWordPressDiagnostics, useZoerConnection } from "../../lib/queries/wordpress-transfer";
 import GuidedPush from "./pluginEngine/GuidedPush";
 import PluginSiteRuns from "./pluginEngine/PluginSiteRuns";
-import { isTerminalStatus, isTransferFence, runsOfSite, SITE_RUN_ACTIONS, TRANSFER_FENCE_NOTICE } from "./pluginEngine/runState";
+import PluginTransferHistory from "./pluginEngine/PluginTransferHistory";
+import { ENGINE_ACTIONS, isTerminalStatus, isTransferFence, runsOfSite, SITE_RUN_ACTIONS, TRANSFER_FENCE_NOTICE } from "./pluginEngine/runState";
 import { useRecentRuns } from "../../lib/queries/plugin-engine";
 import { pushReadiness, zoerConnectSettingsUrl } from "./wordpressTransfer/availability";
 import { localPublishDestinations } from "./publishGuidance";
 
 const host = (url: string) => url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+const SIDE_TAG = "shrink-0 rounded border border-border-muted px-1.5 py-px text-[11px] font-normal text-text-secondary";
 
 /**
  * Local → live in one dialog: the destination (preselected for a local copy of a connected
@@ -34,6 +36,9 @@ export default function PushToLiveDialog({ source, sites, onClose, onHosting, on
   const diagnostics = useWordPressDiagnostics(destination?.id, { enabled: !!connection });
   const runs = useRecentRuns(SITE_RUN_ACTIONS);
   const busy = !!destination && runsOfSite(runs.data ?? [], destination.id).some(run => !isTerminalStatus(run.status));
+  // A transfer on the local site (such as a refresh from live) holds it: its inventory and export wait.
+  // The push's own export is followed in its step instead.
+  const sourceBusy = runsOfSite(runs.data ?? [], source.id).some(run => run.actionId !== ENGINE_ACTIONS.localExport && !isTerminalStatus(run.status));
   const readiness = connection ? pushReadiness(connection) : [];
   const ready = !!connection && connection.status.push && connection.status.publish;
   const loadError = conn.error instanceof Error ? conn.error.message : "";
@@ -42,10 +47,10 @@ export default function PushToLiveDialog({ source, sites, onClose, onHosting, on
   return <Modal mobileSheet size="wide" title="Push to live" onClose={onClose}>
     <div className="min-w-0 space-y-4 text-sm">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1" aria-label="Push direction">
-        <span className="inline-flex min-w-0 items-center gap-1.5 font-medium"><Server className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" /><span className="truncate">{source.name}</span></span>
+        <span className="inline-flex min-w-0 items-center gap-1.5 font-medium"><Server className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" /><span className="truncate">{source.name}</span><span className={SIDE_TAG}>Local</span></span>
         <ArrowRight className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" /><span className="sr-only">to</span>
         {destination && (linked || destinations.length === 1)
-          ? <span className="inline-flex min-w-0 items-center gap-1.5 font-medium"><Globe2 className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" /><span className="truncate">{host(destination.url)}</span>{destinations.length > 1 && <button type="button" className="text-xs font-normal text-text-secondary underline" onClick={() => setDestinationId("")}>Change</button>}</span>
+          ? <span className="inline-flex min-w-0 items-center gap-1.5 font-medium"><Globe2 className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" /><span className="truncate">{host(destination.url)}</span><span className={SIDE_TAG}>Live</span>{destinations.length > 1 && <button type="button" className="text-xs font-normal text-text-secondary underline" onClick={() => setDestinationId("")}>Change</button>}</span>
           : <Select searchable aria-label="Live site" className={selectClass("compact", "min-w-48 flex-1")} value={destinationId ?? ""} onChange={event => setDestinationId(event.target.value)}>
             <option value="">Choose live site</option>
             {destinations.map(site => <option key={site.id} value={site.id}>{site.name} · {host(site.url)}</option>)}
@@ -70,9 +75,14 @@ export default function PushToLiveDialog({ source, sites, onClose, onHosting, on
       </section>}
 
       {connection && ready && busy && <p role="status" className="text-status-warning">Another transfer to {host(connection.url)} is still running. Finish, roll back or cancel it under Recent transfers first.</p>}
-      {connection && ready && <GuidedPush key={destination!.id} source={source} onStartSource={onStartSource} destinationId={destination!.id} connection={connection} destination={diagnostics.data} />}
-      {destination && <details open={busy || undefined} className="min-w-0"><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Recent transfers to {host(destination.url)}</summary><div className="mt-2"><PluginSiteRuns siteId={destination.id} /></div></details>}
-      {onHosting && <p className="border-t border-border-muted pt-3 text-xs text-text-secondary">Publishing to a Hostinger site without Zoer Connect? <button type="button" className="underline" onClick={onHosting}>Use your Hostinger account instead</button>.</p>}
+      {connection && ready && sourceBusy && <section aria-label={`Running on ${source.name}`} className="min-w-0 space-y-2 rounded-lg border border-status-warning/40 p-3">
+        <p role="status" className="text-status-warning">{source.name} has a transfer running. The push can start when it finishes.</p>
+        <PluginSiteRuns siteId={source.id} activeOnly />
+      </section>}
+      {connection && ready && <GuidedPush key={destination!.id} source={source} sourceBusy={sourceBusy} onStartSource={onStartSource} destinationId={destination!.id} connection={connection} destination={diagnostics.data} />}
+      {destination && <details open={busy || undefined} className="min-w-0"><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Transfers to {host(destination.url)}</summary><div className="mt-2 space-y-2"><PluginSiteRuns siteId={destination.id} heading={false} /><PluginTransferHistory siteId={destination.id} disclosure /></div></details>}
+      {/* Hostinger account publication is the alternative for live sites without Zoer Connect. */}
+      {onHosting && !(connection && ready) && <p className="border-t border-border-muted pt-3 text-xs text-text-secondary">Publishing to a Hostinger site without Zoer Connect? <button type="button" className="underline" onClick={onHosting}>Use your Hostinger account instead</button>.</p>}
     </div>
   </Modal>;
 }

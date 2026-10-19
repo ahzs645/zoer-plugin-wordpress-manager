@@ -59,7 +59,6 @@ export default function WordPressConnect({ siteId, siteName, label = "Connect Zo
         {connection && !connection.status.stagingReady && <p role="alert" className="text-status-warning">{connection.status.storage?.message || "Private storage is unavailable. Open WordPress → Tools → Zoer Connect and configure a writable folder outside the public website before pulling."}</p>}
         {connection && !replacing && localCopy && <>{!(connection.status.pull && connection.status.stagingReady) && <p role="status" className="text-sm text-status-warning">Enable Pull and private storage in WordPress → Tools → Zoer Connect before copying.</p>}<PluginLocalCopy siteId={siteId} siteName={siteName} sourceUrl={connection.url} /><Btn variant="ghost" onClick={()=>setAdvanced(value=>!value)}>{advanced ? "Hide advanced transfers" : "Advanced transfers"}</Btn></>}
         {connection && !replacing && (!localCopy || advanced) && <PluginTransferWorkspace siteId={siteId} siteName={siteName} connection={connection} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} initialPushSource={initialPushSource} onLocalCopy={pull => { setCopyPull(pull); setCopyOpen(true); }} />}
-        {connection && !replacing && !localCopy && <Btn onClick={() => { setCopyPull(null); setCopyOpen(true); }}>Local copies</Btn>}
         {loadError && <div className="space-y-2"><p>{isTransferFence(loadError) ? TRANSFER_FENCE_NOTICE : "Could not check saved source access. Retry when Zoer is reachable; this does not mean the site needs pairing again."}</p><Btn disabled={busy} onClick={()=>void conn.refetch()}>Retry connection check</Btn></div>}
         {/* The site may be fenced by a running push or rollback: its runs still need to be followed and controlled. */}
         {!connection && loadError && <PluginSiteRuns siteId={siteId} />}
@@ -67,8 +66,9 @@ export default function WordPressConnect({ siteId, siteName, label = "Connect Zo
         <p className="text-xs text-text-secondary">{connection && !replacing ? "Transfers keep running if you close this dialog." : "The key is stored encrypted on the Zoer server."}</p>
       </div>
     </Modal>}
-    {open && copyOpen && <Modal mobileSheet title={copyPull ? "Make a local copy" : "Local copies"} onClose={() => { setCopyOpen(false); setCopyPull(null); }}>
-      <PluginLocalCopy siteId={siteId} siteName={siteName} sourceUrl={copyPull?.source?.url ?? connection?.url} pull={copyPull} onClearPull={() => setCopyPull(null)} />
+    {/* A local copy from one of the downloads; new copies and refreshes otherwise start from the site page's Pull. */}
+    {open && copyOpen && copyPull && <Modal mobileSheet title="Local copy from a download" onClose={() => { setCopyOpen(false); setCopyPull(null); }}>
+      <PluginLocalCopy siteId={siteId} siteName={siteName} sourceUrl={copyPull.source?.url ?? connection?.url} pull={copyPull} heading={false} />
     </Modal>}
   </>;
 }

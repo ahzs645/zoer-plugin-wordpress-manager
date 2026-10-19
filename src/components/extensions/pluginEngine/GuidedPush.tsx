@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Pencil, Play } from "lucide-react";
-import { Btn, checkboxClass, controlClass, fieldLabelClass, textareaClass } from "@zoer/plugin-ui/controls";
+import { Btn, checkboxClass, controlClass, fieldLabelClass, radioClass, textareaClass } from "@zoer/plugin-ui/controls";
 import type { WordPressManagedSite } from "../../../lib/api";
 import type { WordPressDiagnostics, ZoerConnectConnection } from "../../../lib/api/types/wordpress-transfer";
 import { engineKeys, listCatalog, releaseLocalExportSource, startEngineAction, useCatalogKind, useEngineRun, useRecentRuns } from "../../../lib/queries/plugin-engine";
@@ -15,7 +15,7 @@ import PluginRunCard from "./PluginRunCard";
 import ThemeOverrideWarnings from "./ThemeOverrideWarnings";
 import PreviewSelection from "./PreviewSelection";
 import { defaultSelection, MAX_SELECTED_PATHS, parsePullRecord, previewFiles, pushSources, type PullRecord } from "./records";
-import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
+import { ENGINE_ACTIONS, engineErrorMessage, isBusyError, isTerminalStatus, newHexId, runInput } from "./runState";
 
 type Mode = "code" | "everything";
 type StepId = "what" | "export" | "compare" | "push";
@@ -47,7 +47,7 @@ function StepCard({ n, step, current, done, summary, onChange, children }: { n: 
   return <li aria-current={current ? "step" : undefined} className={`min-w-0 rounded-lg border p-3 ${current ? "border-accent" : "border-border-default"} ${!current && !done ? "opacity-60" : ""}`}>
     <div className="flex min-w-0 items-center gap-2">
       <span aria-hidden="true" className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold ${done ? "bg-status-success/15 text-status-success" : current ? "bg-accent text-accent-text" : "border border-border-default text-text-secondary"}`}>{done ? <Check className="h-3.5 w-3.5" /> : n}</span>
-      <h4 className="min-w-0 flex-1 text-sm font-semibold text-text-heading">{step.title}<span className="sr-only">{done ? " (done)" : current ? " (current step)" : ""}</span></h4>
+      <h3 className="min-w-0 flex-1 text-sm font-semibold text-text-heading">{step.title}<span className="sr-only">{done ? " (done)" : current ? " (current step)" : ""}</span></h3>
       {done && !current && onChange && <Btn size="sm" variant="ghost" icon={<Pencil className="h-3 w-3" />} onClick={onChange}>Change</Btn>}
     </div>
     {done && !current && summary && <p className="mt-1 break-words pl-8 text-xs text-text-secondary">{summary}</p>}
@@ -78,8 +78,8 @@ function Checklist({ label, items, selected, onChange, empty }: { label: string;
  * with the live site (starts by itself), push (a test first, or the real push after one
  * confirmation). The push's card then handles Zoer's approval, review, Finish and the public check.
  */
-export default function GuidedPush({ source, onStartSource, destinationId, connection, destination }: {
-  source: WordPressManagedSite; onStartSource?: () => void; destinationId: string; connection: ZoerConnectConnection; destination: WordPressDiagnostics | null | undefined;
+export default function GuidedPush({ source, sourceBusy = false, onStartSource, destinationId, connection, destination }: {
+  source: WordPressManagedSite; /** Another transfer holds the local site (the dialog shows it). */ sourceBusy?: boolean; onStartSource?: () => void; destinationId: string; connection: ZoerConnectConnection; destination: WordPressDiagnostics | null | undefined;
 }) {
   const client = useQueryClient();
   const caps = connection.status.capabilities;
@@ -93,7 +93,8 @@ export default function GuidedPush({ source, onStartSource, destinationId, conne
   const [mode, setMode] = useState<Mode>(codeSupported ? "code" : "everything");
   const [themes, setThemes] = useState<string[]>([]);
   const [plugins, setPlugins] = useState<string[]>([]);
-  const [excludes, setExcludes] = useState(CODE_EXCLUDES.join("\n"));
+  // Extra patterns; CODE_EXCLUDES always apply (a code export adds them back regardless).
+  const [excludes, setExcludes] = useState("");
   const [importOptions, setImportOptions] = useState(defaultImportOptions);
   const [setId, setSetId] = useState<string | null>(null);
   const [exportRun, setExportRun] = useState<{ runId: string; pullId: string } | null>(null);
@@ -105,7 +106,17 @@ export default function GuidedPush({ source, onStartSource, destinationId, conne
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
 
-  const inventory = useWordPressDiagnostics(source.id, { local: true, enabled: running });
+  const inventory = useWordPressDiagnostics(source.id, { local: true, enabled: running && !sourceBusy });
+  // The bridge refuses the read while a transfer the run list does not show holds the site: retry.
+  // (Once sourceBusy clears, re-enabling the query reads it again.)
+  const inventoryBusy = !!inventory.error && isBusyError(inventory.error instanceof Error ? inventory.error.message : String(inventory.error));
+  const waiting = sourceBusy || inventoryBusy;
+  const { refetch: refetchInventory } = inventory;
+  useEffect(() => {
+    if (!running || sourceBusy || !inventoryBusy) return;
+    const timer = setInterval(() => void refetchInventory(), 5_000);
+    return () => clearInterval(timer);
+  }, [running, sourceBusy, inventoryBusy, refetchInventory]);
   const themeItems = (inventory.data?.themes ?? []).map(t => ({ slug: t.slug, name: t.name || t.slug, detail: [t.active ? "active" : "", t.version ?? ""].filter(Boolean).join(" · ") }));
   const pluginItems = (inventory.data?.plugins ?? []).filter(p => !HIDDEN_PLUGINS.has(p.slug)).map(p => ({ slug: p.slug, name: p.name || p.slug, detail: [p.active ? "active" : "", p.version ?? ""].filter(Boolean).join(" · ") }));
 
@@ -116,17 +127,18 @@ export default function GuidedPush({ source, onStartSource, destinationId, conne
 
   const exportOptions = useMemo(() => {
     const raw = exportOptionsForAction("push", defaultExportOptions("push"));
-    const custom = excludes.split("\n").map(line => line.trim()).filter(Boolean);
+    const custom = [...new Set([...CODE_EXCLUDES, ...excludes.split("\n").map(line => line.trim()).filter(Boolean)])];
     if (mode === "everything") return applyExportCapabilities({ ...raw, excludes: custom }, undefined, true).options;
     const selection = { ...raw, resources: { ...raw.resources, themes: themes.length > 0, plugins: plugins.length > 0 }, themes: { mode: "selected" as const, items: themes }, plugins: { mode: "selected" as const, items: plugins }, excludes: custom };
     return applyExportCapabilities(codeExportOptions(selection), undefined, true).options;
   }, [mode, themes, plugins, excludes]);
-  const whatError = mode === "code" ? (!themes.length && !plugins.length ? "Choose at least one theme or plugin." : null) : null;
+  const whatError = mode === "code" && inventory.data && !themes.length && !plugins.length ? "Choose at least one theme or plugin." : null;
   const exportErrors = exportOptionsErrors(exportOptions);
+  const extraExcludes = excludes.split("\n").filter(line => line.trim()).length;
   const nameOf = (slug: string) => [...themeItems, ...pluginItems].find(item => item.slug === slug)?.name ?? slug;
   const chosenNames = [...themes, ...plugins].map(nameOf);
   const chosenText = chosenNames.length <= 3 ? chosenNames.join(", ") : `${chosenNames.slice(0, 2).join(", ")} and ${chosenNames.length - 2} more`;
-  const whatSummary = mode === "code" ? `Code only · ${chosenText}` : "Everything · database, themes, plugins and media";
+  const whatSummary = mode === "code" ? `Code only · ${chosenText}` : "Everything · database, themes, plugins and media; live accounts kept";
 
   // Export run → its record appears → it becomes the source and comparison starts.
   const exportStatus = useEngineRun(exportRun?.runId);
@@ -181,7 +193,7 @@ export default function GuidedPush({ source, onStartSource, destinationId, conne
   const compareReady = !comparing || (!!preview && preview.setId === setId && previewDone && !!files && selected.size > 0 && selected.size <= MAX_SELECTED_PATHS);
   const requested = mode === "code" ? { ...importOptions, review: true, fence: "activation" as const, keepActivePlugins: true, keepActiveTheme: true, createTables: false, replaceGuids: false, replacements: { automatic: false, variants: false, paths: false, custom: [] } } : { ...importOptions, review: true };
   const gated = applyImportCapabilities(requested, caps).options;
-  const realConfirmed = confirmed && (mode === "code" || confirmText.trim() === target);
+  const realConfirmed = confirmed && (mode === "code" || host(confirmText.trim()).toLowerCase() === host(target).toLowerCase());
 
   async function push(dryRun: boolean) {
     if (!chosen?.setId) return;
@@ -207,29 +219,33 @@ export default function GuidedPush({ source, onStartSource, destinationId, conne
 
   return <ol className="min-w-0 space-y-2" aria-label="Push steps">
     <StepCard n={1} step={STEPS[0]} current={step === "what"} done={done("what")} summary={whatSummary} onChange={() => setStep("what")}>
-      <div role="radiogroup" aria-label="What to push" className="grid gap-2 sm:grid-cols-2">
-        {([["code", "Code only", "Chosen themes and plugins. Live posts, pages, media and users stay as they are."], ["everything", "Everything", "Replace the live site with the local one, including its database."]] as const).map(([value, title, detail]) =>
-          <label key={value} className={`flex min-h-11 cursor-pointer flex-col gap-0.5 rounded-lg border p-2.5 focus-within:ring-2 focus-within:ring-input-focus ${mode === value ? "border-accent bg-surface-hover" : "border-border-default hover:bg-surface-hover"} ${value === "code" && !codeSupported ? "opacity-60" : ""}`}>
-            <input type="radio" className="sr-only" name={`guided-push-mode-${destinationId}`} checked={mode === value} disabled={value === "code" && !codeSupported} onChange={() => { setMode(value); setSetId(null); }} />
-            <span className="font-medium">{title}{value === "code" ? " (recommended)" : ""}</span><span className="text-[12px] leading-4 text-text-muted">{value === "code" && !codeSupported ? "Update Zoer Connect on the live site to push code only." : detail}</span>
+      <fieldset className="grid min-w-0 gap-2 sm:grid-cols-2">
+        <legend className="sr-only">What to push</legend>
+        {([["code", "Code only", "Chosen themes and plugins. Live posts, pages, media and users stay as they are."], ["everything", "Everything", "The local database, themes, plugins and media replace the live ones. Live user accounts and logins are kept."]] as const).map(([value, title, detail]) =>
+          <label key={value} className={`flex min-h-11 cursor-pointer items-start gap-2.5 rounded-lg border p-2.5 ${mode === value ? "border-accent bg-surface-hover" : "border-border-default hover:bg-surface-hover"} ${value === "code" && !codeSupported ? "opacity-60" : ""}`}>
+            <input type="radio" className={`${radioClass} mt-0.5`} name={`guided-push-mode-${destinationId}`} checked={mode === value} disabled={value === "code" && !codeSupported} onChange={() => { setMode(value); setSetId(null); }} />
+            <span className="flex min-w-0 flex-col gap-0.5"><span className="font-medium">{title}{value === "code" ? " (recommended)" : ""}</span><span className="text-[12px] leading-4 text-text-muted">{value === "code" && !codeSupported ? "Update Zoer Connect on the live site to push code only." : detail}</span></span>
           </label>)}
-      </div>
-      {mode === "code" && (!running
+      </fieldset>
+      {mode === "code" && !waiting && (!running
         ? <div className="flex flex-wrap items-center gap-2 rounded-md border border-border-default p-3"><span className="min-w-0 flex-1 text-sm">Start <strong>{source.name}</strong> to list its themes and plugins.</span>{onStartSource && <Btn size="sm" icon={<Play className="h-3.5 w-3.5" />} onClick={onStartSource}>Start site</Btn>}</div>
         : inventory.isLoading ? <p role="status" className="text-sm text-text-secondary">Reading themes and plugins from {source.name}…</p>
-          : inventory.error ? <div role="alert" className="space-y-2 text-sm text-status-error"><p>Could not read {source.name}'s themes and plugins: {engineErrorMessage(inventory.error)}</p><Btn size="sm" onClick={() => void inventory.refetch()}>Try again</Btn></div>
+          : inventory.error ? <div role="alert" className="space-y-2 text-sm text-status-error"><p>Could not read the themes and plugins on {source.name}: {engineErrorMessage(inventory.error)}</p><Btn size="sm" onClick={() => void inventory.refetch()}>Try again</Btn></div>
             : <><div className="grid min-w-0 gap-3 sm:grid-cols-2"><Checklist label="Themes" items={themeItems} selected={themes} onChange={setThemes} empty="No themes found." /><Checklist label="Plugins" items={pluginItems} selected={plugins} onChange={setPlugins} empty="No plugins found." /></div>
               {themes.length > 0 && <ThemeOverrideWarnings themes={themes} sourceId={source.id} sourceLocal={source.provider === "ddev"} sourceName={source.name} destinationId={destinationId} destinationHost={host(target)} capabilities={caps} />}</>)}
-      {mode === "everything" && <p className="text-xs text-status-warning">Live edits made since your local copy (new posts, orders, sign-ups) will be overwritten.</p>}
-      <details className="text-sm"><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Advanced: files to leave out</summary>
-        <label className="mt-2 block"><span className={fieldLabelClass}>One pattern per line</span><textarea className={textareaClass("compact", "w-full font-mono")} rows={4} value={excludes} onChange={event => setExcludes(event.target.value)} spellCheck={false} /></label>
+      {waiting && <p role="status" className="text-sm text-status-warning">{sourceBusy ? `Waiting for the transfer on ${source.name} to finish.` : `${source.name} is busy with another transfer. Trying again every few seconds.`}</p>}
+      {mode === "everything" && <p className="text-xs text-status-warning">Changes made on the live site since your local copy (new posts, orders, comments, form entries) will be replaced. WordPress core and must-use plugins are not pushed.</p>}
+      <details className="text-sm"><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Advanced: files to leave out{extraExcludes ? ` (${extraExcludes} added)` : ""}</summary>
+        <p className="mt-2 text-xs text-text-secondary">Always left out: <span className="break-words font-mono">{CODE_EXCLUDES.join("  ")}</span></p>
+        <label className="mt-2 block"><span className={fieldLabelClass}>Also leave out (one pattern per line, such as **/*.log)</span><textarea className={textareaClass("compact", "w-full font-mono")} rows={3} value={excludes} onChange={event => setExcludes(event.target.value)} spellCheck={false} /></label>
       </details>
-      <div className="flex flex-wrap items-center gap-3"><Btn variant="primary" disabled={!!whatError || exportErrors.length > 0 || (mode === "code" && !running)} onClick={() => { setSetId(null); setStep("export"); }}>Continue</Btn>{(whatError ?? exportErrors[0]) && <span className="text-xs text-text-secondary">{whatError ?? exportErrors[0]}</span>}</div>
+      <div className="flex flex-wrap items-center gap-3"><Btn variant="primary" disabled={waiting || !!whatError || exportErrors.length > 0 || (mode === "code" && (!running || !inventory.data))} onClick={() => { setSetId(null); setStep("export"); }}>Continue</Btn>{!waiting && !(mode === "code" && !inventory.data) && (whatError ?? exportErrors[0]) && <span className="text-xs text-text-secondary">{whatError ?? exportErrors[0]}</span>}</div>
     </StepCard>
 
     <StepCard n={2} step={STEPS[1]} current={step === "export"} done={done("export")} summary={chosen ? `Export ${exportLabel(chosen)}` : undefined} onChange={() => setStep("export")}>
       <p className="text-sm text-text-secondary">Packs {mode === "code" ? chosenText : "the whole site"} from <strong>{source.name}</strong> into a verified file set on the Zoer server.</p>
-      {!exportRun && <Btn variant="primary" disabled={!!busy || !running} loading={busy === "export"} onClick={() => void exportNow()}>Export now</Btn>}
+      {!exportRun && <Btn variant="primary" disabled={!!busy || !running || sourceBusy} loading={busy === "export"} onClick={() => void exportNow()}>Export now</Btn>}
+      {sourceBusy && !exportRun && <p role="status" className="text-xs text-status-warning">Waiting for the transfer on {source.name} to finish.</p>}
       {!running && <p role="status" className="text-xs text-status-warning">Start {source.name} to export it.{onStartSource && <> <button type="button" className="underline" onClick={onStartSource}>Start site</button></>}</p>}
       {exportRun && exportStatus.data && <PluginRunCard recent={{ runId: exportRun.runId, actionId: ENGINE_ACTIONS.localExport, status: exportStatus.data.status, createdAt: exportStatus.data.createdAt ?? new Date().toISOString(), input: { siteId: source.id, pullId: exportRun.pullId } }} title="Export" />}
       {exportFailed && <Btn size="sm" onClick={() => { setExportRun(null); void exportNow(); }}>Try again</Btn>}
@@ -270,7 +286,7 @@ export default function GuidedPush({ source, onStartSource, destinationId, conne
         <div className="space-y-2 rounded-md border border-border-default p-3">
           <label className="flex min-h-11 items-start gap-2 text-sm"><input type="checkbox" className={`${checkboxClass} mt-1`} checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
             <span>{mode === "code" ? `Replace the selected themes and plugins on ${host(target)}.` : `Replace ${host(target)} with ${source.name}. Edits made on the live site in the meantime are not merged.`}</span></label>
-          {mode === "everything" && <label className="block"><span className={fieldLabelClass}>Type {host(target)} to confirm</span><input aria-label="Confirm live address" className={controlClass("default", "text-base sm:text-[14px]")} placeholder={host(target)} value={confirmText} onChange={event => setConfirmText(event.target.value.trim() === host(target) ? target : event.target.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} inputMode="url" /></label>}
+          {mode === "everything" && <label className="block"><span className={fieldLabelClass}>Type {host(target)} to confirm</span><input aria-label="Confirm live address" className={controlClass("default", "text-base sm:text-[14px]")} placeholder={host(target)} value={confirmText} onChange={event => setConfirmText(event.target.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} inputMode="url" /></label>}
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <Btn variant="primary" disabled={!!busy || !chosen || !realConfirmed} loading={busy === "push"} onClick={() => void push(false)}>Push to live</Btn>
             <Btn variant="secondary" disabled={!!busy || !chosen} loading={busy === "test"} onClick={() => void push(true)}>Test first (no changes)</Btn>

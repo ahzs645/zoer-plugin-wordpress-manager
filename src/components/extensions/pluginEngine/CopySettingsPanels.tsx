@@ -51,20 +51,18 @@ export default function CopySettingsPanels({ id, refresh, settings, onSettings, 
   const filesSummary = !settings.files ? "Local files kept — no files copied"
     : [settings.media === "none" ? "Themes and plugins · existing media kept" : settings.media === "since-last" && refresh ? "Themes, plugins and new media" : "Themes, plugins and media",
       settings.themes.mode !== "all" ? `${settings.themes.mode} themes` : "", settings.plugins.mode !== "all" ? `${settings.plugins.mode} plugins` : "", settings.languages ? "translations" : "", refresh && settings.removeStale ? "deleted files removed" : ""].filter(Boolean).join(" · ");
+  const accounts = refresh && users === "local" ? "All tables except users · the copy's accounts kept" : usersSummary(users);
   const databaseSummary = !settings.database ? "Local database kept"
-    : [databaseOnly ? `${usersSummary(users).replace("All tables", "Other tables")} · local settings kept` : usersSummary(users),
+    : [databaseOnly ? `${accounts.replace("All tables", "Other tables")} · local settings kept` : accounts,
       settings.excludeRevisions ? "no revisions" : "", settings.excludeSpam ? "no spam" : "", Array.isArray(settings.postTypes) ? `${settings.postTypes.length} post types` : "", refresh && Array.isArray(settings.tables) ? `${settings.tables.length} tables` : ""].filter(Boolean).join(" · ");
   return <div className="min-w-0 space-y-2">
     {refresh && <TransferPanel title="What to refresh" summary={scope === "complete" ? "Database and files" : scope === "database" ? "Database only — code and settings kept" : scope === "files" ? "Files only — database kept" : "Nothing selected"} defaultOpen>
-      <OptionToggle label="Database" description="Content, accounts and (unless database only) settings, imported into staged tables and swapped in at once." checked={settings.database} onChange={value => set({ database: value })} disabled={disabled} />
+      <OptionToggle label="Database" description={`Posts, pages, comments and plugin data, imported into staged tables and swapped in at once. User accounts follow the choice under Database.${databaseOnly ? " The copy's own settings are kept." : ""}`} checked={settings.database} onChange={value => set({ database: value })} disabled={disabled} />
       <OptionToggle label="Themes, plugins and media" description="Files from the live site, checked against their SHA-256 digests and placed over the local ones." checked={settings.files} onChange={value => set({ files: value })} disabled={disabled} />
       {databaseOnly && <OptionToggle label="Keep local pages and block content" description="Retains matching local pages, templates, navigation and styles. New or conflicting local page identities stop the refresh for review." checked={settings.keepLocalDesign} onChange={value => set({ keepLocalDesign: value })} disabled={disabled} />}
     </TransferPanel>}
     {settings.database && <TransferPanel title="Database" summary={databaseSummary}>
-      <fieldset className="min-w-0 space-y-2" disabled={disabled}>
-        <legend className="mb-1 text-xs font-medium text-text-secondary">User accounts</legend>
-        <UserAccounts id={id} from="source site" users={users} onUsers={onUsers} disabled={disabled} databaseOnly={databaseOnly} />
-      </fieldset>
+      <UserAccounts id={id} from="source site" users={users} onUsers={onUsers} disabled={disabled} databaseOnly={databaseOnly} refresh={refresh} />
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <OptionToggle label="Leave out post revisions" description="Smaller and faster; the copy has no revision history." checked={settings.excludeRevisions} onChange={value => set({ excludeRevisions: value })} disabled={disabled} />
         <OptionToggle label="Leave out spam comments" checked={settings.excludeSpam} onChange={value => set({ excludeSpam: value })} disabled={disabled} />

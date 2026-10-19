@@ -7,12 +7,13 @@ import { resourceQueries } from "../../../lib/queries/resources";
 import { wordpressQueries } from "../../../lib/queries/wordpress";
 import CopySettingsPanels from "./CopySettingsPanels";
 import { type LocalUserMode } from "./LocalImportPanels";
-import { copyInput, copyInputForDownload, copyPresetRecord, copySettingsProblem, copySettingsSummary, defaultCopySettings, parseCopyPreset, type CopyPreset, type CopySettings } from "./refreshOptions";
+import { copyInput, copyInputForDownload, copyPresetRecord, copySettingsProblem, defaultCopySettings, parseCopyPreset, type CopyPreset, type CopySettings } from "./refreshOptions";
 import PluginRunCard, { localCopyStages } from "./PluginRunCard";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
 import { parseLocalCopyRecord, refreshCandidates, type LocalCopyRecord, type PullRecord } from "./records";
 
 const COPY_ACTIONS = [ENGINE_ACTIONS.copy] as const;
+const INTO_OPTION = "flex min-h-11 cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 text-[13px]";
 
 /**
  * `copy.local`: a new DDEV copy or a refresh of an earlier copy (`replaceSiteId`), optionally from
@@ -122,16 +123,21 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
     <form onSubmit={start} className="min-w-0 space-y-3">
       <fieldset className="min-w-0 space-y-2" disabled={!available || starting}>
         <legend className={fieldLabelClass}>Into</legend>
-        {targets.map(target => <label key={target.id} className="flex min-h-11 items-start gap-2.5 rounded-md border border-border-default px-3 py-2.5 text-[13px]">
+        {targets.map(target => <label key={target.id} className={`${INTO_OPTION} ${replaceSiteId === target.id ? "border-accent bg-surface-hover" : "border-border-default"}`}>
           <input type="radio" name={`plugin-copy-target-${siteId}`} className={`${radioClass} mt-0.5`} checked={replaceSiteId === target.id} onChange={() => setReplaceSiteId(target.id)} />
-          <span className="min-w-0"><span className="block break-words text-text-primary">{target.name}</span><span className="block break-words text-[12px] text-text-muted">{target.url ? `${target.url.replace(/^https?:\/\//, "")} · ` : ""}refresh this copy; database only keeps its code and local settings</span></span>
+          <span className="min-w-0"><span className="block break-words text-text-primary">{target.name} <span className="ml-1 rounded border border-border-muted px-1.5 py-px text-[11px] text-text-secondary">Local copy</span></span><span className="block break-words text-[12px] text-text-muted">{target.url ? `${target.url.replace(/^https?:\/\//, "")} · ` : ""}refresh this copy</span></span>
         </label>)}
-        <label className="flex min-h-11 items-start gap-2.5 rounded-md border border-border-default px-3 py-2.5 text-[13px]">
+        <label className={`${INTO_OPTION} ${!replaceSiteId ? "border-accent bg-surface-hover" : "border-border-default"}`}>
           <input type="radio" name={`plugin-copy-target-${siteId}`} className={`${radioClass} mt-0.5`} checked={!replaceSiteId} onChange={() => setReplaceSiteId("")} />
           <span><span className="block text-text-primary">A new local copy</span><span className="block text-[12px] text-text-muted">A separate DDEV site with its own administrator account.</span></span>
         </label>
       </fieldset>
       {!refresh && <label className="block"><span className={fieldLabelClass}>Local site name</span><input className={controlClass("default", "text-base sm:text-[14px]")} value={name} maxLength={60} onChange={event => setName(event.target.value)} required disabled={starting || !available} /></label>}
+      {pull && <p className="text-xs text-text-secondary">This download's own selection of files and tables applies.</p>}
+      <CopySettingsPanels id={siteId} refresh={refresh} settings={settings} onSettings={setSettings} users={users} onUsers={setUsers} sourceUrl={sourceUrl} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} disabled={starting || !available} />
+      {refresh && users !== "local" && <p className="text-xs text-text-secondary">{users === "source" ? "The refresh replaces the copy's accounts with the source's; its local administrator is kept and marked so later refreshes find it."
+        : "The refresh replaces the copy's accounts with exactly the source's, including its local administrator."}</p>}
+      {problem && <p role="status" className="text-xs text-status-warning">{problem}</p>}
       <div className="flex min-w-0 flex-wrap items-end gap-2">
         <label className="min-w-0 flex-1 basis-48"><span className={fieldLabelClass}>Saved settings</span>
           <Select aria-label="Saved copy settings" className={selectClass("default", "w-full")} value={presetId} disabled={starting} onChange={event => {
@@ -147,11 +153,6 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
         <Btn size="sm" disabled={starting} onClick={() => void savePreset()}>{presetId ? "Save changes" : "Save settings"}</Btn>
         {presetId && <Btn size="sm" variant="ghost" disabled={starting} onClick={() => void deletePreset()}>Delete</Btn>}
       </div>
-      <p className="text-xs text-text-secondary">{copySettingsSummary(settings, refresh)}{pull ? ". This download's own selection of files and tables applies." : ""}</p>
-      <CopySettingsPanels id={siteId} refresh={refresh} settings={settings} onSettings={setSettings} users={users} onUsers={setUsers} sourceUrl={sourceUrl} diagnostics={diagnostics.data} diagnosticsLoading={diagnostics.isLoading} disabled={starting || !available} />
-      {problem && <p role="status" className="text-xs text-status-warning">{problem}</p>}
-      {refresh && <p className="text-xs text-text-secondary">{users === "source" ? "The refresh replaces the copy's accounts with the source's; its local administrator is kept and marked so later refreshes find it."
-        : users === "exact" ? "The refresh replaces the copy's accounts with exactly the source's, including its local administrator." : "The copy keeps the accounts it has now."}</p>}
       {!refresh && <CheckboxField label="Dry run" description={refresh ? "Not available when refreshing an existing copy." : "Builds a scratch site named zoer-dryrun-…, verifies the import and archives the scratch site. Your sites are unchanged."} checked={dryRun && !refresh} onChange={setDryRun} disabled={refresh || starting} />}
       {running && <p className="text-xs text-text-secondary">Wait for the current copy of this site to finish before starting another.</p>}
       <Btn type="submit" variant="primary" className="w-full sm:w-auto" disabled={!canStart} loading={starting}>{dryRun && !refresh ? "Start dry run" : refresh ? "Refresh local copy" : "Create local copy"}</Btn>

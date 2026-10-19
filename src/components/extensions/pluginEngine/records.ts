@@ -65,6 +65,22 @@ export function pushSources(pulls: PullRecord[], destinationSiteId: string) {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/**
+ * Downloads to list, and older ones a newer verified download with the same contents supersedes.
+ * Database-only downloads may be backups (restore points), so they are never folded away.
+ */
+export function splitSupersededDownloads(pulls: PullRecord[]) {
+  const seen = new Set<string>();
+  const current: PullRecord[] = [], older: PullRecord[] = [];
+  for (const pull of [...pulls].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+    const label = pullContents(pull.options).label;
+    const key = pull.kind === "pull" && label !== "Database only" ? label : null;
+    (key && seen.has(key) ? older : current).push(pull);
+    if (key && isReadyPull(pull)) seen.add(key);
+  }
+  return { current, older };
+}
+
 export const pullHasDatabase = (pull: Pick<PullRecord, "options">) => pullContents(pull.options).database;
 
 // ---------------------------------------------------------------------------

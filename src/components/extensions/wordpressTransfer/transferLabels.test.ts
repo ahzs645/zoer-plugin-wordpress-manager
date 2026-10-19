@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { defaultExportOptions, defaultImportOptions, legacyImportOptions } from "../../../lib/wordpress-transfer/options";
-import { connectionWarnings, databaseSummary, filesSummary, formatDuration, phaseLabel, replaceSummary, safetySummary } from "./transferLabels";
+import { connectionWarnings, databaseSummary, filesSummary, formatDuration, panelSummary, phaseLabel, replaceSummary, safetySummary } from "./transferLabels";
 import { initialDraft, switchAction } from "./draft";
 
 
@@ -20,6 +20,12 @@ test("durations", () => {
   expect(formatDuration(62_000)).toBe("1m 2s");
   expect(formatDuration(45_000)).toBe("45s");
   expect(formatDuration(3_780_000)).toBe("1h 3m");
+});
+
+test("a panel does not repeat its title in its summary", () => {
+  expect(panelSummary("Database", "Database: all tables, no transients")).toBe("All tables, no transients");
+  expect(panelSummary("Files", "Files: none")).toBe("None");
+  expect(panelSummary("Database", "Local database kept")).toBe("Local database kept");
 });
 
 test("panel summaries read like WP Migrate", () => {

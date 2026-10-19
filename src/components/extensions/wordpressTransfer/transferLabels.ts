@@ -1,7 +1,7 @@
 import type { ExportOptions, ImportOptions, ResourceMode, TransferAction, WordPressDiagnostics } from "../../../lib/api/types/wordpress-transfer";
 
 export const ACTION_LABELS: Record<TransferAction, { title: string; description: string }> = {
-  pull: { title: "Pull", description: "Download this site to make or refresh a local copy." },
+  pull: { title: "Pull", description: "Download this site to the Zoer server, then make a local copy from it or save it to this device." },
   push: { title: "Push", description: "Update this site from a local site or another download." },
   replace: { title: "Find & Replace", description: "Search and replace in this site's database, with review." },
   backup: { title: "Backup", description: "Save a database snapshot." },
@@ -66,6 +66,12 @@ export function formatDuration(ms: number) {
 
 // ---------------------------------------------------------------------------
 // One-line panel summaries (like WP Migrate's collapsed panels).
+
+/** A summary that starts with its panel's own title ("Database: all tables") shows only the rest. */
+export function panelSummary(title: string, summary: string) {
+  const rest = summary.startsWith(`${title}: `) ? summary.slice(title.length + 2) : summary;
+  return rest.charAt(0).toUpperCase() + rest.slice(1);
+}
 
 function list(items: string[]) { return items.filter(Boolean).join(", "); }
 function count(n: number, noun: string) { return `${n.toLocaleString()} ${noun}${n === 1 ? "" : "s"}`; }

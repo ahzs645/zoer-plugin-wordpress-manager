@@ -6,7 +6,7 @@ import { deletePull, downloadFileSet, releaseLocalExportSource, engineKeys, useC
 import { pullContents } from "../../../lib/wordpress-transfer/options";
 import { formatTransferBytes } from "../wordpressPullProgress";
 import { engineErrorMessage } from "./runState";
-import { isReadyPull, parsePullRecord, pullHasDatabase, type PullRecord } from "./records";
+import { isReadyPull, parsePullRecord, pullHasDatabase, splitSupersededDownloads, type PullRecord } from "./records";
 
 const STATUS: Record<string, string> = { ready: "Verified", "dry-run": "Dry run · no files kept", downloading: "Downloading", cancelled: "Cancelled", failed: "Failed · nothing kept" };
 
@@ -52,31 +52,38 @@ export default function PluginPulls({ siteId, siteName, onLocalCopy, collapsed =
     finally { setBusy(null); }
   }
 
+  const { current, older } = splitSupersededDownloads(pulls);
+  const item = (pull: PullRecord) => {
+    const contents = pullContents(pull.options);
+    const ready = isReadyPull(pull);
+    const deleting = busy === `${pull.pullId}:delete`;
+    return <li key={pull.pullId} className="min-w-0 space-y-2 rounded-md border border-border-muted bg-surface-primary/50 p-3">
+      <div className="min-w-0">
+        <p className="break-words text-[13px] font-medium text-text-primary">{pull.kind === "local-export" ? "Local export" : contents.label}</p>
+        <p className="text-[12px] tabular-nums text-text-secondary">{new Date(pull.createdAt).toLocaleString()} · {STATUS[pull.status] ?? pull.status}
+          {pull.totalBytes ? ` · ${formatTransferBytes(pull.totalBytes)}` : ""}{pull.fileCount ? ` · ${pull.fileCount.toLocaleString()} files` : ""}{pull.skippedCount ? ` · ${pull.skippedCount.toLocaleString()} skipped` : ""}</p>
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        {ready && pullHasDatabase(pull) && <Btn size="sm" className="w-full sm:w-auto" icon={<Download className="h-4 w-4" />} loading={busy === `${pull.pullId}:database`} disabled={busy !== null} onClick={() => void download(pull, "database")}>Database (.sql)</Btn>}
+        {ready && <Btn size="sm" className="w-full sm:w-auto" icon={<Download className="h-4 w-4" />} loading={busy === `${pull.pullId}:archive`} disabled={busy !== null} onClick={() => void download(pull, "archive")}>Archive (.tar.gz)</Btn>}
+        {ready && onLocalCopy && pull.kind === "pull" && <Btn size="sm" className="w-full sm:w-auto" icon={<Copy className="h-4 w-4" />} disabled={busy !== null} onClick={() => onLocalCopy(pull)}>Make a local copy</Btn>}
+        {ready && pull.kind === "local-export" && !pull.sourceReleasedAt && <Btn size="sm" className="w-full sm:w-auto" loading={busy === `${pull.pullId}:release`} disabled={busy !== null} onClick={() => void releaseSource(pull)}>Release source staging</Btn>}
+        {pull.status !== "downloading" && <Btn size="sm" className="w-full sm:w-auto" variant="ghost" icon={<Trash2 className="h-4 w-4" />} loading={deleting} disabled={busy !== null} onClick={() => void remove(pull)}>Delete</Btn>}
+      </div>
+    </li>;
+  };
+
   const Wrapper = collapsed ? "details" : "section";
   return <Wrapper className="min-w-0 space-y-2" aria-label="Downloads">
     {collapsed ? <summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-text-heading sm:min-h-0">Downloads on the Zoer server{pulls.length ? ` (${pulls.length})` : ""}</summary> : <h4 className="text-sm font-semibold text-text-heading">Downloads on the Zoer server</h4>}
     {records.isLoading && <p className="text-sm text-text-secondary">Loading downloads…</p>}
     {records.error && <p role="alert" className="text-sm text-status-error">Could not load downloads: {engineErrorMessage(records.error)} <Btn size="sm" onClick={() => void records.refetch()}>Retry</Btn></p>}
     {records.data && !pulls.length && <p className="text-sm text-text-secondary">No downloads of this site yet.</p>}
-    <ul className="min-w-0 space-y-2">{pulls.map(pull => {
-      const contents = pullContents(pull.options);
-      const ready = isReadyPull(pull);
-      const deleting = busy === `${pull.pullId}:delete`;
-      return <li key={pull.pullId} className="min-w-0 space-y-2 rounded-md border border-border-muted bg-surface-primary/50 p-3">
-        <div className="min-w-0">
-          <p className="break-words text-[13px] font-medium text-text-primary">{pull.kind === "local-export" ? "Local export" : contents.label}</p>
-          <p className="text-[12px] tabular-nums text-text-secondary">{new Date(pull.createdAt).toLocaleString()} · {STATUS[pull.status] ?? pull.status}
-            {pull.totalBytes ? ` · ${formatTransferBytes(pull.totalBytes)}` : ""}{pull.fileCount ? ` · ${pull.fileCount.toLocaleString()} files` : ""}{pull.skippedCount ? ` · ${pull.skippedCount.toLocaleString()} skipped` : ""}</p>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          {ready && pullHasDatabase(pull) && <Btn size="sm" className="w-full sm:w-auto" icon={<Download className="h-4 w-4" />} loading={busy === `${pull.pullId}:database`} disabled={busy !== null} onClick={() => void download(pull, "database")}>Database (.sql)</Btn>}
-          {ready && <Btn size="sm" className="w-full sm:w-auto" icon={<Download className="h-4 w-4" />} loading={busy === `${pull.pullId}:archive`} disabled={busy !== null} onClick={() => void download(pull, "archive")}>Archive (.tar.gz)</Btn>}
-          {ready && onLocalCopy && pull.kind === "pull" && <Btn size="sm" className="w-full sm:w-auto" icon={<Copy className="h-4 w-4" />} disabled={busy !== null} onClick={() => onLocalCopy(pull)}>Make a local copy</Btn>}
-          {ready && pull.kind === "local-export" && !pull.sourceReleasedAt && <Btn size="sm" className="w-full sm:w-auto" loading={busy === `${pull.pullId}:release`} disabled={busy !== null} onClick={() => void releaseSource(pull)}>Release source staging</Btn>}
-          {pull.status !== "downloading" && <Btn size="sm" className="w-full sm:w-auto" variant="ghost" icon={<Trash2 className="h-4 w-4" />} loading={deleting} disabled={busy !== null} onClick={() => void remove(pull)}>Delete</Btn>}
-        </div>
-      </li>;
-    })}</ul>
+    <ul className="min-w-0 space-y-2">{current.map(item)}</ul>
+    {older.length > 0 && <details className="min-w-0"><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-sm text-text-secondary sm:min-h-0">Older downloads with the same contents ({older.length})</summary>
+      <p className="mt-2 text-xs text-text-secondary">A newer verified download above has the same contents. Delete these to free space on the Zoer server.</p>
+      <ul className="mt-2 min-w-0 space-y-2">{older.map(item)}</ul>
+    </details>}
     {pulls.some(pull => isReadyPull(pull) && pull.kind === "local-export" && !pull.sourceReleasedAt) && <p className="text-xs text-text-secondary">Release source staging to free a local export slot. Its verified download stays in Zoer; website files and database are unchanged.</p>}
     {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
     {notice && <p role="status" className="break-words text-sm text-status-warning">{notice}</p>}

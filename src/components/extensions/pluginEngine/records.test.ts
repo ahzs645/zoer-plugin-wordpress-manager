@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   defaultSelection, filterEngineHistory, historyEmptyText, historySummaryHint, mergeEngineHistory, parseHistoryRecord, runHistoryItem, parseLocalCopyRecord, parsePreviewSummary, parsePullRecord,
-  previewExpired, previewFiles, pullHasDatabase, pushSources, refreshCandidates, type LocalCopyRecord, type PullRecord,
+  previewExpired, previewFiles, pullHasDatabase, pushSources, refreshCandidates, splitSupersededDownloads, type LocalCopyRecord, type PullRecord,
 } from "./records";
 import type { RecentRun } from "./runState";
 
@@ -28,6 +28,21 @@ test("push sources are ready pulls of other sites without download-only resource
     pull({ pullId: "6".repeat(32), siteId: "ep_src", setId: set(6), options: { profile: { core: true }, database: true } }),
   ].map(parsePullRecord).filter((p): p is PullRecord => !!p);
   expect(pushSources(pulls, "ep_dest").map(p => p.pullId[0])).toEqual(["3", "2"]);
+});
+
+test("older downloads with the same contents fold away, database-only ones never", () => {
+  const dbOnly = { profile: { themes: false, plugins: false, media: false }, database: true };
+  const pulls = [
+    pull({ pullId: "1".repeat(32), siteId: "ep_1", setId: set(1), createdAt: "2026-10-01T10:00:00Z" }),
+    pull({ pullId: "2".repeat(32), siteId: "ep_1", setId: set(2), createdAt: "2026-10-02T10:00:00Z" }),
+    pull({ pullId: "3".repeat(32), siteId: "ep_1", setId: null, status: "downloading", createdAt: "2026-10-03T10:00:00Z" }),
+    pull({ pullId: "4".repeat(32), siteId: "ep_1", setId: set(4), options: dbOnly, createdAt: "2026-10-01T09:00:00Z" }),
+    pull({ pullId: "5".repeat(32), siteId: "ep_1", setId: set(5), options: dbOnly, createdAt: "2026-10-02T09:00:00Z" }),
+  ].map(parsePullRecord).filter((p): p is PullRecord => !!p);
+  const { current, older } = splitSupersededDownloads(pulls);
+  // The running download does not supersede the verified one before it.
+  expect(current.map(p => p.pullId[0])).toEqual(["3", "2", "5", "4"]);
+  expect(older.map(p => p.pullId[0])).toEqual(["1"]);
 });
 
 test("refresh candidates are complete copies of the same source, one per target", () => {
