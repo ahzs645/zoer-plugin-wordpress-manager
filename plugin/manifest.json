@@ -1827,6 +1827,10 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "readId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
             "siteId": {
               "type": "string",
               "pattern": "^ddev-[a-z0-9-]+$"
@@ -1844,6 +1848,7 @@
             }
           },
           "required": [
+            "readId",
             "siteId",
             "args"
           ]
@@ -1875,8 +1880,8 @@
           "maxSteps": 1,
           "maxRunHours": 1,
           "lock": {
-            "input": "siteId",
-            "group": "site-transfer"
+            "input": "readId",
+            "group": "site-read"
           }
         }
       },

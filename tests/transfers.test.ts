@@ -307,7 +307,10 @@ describe("deleting a pull", () => {
     const content = sampleSite("https://shop.ddev.site", { singleExport: true });
     w.ddev.add("ddev-shop", "shop", content);
     expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL })).status).toBe("succeeded");
+    // An unverified export still holds the bridge's slot: the next one is refused.
+    w.catalog.records.get(`pull:${PULL}`)!.data.status = "downloading";
     expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 }) as any).error.message).toBe("Cancel an existing source export before starting another.");
+    w.catalog.records.get(`pull:${PULL}`)!.data.status = "ready";
     const removed = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, remove: true });
     expect((removed as any).output).toMatchObject({ status: "deleted", remoteRemoved: true });
     expect(w.ddev.invocations.filter(i => i.operation === "export.cancel.v1").map(i => i.args)).toContainEqual({ exportId: PULL });
@@ -326,6 +329,29 @@ describe("deleting a pull", () => {
     expect(w.calls.some(call => call.method === "fileset.delete")).toBe(false);
     expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, releaseSource: true })).status).toBe("succeeded");
     expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 })).status).toBe("succeeded");
+  });
+
+  test("a new local export releases earlier verified stagings itself, in its own run", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site", { singleExport: true }));
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL })).status).toBe("succeeded");
+    const before = structuredClone(w.sets.get(`fs_${PULL}`));
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 })).status).toBe("succeeded");
+    expect(w.ddev.invocations.filter(i => i.operation === "export.cancel.v1").map(i => i.args)).toEqual([{ exportId: PULL }]);
+    // The earlier download stays verified and usable; only its bridge staging is gone.
+    expect(w.sets.get(`fs_${PULL}`)).toEqual(before);
+    expect(w.catalog.records.get(`pull:${PULL}`)!.data).toMatchObject({ status: "ready", sourceReleasedAt: expect.any(String) });
+    expect(w.catalog.records.get(`pull:${PULL2}`)!.data.sourceReleasedAt).toBeUndefined();
+  });
+
+  test("a refused staging release stops the releases; the export still starts, in the next slice", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL })).status).toBe("succeeded");
+    // Zoer need not return a fresh runtime ticket with such a refusal: nothing else runs in that slice.
+    w.ddev.failOperation = { operation: "export.cancel.v1", message: "Bridge unavailable.", code: "execution_failed", count: 1 };
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 })).status).toBe("succeeded");
+    expect(w.catalog.records.get(`pull:${PULL}`)!.data.sourceReleasedAt).toBeUndefined();
   });
 
   test("source release refuses wrong site, remote exports and unsealed downloads without cancelling anything", async () => {

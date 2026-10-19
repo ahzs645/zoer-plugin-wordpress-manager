@@ -3,7 +3,7 @@
 // `backend/src/wordpress-push.ts`) over S1 slices, S3 uploads (`zbt1-v1`, remote cursor
 // authority) and S7b endpoint auth (docs/plugin-shared-services.md Appendix A).
 import { createHash } from "node:crypto";
-import { commitRecords, readRecord, readRecords } from "./catalog.js";
+import { commitRecords, readRecord, readRecordsSplitting } from "./catalog.js";
 import { listEntries } from "./filesets.js";
 import { capabilityFlags, importOptionsToPlugin, legacyImportOptions, replaceOptionsToPlugin, validateImportOptions, validateTableSuffixes } from "./options.js";
 import { HEX32, pullOfSet, runHex } from "./pull.js";
@@ -14,6 +14,7 @@ import { codeContentIssue, codeExportIssue, codePathReason } from "./code-publis
 
 const PREVIEW_BATCH = 20;
 const PREVIEW_PAGE = 400;
+const PREVIEW_READ_PAGES = 5;
 const PREVIEW_TTL_MS = 3_600_000;
 /** Longest stretch of uploading or import steps in one slice, so a user pause takes effect soon. */
 const PUSH_SLICE_MS = 30_000;
@@ -123,9 +124,10 @@ async function loadPreview(host, previewId) {
   const summary = (await readRecord(host, `preview:${previewId}`))?.data;
   if (!summary) return null;
   const byPath = new Map();
-  for (let page = 0; page < summary.pages; page += 20) {
-    const ids = Array.from({ length: Math.min(20, summary.pages - page) }, (_, i) => `preview-page:${previewId}:${page + i}`);
-    for (const record of await readRecords(host, ids)) for (const file of record.data?.files ?? []) byPath.set(file.path, file);
+  // A page holds up to 400 files (~100 KB); five pages stay well under the host's 1.5 MB read limit.
+  for (let page = 0; page < summary.pages; page += PREVIEW_READ_PAGES) {
+    const ids = Array.from({ length: Math.min(PREVIEW_READ_PAGES, summary.pages - page) }, (_, i) => `preview-page:${previewId}:${page + i}`);
+    for (const record of await readRecordsSplitting(host, ids)) for (const file of record.data?.files ?? []) byPath.set(file.path, file);
   }
   return { summary, byPath };
 }

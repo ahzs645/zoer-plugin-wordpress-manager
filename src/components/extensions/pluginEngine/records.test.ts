@@ -69,6 +69,8 @@ test("preview pages are read in page order for one preview only", () => {
   const files = previewFiles(records, previewId);
   expect(files.map(f => f.path)).toEqual(["database.sql", "wp-content/a.php", "wp-content/b.php", "wp-content/c.php", "wp-content/d.php"]);
   expect(defaultSelection(files)).toEqual(["wp-content/a.php", "wp-content/c.php"]);
+  // A guided "Everything" push already chose the database; unchanged files stay out.
+  expect(defaultSelection(files, { database: true })).toEqual(["database.sql", "wp-content/a.php", "wp-content/c.php"]);
   const summary = parsePreviewSummary({ kind: "preview", data: { previewId, siteId: "ep_1", setId: set(1), total: 5, pages: 3, complete: true, expiresAt: "2026-10-04T11:00:00Z", counts: { new: 1, changed: 1 } } });
   expect(summary?.counts).toEqual({ new: 1, changed: 1, unchanged: 0, blocked: 0, database: 0 });
   expect(previewExpired(summary!, Date.parse("2026-10-04T10:59:59Z"))).toBe(false);

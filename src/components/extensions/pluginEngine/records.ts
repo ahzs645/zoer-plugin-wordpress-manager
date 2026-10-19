@@ -161,9 +161,12 @@ export function previewFiles(records: Raw[], previewId: string): PreviewFile[] {
 
 export const previewExpired = (summary: Pick<PreviewSummary, "expiresAt">, now = Date.now()) => Date.parse(summary.expiresAt) <= now;
 
-/** Paths selected by default: new and changed files (the database needs an explicit choice). */
-export function defaultSelection(files: PreviewFile[]) {
-  return files.filter(file => file.state === "new" || file.state === "changed").map(file => file.path);
+/**
+ * Paths selected by default: new and changed files. The database needs an explicit choice, which a
+ * guided "Everything" push has already made (`database: true`).
+ */
+export function defaultSelection(files: PreviewFile[], { database = false }: { database?: boolean } = {}) {
+  return files.filter(file => file.state === "new" || file.state === "changed" || (database && file.state === "database")).map(file => file.path);
 }
 
 export const MAX_SELECTED_PATHS = 20_000;

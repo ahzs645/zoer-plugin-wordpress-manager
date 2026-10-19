@@ -15,6 +15,15 @@ export async function readRecords(host, ids) {
   const result = await host.call("catalog.read", { ids });
   return Array.isArray(result?.records) ? result.records : [];
 }
+/** Records by ID; a batch the host refuses as too large (its per-read byte limit) is read in halves. */
+export async function readRecordsSplitting(host, ids) {
+  try { return await readRecords(host, ids); }
+  catch (error) {
+    if (ids.length < 2 || !/record lookup too large/i.test(String(error?.message ?? ""))) throw error;
+    const half = Math.ceil(ids.length / 2);
+    return [...await readRecordsSplitting(host, ids.slice(0, half)), ...await readRecordsSplitting(host, ids.slice(half))];
+  }
+}
 export async function readRecord(host, id) { return (await readRecords(host, [id]))[0] ?? null; }
 
 /** Every record of one kind (paged by id). */

@@ -55,8 +55,9 @@ const WORKER_CLEANUP_WAIT = "Waiting for prior plugin worker cleanup. Its run ha
 // Share this 35-second budget across the entire inventory, rather than retrying each command independently.
 const LOCAL_INVENTORY_RETRY_DELAYS = [2_000, 3_000, 30_000] as const;
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+// Each read has its own lock (readId): reads neither wait for transfers of the site nor refuse one another.
 const localInventoryRead = (siteId: string, args: readonly string[]) =>
-  runAction<{ summary: string }>("wpcli.read", { siteId, args: [...args] }, { timeoutMs: 3 * 60_000 }).then(r => r.summary ?? "");
+  runAction<{ summary: string }>("wpcli.read", { readId: crypto.randomUUID().replaceAll("-", ""), siteId, args: [...args] }, { timeoutMs: 3 * 60_000 }).then(r => r.summary ?? "");
 
 function isWorkerCleanupWait(error: unknown): boolean {
   // Cancellation and an unknown action outcome must never start another action.

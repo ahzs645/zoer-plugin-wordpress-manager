@@ -35,7 +35,9 @@ export default function PushToLiveDialog({ source, sites, onClose, onHosting, on
   const connection = conn.connection;
   const diagnostics = useWordPressDiagnostics(destination?.id, { enabled: !!connection });
   const runs = useRecentRuns(SITE_RUN_ACTIONS);
-  const busy = !!destination && runsOfSite(runs.data ?? [], destination.id).some(run => !isTerminalStatus(run.status));
+  // Runs this dialog's own push started are followed in its Push step, not reported as "another transfer".
+  const [ownRuns, setOwnRuns] = useState<Set<string>>(() => new Set());
+  const busy = !!destination && runsOfSite(runs.data ?? [], destination.id).some(run => !ownRuns.has(run.runId) && !isTerminalStatus(run.status));
   // A transfer on the local site (such as a refresh from live) holds it: its inventory and export wait.
   // The push's own export is followed in its step instead.
   const sourceBusy = runsOfSite(runs.data ?? [], source.id).some(run => run.actionId !== ENGINE_ACTIONS.localExport && !isTerminalStatus(run.status));
@@ -79,7 +81,7 @@ export default function PushToLiveDialog({ source, sites, onClose, onHosting, on
         <p role="status" className="text-status-warning">{source.name} has a transfer running. The push can start when it finishes.</p>
         <PluginSiteRuns siteId={source.id} activeOnly />
       </section>}
-      {connection && ready && <GuidedPush key={destination!.id} source={source} sourceBusy={sourceBusy} onStartSource={onStartSource} destinationId={destination!.id} connection={connection} destination={diagnostics.data} />}
+      {connection && ready && <GuidedPush key={destination!.id} source={source} sourceBusy={sourceBusy} onRun={runId => setOwnRuns(current => new Set(current).add(runId))} onStartSource={onStartSource} destinationId={destination!.id} connection={connection} destination={diagnostics.data} />}
       {destination && <details open={busy || undefined} className="min-w-0"><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Transfers to {host(destination.url)}</summary><div className="mt-2 space-y-2"><PluginSiteRuns siteId={destination.id} heading={false} /><PluginTransferHistory siteId={destination.id} disclosure /></div></details>}
       {/* Hostinger account publication is the alternative for live sites without Zoer Connect. */}
       {onHosting && !(connection && ready) && <p className="border-t border-border-muted pt-3 text-xs text-text-secondary">Publishing to a Hostinger site without Zoer Connect? <button type="button" className="underline" onClick={onHosting}>Use your Hostinger account instead</button>.</p>}

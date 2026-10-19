@@ -150,6 +150,7 @@ export async function startPull(kind, input, ctx) {
     if (resource?.status !== "running") fail("Choose a running managed DDEV source.");
     state.sourceUrl = await localSiteAddress(host, input.siteId, resource);
     state.paged = false;
+    if (input.recover !== true && (await earlierStagings(host, state)).length) state.releaseEarlier = true;
   }
   if (input.recover === true) {
     const record = await readRecord(host, `pull:${pullId}`);
@@ -344,6 +345,32 @@ async function download(state, ctx, source) {
 // site accepts the next one ("Cancel an existing export before starting another.").
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * The DDEV bridge keeps at most two source stagings per site. A new local export frees the earlier
+ * verified ones itself, within its own run and lock; their sealed downloads stay usable. (Separate
+ * release runs would each hold the site's lock and refuse the export started right after them.
+ * WP Migrate likewise clears the previous migration's leftovers as part of starting the next.)
+ * A staging that cannot be released is left for the bridge's own "cancel first" answer. A refused
+ * runtime call need not return a fresh ticket, so the first failure ends the releases.
+ */
+async function earlierStagings(host, state) {
+  return (await listKind(host, "pull")).filter(r => r.data?.kind === "local-export" && r.data.siteId === state.siteId && r.data.pullId !== state.pullId
+    && r.data.status === "ready" && r.data.setId && !r.data.sourceReleasedAt);
+}
+async function releaseEarlierStagings(host, state, now) {
+  const released = [];
+  for (const record of await earlierStagings(host, state)) {
+    if ((await describeSet(host, record.data.setId))?.status !== "sealed") continue;
+    let refused = null;
+    try { await localSource(host, { siteId: state.siteId }).remove(record.data.pullId); }
+    catch (error) { if (error?.code === "ZOER_PAUSED") throw error; refused = error; }
+    // A staging the bridge no longer has counts as released.
+    if (!refused || gone(refused)) released.push({ ...record, data: { ...record.data, sourceReleasedAt: new Date(now).toISOString() } });
+    if (refused) break;
+  }
+  if (released.length) await commitRecords(host, released);
+}
+
 /** Release only a verified local export's disposable bridge staging. The sealed download stays. */
 async function startSourceRelease(kind, input, ctx) {
   if (kind !== "local-export" || input.remove === true || !HEX32.test(input.pullId ?? "")) fail("Choose a verified local export.");
@@ -422,6 +449,12 @@ export async function stepPull(state, input, ctx) {
   const { host } = ctx;
   if (state.phase === "releasing-source") return stepSourceRelease(state, ctx);
   if (state.phase === "removing") return stepRemoval(state, ctx);
+  if (state.releaseEarlier) {
+    // Its own slice: a refused runtime call may spend the ticket, so the export starts in the next.
+    await releaseEarlierStagings(host, state, ctx.now());
+    delete state.releaseEarlier;
+    return ctx.continue(state, progressOf(state), 0);
+  }
   const source = sourceOf(host, ctx.request, state);
   if (state.phase === "preparing") {
     // The slice ran out of time: continue at once (the host engine polls without a pause too).

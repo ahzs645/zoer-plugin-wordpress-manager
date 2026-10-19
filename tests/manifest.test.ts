@@ -27,6 +27,8 @@ test("WP-CLI arguments use the host's bounds",()=>{
  const action=manifest.integration.actions.find(a=>a.id==="wpcli.read") as any;
  expect(action.inputSchema.properties.args).toMatchObject({minItems:1,maxItems:24,items:{type:"string",minLength:1,maxLength:500}});
  const pattern=new RegExp(action.inputSchema.properties.args.items.pattern);expect(pattern.test("plugin list")).toBe(true);expect(pattern.test("a\nb")).toBe(false);
+ // A read locks only itself: it neither waits for the site's transfers nor refuses a concurrent read.
+ expect(action.resumable.lock).toEqual({input:"readId",group:"site-read"});expect(action.inputSchema.required).toContain("readId");
 });
 test("Hostinger accounts and Zoer Connect sites use host connections and endpoints",()=>{
  const integration=manifest.integration as any;
