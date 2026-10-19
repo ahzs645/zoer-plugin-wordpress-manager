@@ -150,7 +150,7 @@ export async function startPull(kind, input, ctx) {
     if (resource?.status !== "running") fail("Choose a running managed DDEV source.");
     state.sourceUrl = await localSiteAddress(host, input.siteId, resource);
     state.paged = false;
-    if (input.recover !== true && (await earlierStagings(host, state)).length) state.releaseEarlier = true;
+    if (input.recover !== true && (await earlierStagings(host, state, ctx.now())).length) state.releaseEarlier = true;
   }
   if (input.recover === true) {
     const record = await readRecord(host, `pull:${pullId}`);
@@ -351,16 +351,23 @@ async function download(state, ctx, source) {
  * release runs would each hold the site's lock and refuse the export started right after them.
  * WP Migrate likewise clears the previous migration's leftovers as part of starting the next.)
  * A staging that cannot be released is left for the bridge's own "cancel first" answer. A refused
- * runtime call need not return a fresh ticket, so the first failure ends the releases.
+ * runtime call need not return a fresh ticket, so the first refusal ends the releases.
+ *
+ * Which jobs: the bridge purges a job 24 hours after it starts, so only younger exports of the site
+ * can hold a slot, newest first. Unfinished ones (a run that failed or was abandoned mid-download,
+ * a dry run) are released too: this run holds the site's transfer lock, so no other export of the
+ * site is still running. A verified one is released only while its sealed download exists.
  */
-async function earlierStagings(host, state) {
+const BRIDGE_EXPORT_TTL_MS = 24 * 3_600_000;
+async function earlierStagings(host, state, now) {
   return (await listKind(host, "pull")).filter(r => r.data?.kind === "local-export" && r.data.siteId === state.siteId && r.data.pullId !== state.pullId
-    && r.data.status === "ready" && r.data.setId && !r.data.sourceReleasedAt);
+    && !r.data.sourceReleasedAt && now - Date.parse(r.data.createdAt) < BRIDGE_EXPORT_TTL_MS)
+    .sort((a, b) => String(b.data.createdAt).localeCompare(String(a.data.createdAt)));
 }
 async function releaseEarlierStagings(host, state, now) {
   const released = [];
-  for (const record of await earlierStagings(host, state)) {
-    if ((await describeSet(host, record.data.setId))?.status !== "sealed") continue;
+  for (const record of await earlierStagings(host, state, now)) {
+    if (record.data.status === "ready" && (!record.data.setId || (await describeSet(host, record.data.setId))?.status !== "sealed")) continue;
     let refused = null;
     try { await localSource(host, { siteId: state.siteId }).remove(record.data.pullId); }
     catch (error) { if (error?.code === "ZOER_PAUSED") throw error; refused = error; }
@@ -402,7 +409,8 @@ async function startRemoval(kind, input, ctx) {
     ...(typeof data?.paged === "boolean" ? { paged: data.paged } : {}), startedAt: new Date(ctx.now()).toISOString() };
 }
 
-const gone = (error) => error?.status === 404 || error?.status === 410 || /\b(not found|expired|unknown export)\b/i.test(String(error?.message ?? ""));
+// The DDEV bridge answers a purged job's ID with the missing file's ENOENT.
+const gone = (error) => error?.status === 404 || error?.status === 410 || /\b(not found|expired|unknown export|ENOENT|no such file)\b/i.test(String(error?.message ?? ""));
 
 /** Removes the source's export: `{ removed: true }`, or `{ removed: false, error }` to show the user. */
 /**

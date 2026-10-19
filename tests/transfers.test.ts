@@ -307,10 +307,12 @@ describe("deleting a pull", () => {
     const content = sampleSite("https://shop.ddev.site", { singleExport: true });
     w.ddev.add("ddev-shop", "shop", content);
     expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL })).status).toBe("succeeded");
-    // An unverified export still holds the bridge's slot: the next one is refused.
-    w.catalog.records.get(`pull:${PULL}`)!.data.status = "downloading";
+    // An export older than the bridge's 24-hour TTL is not released (the bridge purges it itself);
+    // while this fake bridge still holds it, the next export is refused.
+    const createdAt = w.catalog.records.get(`pull:${PULL}`)!.data.createdAt;
+    w.catalog.records.get(`pull:${PULL}`)!.data.createdAt = "2020-01-01T00:00:00.000Z";
     expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 }) as any).error.message).toBe("Cancel an existing source export before starting another.");
-    w.catalog.records.get(`pull:${PULL}`)!.data.status = "ready";
+    w.catalog.records.get(`pull:${PULL}`)!.data.createdAt = createdAt;
     const removed = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, remove: true });
     expect((removed as any).output).toMatchObject({ status: "deleted", remoteRemoved: true });
     expect(w.ddev.invocations.filter(i => i.operation === "export.cancel.v1").map(i => i.args)).toContainEqual({ exportId: PULL });
@@ -342,6 +344,17 @@ describe("deleting a pull", () => {
     expect(w.sets.get(`fs_${PULL}`)).toEqual(before);
     expect(w.catalog.records.get(`pull:${PULL}`)!.data).toMatchObject({ status: "ready", sourceReleasedAt: expect.any(String) });
     expect(w.catalog.records.get(`pull:${PULL2}`)!.data.sourceReleasedAt).toBeUndefined();
+  });
+
+  test("an abandoned unfinished export of the site is released too; the site lock proves it is not running", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site", { singleExport: true }));
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL })).status).toBe("succeeded");
+    // Its run died mid-download: the record never became ready, the bridge job is still there.
+    Object.assign(w.catalog.records.get(`pull:${PULL}`)!.data, { status: "downloading", setId: null });
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL2 })).status).toBe("succeeded");
+    expect(w.ddev.invocations.filter(i => i.operation === "export.cancel.v1").map(i => i.args)).toEqual([{ exportId: PULL }]);
+    expect(w.catalog.records.get(`pull:${PULL}`)!.data.sourceReleasedAt).toEqual(expect.any(String));
   });
 
   test("a refused staging release stops the releases; the export still starts, in the next slice", async () => {
