@@ -58,6 +58,21 @@ export function useCatalogKind(kind: string, { enabled = true, refetchInterval }
     queryFn: async () => (await listCatalog(kind)).records });
 }
 
+/**
+ * After a site is erased, forgets the records that point at it as a copy target: its
+ * `site-link:` grouping record and the `local-copy:` records that created it. Copies made
+ * *from* it keep their own records. Returns how many were deleted.
+ */
+export async function forgetErasedSiteRecords(siteId: string) {
+  const { records } = await listCatalog("local-copy", { max: 2000 });
+  const ids = records
+    .filter(record => record.kind === "local-copy" && (record.data as { targetId?: string } | null)?.targetId === siteId)
+    .map(record => record.id);
+  const deletes = [...ids, `site-link:${siteId}`];
+  await commitCatalog({ deletes }, "site-link");
+  return deletes.length;
+}
+
 // ---------------------------------------------------------------------------
 // Records left by 0.7.x
 

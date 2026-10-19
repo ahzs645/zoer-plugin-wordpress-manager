@@ -62,6 +62,7 @@ import { wordpressExtensionActions, wordpressExtensionActionLabel, wordpressExte
 import WordPressConnect from "./WordPressConnect";
 import PushToLiveDialog from "./PushToLiveDialog";
 import SiteSyncCard from "./SiteSyncCard";
+import SiteCompareDialog from "./SiteCompareDialog";
 import PluginLocalCopy from "./pluginEngine/PluginLocalCopy";
 import PublicationStatus from "./pluginEngine/PublicationStatus";
 import { connectionHealth } from "./pluginEngine/publicationCheck";
@@ -79,9 +80,14 @@ import { useRecentRuns } from "../../lib/queries/plugin-engine";
 import { detailSectionFor, managerSection, managerSections, MANAGER_TABS, type ManagerSection, type ManagerTab } from "./managerSections";
 import { extensionDisplayName, recoveryPointLabel } from "./wordpressNames";
 import { mergeDeployments, parseDeploymentRecord, parseRecoveryPointRecord, parseSiteLink, recoveryPointRecord, recoveryPointsFor, withSiteLinks, type DeploymentRecord, type RecoveryPointRecord, type SiteLinkRecord } from "./pluginEngine/records";
-import { commitCatalog, engineKeys, retireEngineRecords, useCatalogKind } from "../../lib/queries/plugin-engine";
+import { commitCatalog, engineKeys, forgetErasedSiteRecords, retireEngineRecords, useCatalogKind } from "../../lib/queries/plugin-engine";
 import WordPressAddSite from "./WordPressAddSite";
 import WordPressTrash from "./WordPressTrash";
+import RecoveryPointPanel from "./RecoveryPointPanel";
+import DeleteSiteDialog from "./DeleteSiteDialog";
+import HostingerAccountRow from "./HostingerAccountRow";
+import { ApiError } from "../../lib/api/_http";
+import { hostingerRecordFor, recoveryGateFrom, recoveryPointValidUntil, type RecoveryGate } from "./recoveryGate";
 import { hostConnections, hostEndpoints, runAction } from "../../host/actions";
 import { isLocalWordPress, wordpressLifecycleAction } from "./wordpressLifecycle";
 import { consolidateWordPressSites, readSeparatedSiteConnections, writeSeparatedSiteConnections } from "./wordpressSiteIdentity";
@@ -146,6 +152,8 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const lifecycleLock = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // A site link the browser's popup blocker stopped: shown with the link to open by hand.
+  const [blockedLink, setBlockedLink] = useState<{ name: string; url: string } | null>(null);
   const [siteQuery, setSiteQuery] = useState("");
   const [siteScope, setSiteScope] = useResourceSelection<"all" | "local">("scope", "all", ["all", "local"]);
   const [editSite, setEditSite] = useState<WordPressManagedSite | null>(null);
@@ -157,9 +165,12 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const [extensionSlug, setExtensionSlug] = useState("");
   const [directoryResults, setDirectoryResults] = useState<Array<{ slug: string; name: string; description: string; imageUrl: string | null }>>([]);
   const [extensionPlan, setExtensionPlan] = useState<{ input: { siteId: string; kind: WordPressExtensionKind; operation: WordPressExtensionOperation; slugs: string[] }; plan: WordPressExtensionPlan } | null>(null);
+  // A live Hostinger change refused until a recent hPanel backup is recorded; retried after recording.
+  const [recoveryGate, setRecoveryGate] = useState<{ gate: RecoveryGate; input: { siteId: string; kind: WordPressExtensionKind; operation: WordPressExtensionOperation; slugs: string[] }; error?: string } | null>(null);
   const [pushFrom, setPushFrom] = useState<WordPressManagedSite | null>(null);
   /** The one local-copy dialog: pull `live` into `local`, or into a new copy when `local` is null. */
   const [pullInto, setPullInto] = useState<{ local: WordPressManagedSite | null; live: WordPressManagedSite } | null>(null);
+  const [compare, setCompare] = useState<{ live: WordPressManagedSite; local: WordPressManagedSite } | null>(null);
   const [publishPlan, setPublishPlan] = useState<WordPressPublishPlan | null>(null);
   const [confirmation, setConfirmation] = useState("");
   const [connectionName, setConnectionName] = useState("");
@@ -260,6 +271,8 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   useEffect(() => { setPublishConnection(current => current || connectionsQuery.data?.[0]?.id || ""); }, [connectionsQuery.data]);
   // 0.8.0: every site uses the plugin transfer engine; the 0.7.x per-site switch records are tidied away once per page load.
   useEffect(() => { void retireEngineRecords().catch(() => undefined); }, []);
+  // The backup prompt belongs to the site whose change was refused.
+  useEffect(() => { setRecoveryGate(current => current && current.input.siteId !== selectedId ? null : current); }, [selectedId]);
   useEffect(() => {
     setDirectoryResults([]); setExtensionQuery(""); setExtensionSlug(""); setExtensionPlan(null);
   }, [selectedId, tab]);
@@ -292,6 +305,9 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const recentRuns = useRecentRuns(SITE_RUN_ACTIONS);
   const activeTransfers = useMemo(() => activeSiteRuns(recentRuns.data ?? [], transferSiteIds), [recentRuns.data, transferSiteIds]);
   const transferWriting = activeTransfers.some(item => item.writes);
+  // A pair card's pull and push wait while a transfer writes to any site in that pair (and its connections).
+  const pairWriting = (sites: readonly WordPressManagedSite[]) => activeSiteRuns(recentRuns.data ?? [],
+    [...new Set(sites.flatMap(site => [site.id, ...candidateIdentity.aliases(site.id).map(member => member.id)]))]).some(item => item.writes);
   // Section changes start at the top (the page or the panel, whichever scrolls at this width).
   const pageScroll = useRef<HTMLDivElement>(null);
   const panelScroll = useRef<HTMLDivElement>(null);
@@ -395,31 +411,68 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     } finally { lifecycleLock.current = false; if (session.isCurrent()) setBusy(null); }
   };
 
+  // A stopped local site has nothing to show: offer to start it, then open it. The tab opens
+  // right after the confirmation (still a user gesture, so popup blockers allow it) and loads
+  // the site once it runs.
+  const openSiteLink = async (site: WordPressManagedSite) => {
+    const url = wordpressPreviewUrl(site);
+    if (!url) return;
+    if (wordpressLifecycleAction(site) !== "start") { window.open(url, "_blank", "noopener,noreferrer"); return; }
+    if (!await dialogs.confirm({ title: `Start ${site.name}?`, description: `${site.name} is stopped. Do you want to start this website and open it? Starting takes a minute; the tab loads it when it's ready.`, confirmLabel: "Start and open" })) return;
+    const tab = window.open("about:blank", "_blank");
+    if (tab) tab.opener = null;
+    setBlockedLink(null);
+    await changeLifecycle(site);
+    const status = client.getQueryData(inventoryQuery.queryKey)?.find(item => item.id === site.id)?.status;
+    // Opening later, without the click, would be blocked too: hand over the link instead.
+    if (status === "running") { if (tab) tab.location.href = url; else setBlockedLink({ name: site.name, url }); }
+    else tab?.close();
+  };
+
+  // A local DDEV site being deleted: the dialog offers the trash or deleting everything.
+  const [deleteTarget, setDeleteTarget] = useState<WordPressManagedSite | null>(null);
   const removeSite = async (site: WordPressManagedSite) => {
     if (site.provider === "hostinger") {
       setError("Production sites must be removed through their hosting provider.");
       return;
     }
-    const description = site.provider === "ddev"
-      ? "This stops the DDEV site and moves it to the Zoer trash. Its project and database files remain on the DDEV server; restore it from Trash in this workspace before its scheduled purge."
-      : "This stops the Playground site and moves it to Zoer trash. Its workspace remains recoverable until the trash retention period ends.";
+    if (site.provider === "ddev") { setDeleteTarget(site); return; }
+    const description = "This stops the Playground site and moves it to Zoer trash. Its workspace remains recoverable until the trash retention period ends.";
     if (!await dialogs.confirm({ title: `Delete ${site.name}?`, description, confirmLabel: "Move to trash", tone: "danger" })) return;
     setBusy(`delete:${site.id}`);
     setError(null);
     setNotice(null);
     try {
-      // DDEV: S9 managed resources through the site.archive action (runtime:manage). Playground is a
-      // Docker profile without a runtime connector and keeps the workspace route.
-      const result = site.provider === "ddev"
-        ? await write(() => runAction<{ summary: string }>("site.archive", { siteId: site.id }))
-        : (await write(() => api.destroyComputer(site.id)), null);
+      // Playground is a Docker profile without a runtime connector and keeps the workspace route.
+      await write(() => api.destroyComputer(site.id));
       setSelectedId(null);
-      setNotice(`${site.name} was moved to trash.${result?.summary ? ` ${result.summary}` : ""}`);
+      setNotice(`${site.name} was moved to trash.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to delete this WordPress site.");
     } finally {
       setBusy(null);
     }
+  };
+  /** DDEV: S9 managed resources through the site.archive action (runtime:manage). Throws so the dialog can show why. */
+  const trashDdevSite = async (site: WordPressManagedSite) => {
+    setBusy(`delete:${site.id}`);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await write(() => runAction<{ summary: string }>("site.archive", { siteId: site.id }));
+      setSelectedId(null);
+      setNotice(`${site.name} was moved to trash.${result?.summary ? ` ${result.summary}` : ""}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const siteErased = async (site: WordPressManagedSite, result: { erased: string[]; warnings: string[] }) => {
+    setSelectedId(null);
+    setNotice(`${site.name} was deleted. Removed: ${result.erased.join("; ") || "the site"}.${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`);
+    // The plugin's own link records are plugin data, so the host can't remove them.
+    await forgetErasedSiteRecords(site.id).catch(() => undefined);
+    void client.invalidateQueries({ queryKey: engineKeys.catalog("site-link") });
+    await load(true, true);
   };
 
   const createWorkspace = async (kind: "playground" | "ddev") => {
@@ -462,12 +515,17 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     setBusy(`plan:${kind}:${operation}`);
     setError(null);
     setNotice(null);
+    const input = { siteId: selected.id, kind, operation, slugs };
+    // A new plan replaces any earlier refusal, so the backup prompt never retries an older change.
+    setRecoveryGate(null);
     try {
-      const input = { siteId: selected.id, kind, operation, slugs };
       const response = await api.planWordPressExtensionChange(input);
       setExtensionPlan({ input, plan: response.plan });
+      setRecoveryGate(null);
       setConfirmation("");
     } catch (caught) {
+      const gate = recoveryGateFrom(caught, hostingerRecordFor(selected, identity.aliases(selected.id)));
+      if (gate) { setRecoveryGate({ gate, input }); return; }
       setError(caught instanceof Error ? caught.message : "Unable to plan the extension change.");
     } finally {
       setBusy(null);
@@ -500,6 +558,8 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
       setConfirmation("");
       setExtensionSlug("");
     } catch (caught) {
+      const gate = recoveryGateFrom(caught, selected ? hostingerRecordFor(selected, identity.aliases(selected.id)) : null);
+      if (gate) { setRecoveryGate({ gate, input: extensionPlan.input }); setExtensionPlan(null); setConfirmation(""); return; }
       setError(caught instanceof Error ? caught.message : "Unable to apply the extension change.");
     } finally {
       setBusy(null);
@@ -536,6 +596,21 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     }
   };
 
+  const [renameUnavailable, setRenameUnavailable] = useState(false);
+  const renameConnection = async (connection: HostingerConnectionPublic, name: string) => {
+    try {
+      // Only the account list changes; skip write()'s full site-list rebuild so the field closes at once.
+      await api.renameWordPressManagerConnection(connection.id, name);
+      setNotice(`Renamed to ${name}.`);
+    } catch (caught) {
+      // Older Zoer hosts have no rename route; hide the control rather than fail every time.
+      if (caught instanceof ApiError && (caught.status === 404 || caught.status === 405)) { setRenameUnavailable(true); throw new Error("This Zoer version can't rename accounts yet."); }
+      throw caught;
+    } finally {
+      void connectionsQuery.refetch();
+    }
+  };
+
   const removeConnection = async (connection: HostingerConnectionPublic) => {
     if (!await dialogs.confirm({ title: `Remove ${connection.name}?`, description: "Removes the connection, its token and its recorded Hostinger recovery points from Zoer, and its sites leave the list. Hostinger websites are not changed. If the login expired, use Sign in again instead: it keeps all of this.", confirmLabel: "Remove connection", tone: "danger" })) return;
     setBusy(`remove:${connection.id}`);
@@ -549,13 +624,15 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   };
 
   const recordRecovery = async () => {
-    if (!selected?.connectionId || !selected.domain) return;
+    // A "Hostinger + Zoer Connect" site may be showing its Connect record, which has no account.
+    const hostinger = selected ? hostingerRecordFor(selected, identity.aliases(selected.id)) : null;
+    if (!hostinger?.connectionId || !hostinger.domain) { setError("This site isn't linked to a Hostinger account in Zoer, so a recovery point can't be recorded for it."); return; }
     const label = await dialogs.prompt({ title: "Confirm Hostinger recovery point", description: "First create and verify a completed backup in hPanel. Zoer records your confirmation; it does not create the remote backup.", label: "Backup label", defaultValue: `hPanel backup before changes ${new Date().toLocaleDateString()}`, submitLabel: "Continue" });
     if (!label) return;
     if (!await dialogs.confirm({ title: "Was the hPanel backup verified?", description: "Only confirm after Hostinger shows the backup completed successfully and is restorable.", confirmLabel: "Yes, record recovery point" })) return;
     setBusy("recovery");
     try {
-      const { connectionId, domain } = selected;
+      const { connectionId, domain } = hostinger;
       const { recoveryPoint } = await write(() => api.recordWordPressRecoveryPoint({ connectionId: connectionId!, domain: domain!, label, confirmed: true }));
       // Zoer keeps the point for its 24-hour checks but does not list it; keep a copy so this page shows it.
       if (recoveryPoint?.id) await commitCatalog({ records: [recoveryPointRecord(recoveryPoint)] }, "recovery-point").then(() => client.invalidateQueries({ queryKey: engineKeys.catalog("recovery-point") })).catch(() => undefined);
@@ -565,6 +642,28 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     } finally {
       setBusy(null);
     }
+  };
+
+  /** Records the hPanel backup the person confirmed in the inline panel, then plans the refused change again. */
+  const recordAndRetry = async (label: string) => {
+    if (!recoveryGate?.gate.connectionId || !recoveryGate.gate.domain) return;
+    const { gate, input } = recoveryGate;
+    setBusy("recovery");
+    setRecoveryGate({ ...recoveryGate, error: undefined });
+    try {
+      // Retry right away; the site details refresh in the background afterwards.
+      const { recoveryPoint } = await api.recordWordPressRecoveryPoint({ connectionId: gate.connectionId!, domain: gate.domain!, label, confirmed: true });
+      void client.invalidateQueries({ queryKey: wordpressKeys.all() });
+      if (recoveryPoint?.id) await commitCatalog({ records: [recoveryPointRecord(recoveryPoint)] }, "recovery-point").then(() => client.invalidateQueries({ queryKey: engineKeys.catalog("recovery-point") })).catch(() => undefined);
+      setRecoveryGate(null);
+      setNotice("Backup recorded. Review the change below.");
+    } catch (caught) {
+      setRecoveryGate({ gate, input, error: caught instanceof Error ? caught.message : "Unable to record the backup." });
+      return;
+    } finally {
+      setBusy(null);
+    }
+    await planExtension(input.kind, input.operation, input.slugs);
   };
 
   const createPortableBackup = async () => {
@@ -647,18 +746,33 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     }
   };
 
+  // Renames show at once: the cached list and details take the new name, the dialog closes, and
+  // the list refreshes in the background. A failed save puts the old name back.
+  const renameInCache = (id: string, change: (site: WordPressManagedSite) => WordPressManagedSite) => {
+    for (const key of [wordpressQueries.sites().queryKey, wordpressQueries.securitySites().queryKey]) {
+      client.setQueryData<WordPressManagedSite[]>(key, list => list?.map(site => site.id === id ? change(site) : site));
+    }
+    client.setQueriesData<WordPressSiteDetails>({ queryKey: [...wordpressKeys.all(), "site", id] }, data => data ? { ...data, site: change(data.site) } : data);
+  };
   const saveSiteName = async () => {
     if (!editSite || !isLocalWordPress(editSite)) return;
-    setBusy(`rename:${editSite.id}`); setEditError(null);
+    const site = editSite, name = editName.trim(), previous = site.name;
+    if (name === previous) { setEditSite(null); return; }
+    setEditError(null); setError(null);
+    await client.cancelQueries({ queryKey: wordpressKeys.all() });
+    renameInCache(site.id, current => ({ ...current, name }));
+    setEditSite(null);
+    setNotice(`Renamed to ${name}. The development URL and WordPress title stayed the same.`);
     try {
-      await write(() => api.renameLocalWordPressSite(editSite.id, editName.trim()));
-      const updated = (await api.listWordPressManagedSites(true)).sites.find(site => site.id === editSite.id);
-      if (updated?.name !== editName.trim()) throw new Error("The saved name could not be verified. Refresh sites and try again.");
-      setNotice("Site name updated in Zoer. The development URL and WordPress title stayed the same.");
-      setEditSite(null);
+      const saved = await api.renameLocalWordPressSite(site.id, name);
+      renameInCache(site.id, current => saved.site ? { ...current, ...saved.site } : { ...current, name: saved.name, managedUrl: saved.managedUrl ?? current.managedUrl });
     } catch (caught) {
-      setEditError(caught instanceof Error ? caught.message : "Unable to rename the site.");
-    } finally { setBusy(null); }
+      renameInCache(site.id, current => ({ ...current, name: previous }));
+      setNotice(null);
+      setError(caught instanceof Error ? `${previous} wasn't renamed: ${caught.message}` : `${previous} wasn't renamed.`);
+    } finally {
+      void client.invalidateQueries({ queryKey: wordpressKeys.all() });
+    }
   };
 
   const headerActions = [
@@ -684,7 +798,10 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   // One main button per site; everything else is in the site menu, on phones as well as desktop.
   // Pushing and publishing live on Overview and Publish; the menu keeps site-level actions.
   const siteMenu = selected ? [
-    ...(previewUrl ? [{ label: "Open site in a new tab", icon: <ExternalLink className="h-4 w-4" />, onClick: () => window.open(previewUrl, "_blank", "noopener,noreferrer") }] : []),
+    ...(previewUrl ? [{ label: "Open site in a new tab", icon: <ExternalLink className="h-4 w-4" />, onClick: () => void openSiteLink(selected) }] : []),
+    // Phones have no grouped cards, so comparing with the linked live site or local copy lives here too.
+    ...(selectedSource ? [{ label: `Compare with ${selectedSource.name}`, icon: <ArrowLeftRight className="h-4 w-4" />, onClick: () => setCompare({ live: selectedSource, local: selected }) }] : []),
+    ...selectedCopies.map(copy => ({ label: selectedCopies.length === 1 ? "Compare with local copy" : `Compare with ${copy.name}`, icon: <ArrowLeftRight className="h-4 w-4" />, onClick: () => setCompare({ live: selected, local: copy }) })),
     ...(isLocalWordPress(selected) && !lifecycle ? [{ label: "Refresh site status", icon: <RefreshCw className="h-4 w-4" />, disabled: busy !== null, onClick: () => void refreshAll() }] : []),
     { label: "Site name & URL", icon: <Pencil className="h-4 w-4" />, onClick: () => { setEditSite(selected); setEditName(selected.name); setEditError(null); } },
     ...(lifecycle === "stop" ? [{ label: "Stop site", icon: <Square className="h-4 w-4" />, disabled: busy !== null || transferWriting, onClick: () => void changeLifecycle(selected) }] : []),
@@ -711,9 +828,14 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
       <WordPressAddSite open={addSiteOpen} onOpenChange={setAddSiteOpen} existingUrls={sites.flatMap(site => [site.url, site.managedUrl, site.provider === "hostinger" && site.domain ? `https://${site.domain}` : null].filter((value): value is string => Boolean(value)))} onAdded={async id => { await load(true, true); setSelectedId(id); setTab("overview"); setNotice("Website connected."); }} />
       {trashOpen && <WordPressTrash onClose={() => setTrashOpen(false)} onChanged={async (restoredId) => { await load(true, true); if (restoredId) { setSelectedId(restoredId); setTab("overview"); } }} />}
 
-      {(error || readError || notice) && <div className="space-y-2 px-3 pt-3 sm:px-4">
+      {(error || readError || notice || blockedLink) && <div className="space-y-2 px-3 pt-3 sm:px-4">
         {(error || readError) && <div role="alert" className="rounded-md border border-status-error/30 bg-status-error/10 px-3 py-2 text-[13px] text-status-error">{error || readError}</div>}
         {notice && <div role="status" className="rounded-md border border-status-success/25 bg-status-success/10 px-3 py-2 text-[13px] text-status-success">{notice}</div>}
+        {blockedLink && <div role="alert" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-status-warning/30 bg-status-warning/10 px-3 py-2 text-[13px] text-status-warning">
+          <span>{blockedLink.name} is running, but the browser blocked the new tab. Allow pop-ups for this site, or open it here:</span>
+          <a className="underline underline-offset-2" href={blockedLink.url} target="_blank" rel="noreferrer" onClick={() => setBlockedLink(null)}>{blockedLink.url.replace(/^https?:\/\//, "")}</a>
+          <button type="button" className="ml-auto text-xs underline" onClick={() => setBlockedLink(null)}>Dismiss</button>
+        </div>}
       </div>}
 
       {editSite && <Modal mobileSheet title="Edit WordPress site" onClose={() => { if (busy === null) setEditSite(null); }} footer={<div className="flex justify-end gap-2"><Btn disabled={busy !== null} onClick={() => setEditSite(null)}>Cancel</Btn>{isLocalWordPress(editSite) && <Btn variant="primary" disabled={!editName.trim() || editName.trim().length > 100 || busy !== null} loading={busy === `rename:${editSite.id}`} onClick={() => void saveSiteName()}>Save name</Btn>}</div>}>
@@ -757,7 +879,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
           <div className="flex gap-2"><SearchInput className="min-w-0 flex-1" value={siteQuery} onChange={setSiteQuery} placeholder="Search sites" />{scopeSelect("w-28 shrink-0")}</div>
           <div className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto">
             {visibleGroups.map((group) => group.kind === "pair"
-              ? <SitePairCard key={`pair:${group.id}`} source={group.source} copies={group.copies} selectedId={selected?.id ?? null} onSelect={selectSite} onSeparate={() => setPairSeparated(group.id, true)} />
+              ? <SitePairCard key={`pair:${group.id}`} source={group.source} copies={group.copies} selectedId={selected?.id ?? null} onSelect={selectSite} onSeparate={() => setPairSeparated(group.id, true)} onOpen={site => void openSiteLink(site)} onPull={(local, live) => setPullInto({ local, live })} onPush={setPushFrom} onCompare={(live, local) => setCompare({ live, local })} paused={pairWriting([group.source, ...group.copies])} />
               : <SiteCard key={group.site.id} site={group.site} selected={selected?.id === group.site.id} onSelect={selectSite} mergeInto={(() => {
                   // A separated copy, or a live site with separated copies, offers to merge again.
                   const source = wordPressSiteSource(sites, group.site, separatedConnections);
@@ -779,7 +901,10 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
           <div className="shrink-0 px-3 py-3 sm:px-4">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
-                <h2 className="truncate text-[15px] font-semibold text-text-heading">{selected?.name || "No site selected"}</h2>
+                <div className="flex min-w-0 items-center gap-1">
+                  <h2 className="truncate text-[15px] font-semibold text-text-heading">{selected?.name || "No site selected"}</h2>
+                  {selected && isLocalWordPress(selected) && <button type="button" aria-label={`Rename ${selected.name}`} title="Rename" onClick={() => { setEditSite(selected); setEditName(selected.name); setEditError(null); }} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-text-muted transition hover:bg-surface-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-focus sm:h-7 sm:w-7"><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></button>}
+                </div>
                 {selected ? <>
                   <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-text-secondary">
                     <span className="inline-flex items-center gap-1.5">{providerIcon(selected.provider)}{connectionsCombined ? "Live · Hostinger + Zoer Connect" : siteLocation(selected)}</span>
@@ -787,7 +912,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
                       <StatusBadge tone={updating ? "info" : statusTone(selected.status)} icon={updating ? <Loader2 className="animate-spin" /> : undefined}>{updating ? "Updating" : statusLabel(selected.status)}</StatusBadge>
                       {lifecycle === "start" && !updating && <span className="text-[12px] text-text-muted">Start to inspect.</span>}
                     </span>
-                    <a className="inline-flex min-h-8 min-w-0 max-w-full items-center truncate text-[12px] underline underline-offset-2 hover:text-text-primary sm:min-h-0" href={wordpressPreviewUrl(selected) || undefined} target="_blank" rel="noreferrer">{siteDomain(selected)}</a>
+                    <a className="inline-flex min-h-8 min-w-0 max-w-full items-center truncate text-[12px] underline underline-offset-2 hover:text-text-primary sm:min-h-0" href={wordpressPreviewUrl(selected) || undefined} target="_blank" rel="noreferrer" onClick={event => { if (lifecycle !== "start") return; event.preventDefault(); void openSiteLink(selected); }}>{siteDomain(selected)}</a>
                   </p>
                   {(selectedSource || selectedCopies.length > 0) && <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-text-secondary">
                     <span>{selectedSource ? "Local copy of" : selectedCopies.length === 1 ? "Local copy" : "Local copies"}</span>
@@ -824,6 +949,8 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
                   sync={selected && (selected.provider === "ddev" || selected.provider === "hostinger" || selected.provider === "zoer-connect") ? <SiteSyncCard site={selected} live={selectedSource} copies={selectedCopies} onSelect={selectSite} onPush={setPushFrom} onRefresh={(local, live) => setPullInto({ local, live })} paused={transferWriting}
                     makeCopy={selected.provider !== "ddev" ? <Btn size="sm" onClick={() => setPullInto({ local: null, live: selected })}>{selectedCopies.length ? "Make another local copy" : "Make a local copy"}</Btn> : undefined} /> : null} />}
                 {connectionMembers.length > 1 && section === "overview" && <section aria-label="Website connections" className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-border-muted pt-3 text-[13px]"><p className="text-text-secondary">{connectionsCombined ? "This page combines the site's Hostinger hosting and its Zoer Connect transfers." : "Hostinger and Zoer Connect have the same website address."}</p><Btn size="sm" variant="ghost" onClick={toggleConnections}>{connectionsCombined ? "Show them separately" : "Combine them"}</Btn></section>}
+                {section === "plugins" && selected?.provider === "hostinger" && <RecoveryPointStatus until={recoveryPointValidUntil(recoveryPointsFor([...(selectedDetails?.recoveryPoints ?? []), ...recoveryPoints], selected))} onBackups={() => setTab("backups")} />}
+                {section === "plugins" && recoveryGate && recoveryGate.input.siteId === selected?.id && <div className="mb-3"><RecoveryPointPanel gate={recoveryGate.gate} action={`${wordpressExtensionActionLabel(recoveryGate.input.operation)} ${recoveryGate.input.slugs.length > 1 ? `${recoveryGate.input.slugs.length} ${recoveryGate.input.kind}s` : (() => { const slug = recoveryGate.input.slugs[0] ?? ""; const row = [...(selectedDetails?.plugins ?? []), ...(selectedDetails?.themes ?? [])].find(entry => entry.slug === slug); return row ? extensionDisplayName(row.name, row.slug) : slug; })()}`} busy={busy === "recovery"} error={recoveryGate.error} onRecord={label => void recordAndRetry(label)} onDismiss={() => setRecoveryGate(null)} /></div>}
                 {section === "plugins" && <ExtensionsTab key={tab === "themes" ? "theme" : "plugin"} developingPlugin={developingPlugin} onDevelop={tab === "themes" ? undefined : setDevelopingPlugin} kind={tab === "themes" ? "theme" : "plugin"} onKind={kind => setTab(kind === "theme" ? "themes" : "plugins")} onSecurity={selected?.provider === "ddev" ? () => setTab("security") : undefined} paused={transferWriting} site={selected} connectSiteId={connectSite?.id} connectConnected={connectSite?.provider === "zoer-connect" && connectSite.status === "connected"} rows={(tab === "themes" ? selectedDetails?.themes : selectedDetails?.plugins) || []} query={extensionQuery} setQuery={setExtensionQuery} slug={extensionSlug} setSlug={setExtensionSlug} directoryResults={directoryResults} busy={busy} error={error} onSearch={searchDirectory} onPlan={planExtension} />}
                 {section === "security" && selected && <WordPressSecurity key={selected.id} site={selected} onStart={() => void changeLifecycle(selected)} />}
                 {section === "backups" && connectSite?.provider === "zoer-connect" && <div className="mb-5"><PluginPulls key={connectSite.id} siteId={connectSite.id} siteName={selected?.name ?? connectSite.name} /></div>}
@@ -838,6 +965,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
       </div>
 
       {pushFrom && <PushToLiveDialog key={pushFrom.id} source={sites.find(site => site.id === pushFrom.id) ?? pushFrom} onStartSource={() => void changeLifecycle(sites.find(site => site.id === pushFrom.id) ?? pushFrom)} sites={sites} onClose={() => setPushFrom(null)} onHosting={pushFrom.capabilities.deploySource && connections.length ? () => { openPublish(pushFrom); setPushFrom(null); } : undefined} />}
+      {compare && <SiteCompareDialog key={`${compare.live.id}:${compare.local.id}`} live={sites.find(site => site.id === compare.live.id) ?? compare.live} local={sites.find(site => site.id === compare.local.id) ?? compare.local} onClose={() => setCompare(null)} onStartSite={site => void changeLifecycle(site)} onReviewFiles={local => { setCompare(null); setPushFrom(local); }} />}
       {pullInto && (() => {
         const live = identity.connector(pullInto.live) ?? pullInto.live;
         const endpoint = siteEndpoints.data?.endpoints.find(item => item.id === live.id);
@@ -848,7 +976,8 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
           <PluginLocalCopy key={`${live.id}:${pullInto.local?.id ?? "new"}`} siteId={live.id} siteName={pullInto.live.name} sourceUrl={endpoint?.origin ?? live.url} refreshSiteId={pullInto.local?.id ?? null} heading={false} />
         </Modal>;
       })()}
-      {providersOpen && <Modal title="Provider accounts" onClose={() => setProvidersOpen(false)}><ConnectionsTab onConnected={() => void load(true, true)} connections={connections} name={connectionName} setName={setConnectionName} token={connectionToken} setToken={setConnectionToken} busy={busy} onAdd={addConnection} onTest={testConnection} onRemove={removeConnection} /></Modal>}
+      {deleteTarget && <DeleteSiteDialog site={deleteTarget} onClose={() => setDeleteTarget(null)} onTrash={() => trashDdevSite(deleteTarget)} onErased={result => void siteErased(deleteTarget, result)} />}
+      {providersOpen && <Modal title="Provider accounts" onClose={() => setProvidersOpen(false)}><ConnectionsTab onConnected={() => void load(true, true)} connections={connections} name={connectionName} setName={setConnectionName} token={connectionToken} setToken={setConnectionToken} busy={busy} onAdd={addConnection} onTest={testConnection} onRemove={removeConnection} onRename={renameConnection} renameUnavailable={renameUnavailable} /></Modal>}
       {extensionPlan && <ReviewPanel title={`${wordpressExtensionActionLabel(extensionPlan.plan.operation)} ${extensionPlan.plan.kind}${extensionPlan.plan.slugs.length > 1 ? "s" : ""}`} plan={extensionPlan.plan} confirmation={confirmation} setConfirmation={setConfirmation} busy={busy === "apply-extension"} onApply={applyExtension} onCancel={() => { setExtensionPlan(null); setConfirmation(""); }} />}
       {publishPlan && <ReviewPanel title={`${publishPlan.mode === "replace" ? "Replace" : "Publish"} ${publishPlan.domain}`} plan={publishPlan} confirmation={confirmation} setConfirmation={setConfirmation} busy={busy === "execute-publish"} onApply={executePublish} onCancel={() => { setPublishPlan(null); setConfirmation(""); }} />}
     </section>
@@ -890,20 +1019,32 @@ function SiteCard({ site, selected, onSelect, mergeInto, onMerge }: { site: Word
 }
 
 /** One card for a live site and the local copies made from it; each environment is its own row. */
-function SitePairCard({ source, copies, selectedId, onSelect, onSeparate }: { source: WordPressManagedSite; copies: WordPressManagedSite[]; selectedId: string | null; onSelect: (site: WordPressManagedSite) => void; onSeparate: () => void }) {
+function SitePairCard({ source, copies, selectedId, onSelect, onSeparate, onOpen, onPull, onPush, onCompare, paused = false }: {
+  source: WordPressManagedSite; copies: WordPressManagedSite[]; selectedId: string | null; onSelect: (site: WordPressManagedSite) => void; onSeparate: () => void;
+  onOpen: (site: WordPressManagedSite) => void; onPull: (local: WordPressManagedSite, live: WordPressManagedSite) => void; onPush: (local: WordPressManagedSite) => void;
+  onCompare: (live: WordPressManagedSite, local: WordPressManagedSite) => void; /** A transfer is writing to the selected site. */ paused?: boolean;
+}) {
   const members = [source, ...copies];
   const active = members.some((site) => site.id === selectedId);
-  return <div className={`rounded-lg border p-1.5 transition ${active ? "border-accent/40" : "border-border-muted bg-surface-primary/40"}`}>
-    <div className="flex items-start justify-between gap-2 px-1 pt-0.5">
-      <div className="min-w-0">
-        <div className="break-words text-[13px] font-medium text-text-primary">{source.name}</div>
-      </div>
-      <button type="button" title="Show the live site and its local copies as separate cards" onClick={onSeparate} className={`${pairControlClass} -mr-0.5`}><Unlink2 className="h-3 w-3" aria-hidden="true" />Separate</button>
+  // With several copies each copy's actions name it; with one, "local site" is enough.
+  const named = (copy: WordPressManagedSite, single: string, many: string) => copies.length === 1 ? single : `${many} ${copy.name}`;
+  const menu = [
+    ...(source.capabilities.preview && wordpressPreviewUrl(source) ? [{ label: "Open live site", icon: <ExternalLink className="h-4 w-4" />, onClick: () => onOpen(source) }] : []),
+    ...copies.filter(copy => copy.capabilities.preview && wordpressPreviewUrl(copy)).map(copy => ({ label: named(copy, "Open local site", "Open"), icon: <ExternalLink className="h-4 w-4" />, onClick: () => onOpen(copy) })),
+    ...copies.map(copy => ({ label: named(copy, "Compare sites", "Compare with"), icon: <ArrowLeftRight className="h-4 w-4" />, onClick: () => onCompare(source, copy) })),
+    ...copies.map(copy => ({ label: named(copy, "Pull from live", "Pull from live into"), icon: <HardDriveDownload className="h-4 w-4" />, disabled: paused, onClick: () => onPull(copy, source) })),
+    ...copies.map(copy => ({ label: named(copy, "Push to live", "Push to live from"), icon: <Rocket className="h-4 w-4" />, disabled: paused, onClick: () => onPush(copy) })),
+    { label: "Show as separate cards", icon: <Unlink2 className="h-4 w-4" />, onClick: onSeparate },
+  ];
+  return <div className={`rounded-lg border p-1.5 shadow-sm transition ${active ? "border-accent/60 bg-accent-subtle/30" : "border-border-default bg-surface-secondary/50"}`}>
+    <div className="flex items-center justify-between gap-2 pl-1">
+      <div className="min-w-0 break-words text-[13px] font-semibold text-text-heading">{source.name}</div>
+      <ActionMenu label={`Actions for ${source.name}`} items={menu} size="sm" />
     </div>
-    <div className="mt-1.5 space-y-1">
+    <div className="mt-1 divide-y divide-border-muted overflow-hidden rounded-md border border-border-muted bg-surface-primary">
       {members.map((site) => {
         const selected = site.id === selectedId;
-        return <button key={site.id} type="button" aria-pressed={selected} onClick={() => onSelect(site)} className={`w-full rounded-md border p-2 text-left transition ${selected ? "border-accent/40 bg-accent-subtle" : "border-transparent hover:border-border-default hover:bg-surface-hover"}`}>
+        return <button key={site.id} type="button" aria-pressed={selected} onClick={() => onSelect(site)} className={`block w-full p-2 text-left transition ${selected ? "bg-accent-subtle shadow-[inset_2px_0_0_var(--accent)]" : "hover:bg-surface-hover"}`}>
           <div className="flex items-start justify-between gap-2">
             <span className="flex min-w-0 items-center gap-2 text-[12px] font-medium text-text-primary">{providerIcon(site.provider)}<span className="truncate">{siteLocation(site)}</span></span>
             <SiteStatus status={site.status} />
@@ -1000,6 +1141,15 @@ function ExtensionsTab({ developingPlugin=null, onDevelop, kind, onKind, onSecur
   </div>;
 }
 
+/** Whether live plugin and theme changes can go ahead without a new hPanel backup. */
+function RecoveryPointStatus({ until, onBackups }: { until: Date | null; onBackups: () => void }) {
+  return <p role="status" className={`mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs ${until ? "text-text-secondary" : "text-status-warning"}`}>
+    <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+    {until ? `Recovery point valid until ${until.toLocaleString()}.` : "No hPanel backup recorded in the last 24 hours. Updates and removals will ask for one."}
+    <button type="button" className="min-h-8 text-accent underline underline-offset-2 sm:min-h-0" onClick={onBackups}>Backups</button>
+  </p>;
+}
+
 function BackupsTab({ site, details, recoveryPoints, busy, paused = false, retainPortableBackup, onRetainPortableBackup, onCreatePortableBackup, onRecordRecovery, onImportBackup }: { site: WordPressManagedSite | null; details: WordPressSiteDetails | null; recoveryPoints: RecoveryPointRecord[]; busy: string | null; /** A transfer is changing this site. */ paused?: boolean; retainPortableBackup: boolean; onRetainPortableBackup: (value: boolean) => void; onCreatePortableBackup: () => void; onRecordRecovery: () => void; onImportBackup: () => void }) {
   return <div className="space-y-5">
     {site?.provider === "hostinger" && <section className="rounded-md border border-status-warning/25 bg-status-warning/5 p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="text-[13px] font-semibold text-status-warning">Remote recovery points</h4><p className="mt-1 max-w-2xl text-[13px] leading-4 text-text-secondary">Create and verify a backup in hPanel, then record it here. Required within 24 hours of production changes.</p></div><Btn size="sm" loading={busy === "recovery"} icon={<ShieldCheck className="h-3.5 w-3.5" />} onClick={onRecordRecovery}>Record verified backup</Btn></div><div className="mt-3 space-y-2">{recoveryPoints.map((point) => <div key={point.id} className="rounded border border-border-muted bg-surface-primary/40 px-3 py-2 text-[13px]"><span className="font-medium text-text-primary">{point.label}</span><span className="ml-2 text-text-secondary">{new Date(point.verifiedAt).toLocaleString()}</span></div>)}{!recoveryPoints.length && <p className="text-[13px] text-text-secondary">No verified recovery point recorded.</p>}</div></section>}
@@ -1076,9 +1226,9 @@ function DeploymentsTab({ compact = false, onPushToLive, paused = false, sites, 
   </div>;
 }
 
-function ConnectionsTab({ onConnected, connections, name, setName, token, setToken, busy, onAdd, onTest, onRemove }: { onConnected: () => void; connections: HostingerConnectionPublic[]; name: string; setName: (value: string) => void; token: string; setToken: (value: string) => void; busy: string | null; onAdd: (event: React.FormEvent) => void; onTest: (connection: HostingerConnectionPublic) => void; onRemove: (connection: HostingerConnectionPublic) => void }) {
+function ConnectionsTab({ onConnected, connections, name, setName, token, setToken, busy, onAdd, onTest, onRemove, onRename, renameUnavailable }: { onConnected: () => void; connections: HostingerConnectionPublic[]; name: string; setName: (value: string) => void; token: string; setToken: (value: string) => void; busy: string | null; onAdd: (event: React.FormEvent) => void; onTest: (connection: HostingerConnectionPublic) => void; onRemove: (connection: HostingerConnectionPublic) => void; onRename: (connection: HostingerConnectionPublic, name: string) => Promise<void>; renameUnavailable: boolean }) {
   return <div className="space-y-5">
-    <section><h4 className="flex items-center gap-2 text-[13px] font-semibold text-text-heading"><Cloud className="h-4 w-4" /> Hostinger connections</h4><p className="mt-1 text-[13px] leading-4 text-text-secondary">Connect your account to discover and manage its WordPress sites.</p><HostingerBrowserLogin name={name} setName={setName} onConnected={onConnected} connections={connections} /><details className="mt-3"><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-[13px] text-text-secondary">Advanced setup · API token</summary><form onSubmit={onAdd} className="mt-3 grid gap-2 rounded-md border border-border-muted bg-surface-primary/40 p-3 md:grid-cols-[1fr_2fr_auto]"><input aria-label="Connection name" className={controlClass("compact")} value={name} onChange={(event) => setName(event.target.value)} placeholder="My Hostinger account" /><input aria-label="Hostinger API token" type="password" autoComplete="new-password" className={controlClass("compact")} value={token} onChange={(event) => setToken(event.target.value)} placeholder="Hostinger API token" /><Btn size="sm" type="submit" variant="primary" loading={busy === "add-connection"} disabled={!name || !token}>Connect</Btn></form></details><div className="mt-3 space-y-2">{connections.map((connection) => <div key={connection.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-muted bg-surface-primary/50 p-3"><div><div className="flex items-center gap-2 text-[12px] font-medium text-text-primary">{connection.name}{(() => { const health = connectionHealth(connection); return <StatusBadge tone={!health.ok ? "error" : health.stale ? "neutral" : "success"}>{!health.ok ? "Needs reconnecting" : health.stale ? "Not checked recently" : "Working"}</StatusBadge>; })()}</div><div className="mt-1 text-[12px] text-text-secondary">{connection.oauthConnectionId ? "Browser sign-in · Zoer connection" : connection.authMethod === "browser-login" ? "Browser sign-in" : "API token"} · Last tested {connection.lastTestedAt ? new Date(connection.lastTestedAt).toLocaleString() : "never"}</div>{connection.lastError && <div className="mt-1 text-[12px] text-status-error">{connection.lastError}</div>}</div><div className="flex gap-1"><Btn size="sm" variant="ghost" loading={busy === `test:${connection.id}`} onClick={() => onTest(connection)}>Test</Btn><Btn size="sm" variant="ghost" loading={busy === `remove:${connection.id}`} icon={<Trash2 className="h-3 w-3" />} onClick={() => onRemove(connection)}>Remove</Btn></div>{!connectionHealth(connection).ok && <div className="w-full border-t border-border-muted pt-3"><p className="mb-2 text-[12px] text-text-secondary">Reconnect keeps this account's sites, recovery points and cache links. Zoer opens a fresh browser for the sign-in.</p><HostingerReconnect connection={connection} onDone={onConnected} /></div>}</div>)}{!connections.length && <p className="text-[13px] text-text-secondary">No Hostinger connection configured.</p>}</div></section>
+    <section><h4 className="flex items-center gap-2 text-[13px] font-semibold text-text-heading"><Cloud className="h-4 w-4" /> Hostinger connections</h4><p className="mt-1 text-[13px] leading-4 text-text-secondary">Connect your account to discover and manage its WordPress sites.</p><HostingerBrowserLogin name={name} setName={setName} onConnected={onConnected} connections={connections} /><details className="mt-3"><summary data-zoer-disclosure="" className="cursor-pointer py-2 text-[13px] text-text-secondary">Advanced setup · API token</summary><form onSubmit={onAdd} className="mt-3 grid gap-2 rounded-md border border-border-muted bg-surface-primary/40 p-3 md:grid-cols-[1fr_2fr_auto]"><input aria-label="Connection name" className={controlClass("compact")} value={name} onChange={(event) => setName(event.target.value)} placeholder="My Hostinger account" /><input aria-label="Hostinger API token" type="password" autoComplete="new-password" className={controlClass("compact")} value={token} onChange={(event) => setToken(event.target.value)} placeholder="Hostinger API token" /><Btn size="sm" type="submit" variant="primary" loading={busy === "add-connection"} disabled={!name || !token}>Connect</Btn></form></details><div className="mt-3 space-y-2">{connections.map((connection) => <HostingerAccountRow key={connection.id} connection={connection} busy={busy} renameUnavailable={renameUnavailable} onTest={onTest} onRemove={onRemove} onRename={onRename} onReconnected={onConnected} />)}{!connections.length && <p className="text-[13px] text-text-secondary">No Hostinger connection configured.</p>}</div></section>
     {connections.length > 0 && <details className="min-w-0 rounded-lg border border-border-default p-3"><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-[13px] font-medium sm:min-h-0">Create a new Hostinger website</summary><div className="mt-3"><HostingerWebsiteSetup connections={connections} onCreated={onConnected} /></div></details>}
   </div>;
 }

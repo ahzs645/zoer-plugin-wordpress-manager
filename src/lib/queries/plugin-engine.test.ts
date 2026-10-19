@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { bindHost } from "../../host/bridge";
-import { mergeRecentRuns, recentRunsInterval, recentRunsQuery, retireEngineRecords } from "./plugin-engine";
+import { forgetErasedSiteRecords, mergeRecentRuns, recentRunsInterval, recentRunsQuery, retireEngineRecords } from "./plugin-engine";
 import type { RecentRun } from "../../components/extensions/pluginEngine/runState";
 
 const run = (runId: string, actionId: string, status: string, createdAt: string, finishedAt?: string): RecentRun => ({ runId, actionId, status, createdAt, ...(finishedAt ? { finishedAt } : {}), input: { siteId: "s" } });
@@ -53,5 +53,20 @@ test("0.8.0 deletes the 0.7.x engine-switch records once and leaves everything e
   records.length = 0; calls.length = 0;
   expect(await retireEngineRecords()).toBe(0);
   expect(calls.map(([method]) => method)).toEqual(["catalog.list"]);
+  unbind();
+});
+
+test("erasing a site forgets the records that made it, not copies made from it", async () => {
+  const commits: unknown[] = [];
+  const unbind = bindHost({ request: async (method: string, input?: any) => {
+    if (method === "catalog.list") return { revision: 7, records: input?.limit === 1 ? [] : [
+      { id: "local-copy:a", kind: "local-copy", data: { targetId: "ddev-erased" } },
+      { id: "local-copy:b", kind: "local-copy", data: { targetId: "ddev-other", sourceSiteId: "ddev-erased" } },
+    ] };
+    if (method === "catalog.commit") { commits.push(input); return { revision: 8 }; }
+    throw new Error(`unexpected ${method}`);
+  }, subscribe: () => () => {} });
+  expect(await forgetErasedSiteRecords("ddev-erased")).toBe(2);
+  expect(commits).toEqual([{ revision: 7, deletes: ["local-copy:a", "site-link:ddev-erased"] }]);
   unbind();
 });
