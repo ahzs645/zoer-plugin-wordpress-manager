@@ -83,6 +83,19 @@ describe("local copy rules", () => {
     expect(out[2]).toBe(`a:1:{s:1:"u";${ser("https://copy.test/x")}}`);
     expect(out[3]).toBe('s:3:"abc"; untouched');
   });
+  test("JSON objects and arrays: each decoded string is replaced and re-encoded in its own escaping style", () => {
+    const out = rules(`$map=[['mode'=>'map','pairs'=>LocalCopyRules::urlPairs('https://example.com','https://copy.test')]];
+      $custom=LocalCopyRules::replacementRules(['https://a.test'=>'https://b.test'],null,'/var/www/html',[['find'=>'cat','replace'=>'a"b\\\\c']]);
+      return [Replacement::apply('{"label":"cat","n":1.50}',$custom),
+        Replacement::apply("{\\n \\"u\\": \\"https:\\\\/\\\\/example.com\\\\/x\\", \\"e\\": \\"\\\\u00e9\\"}",$map),
+        Replacement::apply('{"x":"a\\\\"b"}',LocalCopyRules::replacementRules(['https://a.test'=>'https://b.test'],null,'/var/www/html',[['find'=>'a"b','replace'=>'c']])),
+        Replacement::binaryColumns("(\\n  \`id\` bigint NOT NULL,\\n  \`hash\` binary(16),\\n  \`img\` longblob,\\n  \`body\` text COLLATE utf8mb4_bin\\n)")];`);
+    expect(out[0]).toBe('{"label":"a\\"b\\\\c","n":1.50}');
+    expect(JSON.parse(out[0]).label).toBe('a"b\\c');
+    expect(out[1]).toBe('{\n "u": "https:\\/\\/copy.test\\/x", "e": "\\u00e9"}');
+    expect(out[2]).toBe('{"x":"c"}');
+    expect(out[3]).toEqual(["hash", "img"]);
+  });
   test("prune roots are the theme and plugin folders placed; hidden files, node_modules and logs are kept", () => {
     expect(rules(`return LocalCopyRules::pruneRoots(['wp-content/plugins/akismet/a.php','wp-content/plugins/akismet/inc/b.php','wp-content/plugins/hello.php','wp-content/themes/two/style.css','wp-content/uploads/2024/x.jpg','wp-content/mu-plugins/m/x.php','wp-content/plugins/zoer-connect/z.php']);`))
       .toEqual(["wp-content/plugins/akismet", "wp-content/themes/two"]);
@@ -198,6 +211,36 @@ function open(dbPath: string) {
 }
 
 describe("import-copy.php", () => {
+  test("a snapshot from Zoer Connect's source-maintenance export (its own header) imports like any other", () => {
+    const path = join(temp, "maintenance.sqlite");
+    localSite(path);
+    const header = "-- Zoer Connect database snapshot\n";
+    const summary = importCopy(path, "wp_", undefined, { edit: sql => sql.replace(header, "-- Zoer Connect source-maintenance snapshot\n") });
+    expect(summary).toMatchObject({ users: { mode: "local" } });
+    const { db, option } = open(path);
+    expect(option("home")).toBe(LOCAL_URL);
+    expect((db.query("SELECT COUNT(*) AS n FROM wp_posts").get() as { n: number }).n).toBe(3);
+    db.close();
+    // Any other header is still refused.
+    const other = join(temp, "other-header.sqlite");
+    localSite(other);
+    expect(() => importCopy(other, "wp_", undefined, { edit: sql => sql.replace(header, "-- Some other snapshot\n") })).toThrow(/Unsupported snapshot header/);
+  });
+
+  test("binary and BLOB columns are imported byte-for-byte; JSON text columns stay valid JSON", () => {
+    const path = join(temp, "binary.sqlite");
+    localSite(path);
+    const json = '{"src":"https:\\/\\/example.com\\/x","label":"say \\"hi\\""}';
+    const table = `DROP TABLE IF EXISTS \`wp_assets\`;\nCREATE TABLE \`wp_assets\` (\n  \`id\` INTEGER PRIMARY KEY,\n  \`data\` longblob,\n  \`meta\` TEXT\n) ENGINE=InnoDB;\n`
+      + `INSERT INTO \`wp_assets\` (\`id\`,\`data\`,\`meta\`) VALUES (X'31',${hex("BIN https://example.com/x BIN")},${hex(json)});\n`;
+    importCopy(path, "wp_", undefined, { edit: sql => sql.replace("SET FOREIGN_KEY_CHECKS=1;\n", `${table}SET FOREIGN_KEY_CHECKS=1;\n`) });
+    const { db } = open(path);
+    const row = db.query("SELECT data,meta FROM wp_assets").get() as { data: string; meta: string };
+    expect(String(row.data)).toBe("BIN https://example.com/x BIN");
+    expect(JSON.parse(row.meta)).toEqual({ src: `${LOCAL_URL}/x`, label: 'say "hi"' });
+    db.close();
+  });
+
   test("default: keeps the local accounts, assigns posts to the local administrator and detaches comments", () => {
     const path = join(temp, "local.sqlite");
     localSite(path);

@@ -89,7 +89,7 @@ function validName(value, max) {
  * - `activePlugins`: "none" (all inactive, default) | "local" (keep the copy's) | "source" (the source's).
  * - `replacements`: { paths, custom } — the source's file path → this site's, and custom find & replace rows.
  * - `pace`: "gentle" downloads in smaller requests with pauses (shared live hosts).
- * - `languages`: also place wp-content/languages (translations; Zoer Connect 0.8.1 on the source).
+ * - `languages`: also place wp-content/languages (translations; Zoer Connect 0.9.0 on the source).
  */
 export function copyOptions(input, scope, refresh, users = "local") {
   const files = scope !== "database", database = scope !== "files";

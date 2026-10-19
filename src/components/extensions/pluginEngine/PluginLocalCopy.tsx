@@ -50,7 +50,6 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   // The live site's inventory fills the post type, table, theme and plugin pickers.
   const diagnostics = useWordPressDiagnostics(siteId, { enabled: available });
   const [dryRun, setDryRun] = useState(false);
-  const [users, setUsers] = useState<LocalUserMode>("local");
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const finished = useRef(new Set<string>());
@@ -69,6 +68,9 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   const refresh = mode === "refresh";
   const settings = settingsByMode[mode];
   const setSettings = (next: CopySettings) => setSettingsByMode(current => ({ ...current, [mode]: next }));
+  // The account choice is part of the settings, so a saved preset restores it.
+  const users: LocalUserMode = settings.users;
+  const setUsers = (value: LocalUserMode) => setSettings({ ...settings, users: value });
   const presetId = presetIds[mode];
   const setPresetId = (id: string) => setPresetIds(current => ({ ...current, [mode]: id }));
   const problem = copySettingsProblem(settings, refresh);

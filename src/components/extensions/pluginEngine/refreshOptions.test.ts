@@ -53,12 +53,17 @@ describe("copies from an existing download", () => {
 
 describe("saved presets", () => {
   test("round-trip through a catalog record, with untrusted fields reset", () => {
-    const settings = refresh({ files: true, media: "none", plugins: { mode: "active", items: [] }, custom: [{ find: "a", replace: "b", regex: true, caseSensitive: false }] });
+    const settings = refresh({ files: true, media: "none", plugins: { mode: "active", items: [] }, custom: [{ find: "a", replace: "b", regex: true, caseSensitive: false }], users: "exact" });
     const record = copyPresetRecord("abc", "Code refresh", settings, new Date("2026-10-18T12:00:00Z"));
     expect(record).toMatchObject({ id: "refresh-preset:abc", kind: "refresh-preset", title: "Code refresh" });
     expect(parseCopyPreset(record)).toEqual({ id: "refresh-preset:abc", name: "Code refresh", updatedAt: "2026-10-18T12:00:00.000Z", settings });
     const tampered = parseCopyPreset({ id: "refresh-preset:x", kind: "refresh-preset", data: { name: "X", settings: { media: "everything", activePlugins: "all", themes: { mode: "bogus" }, pace: 3, database: "yes" } } })!;
-    expect(tampered.settings).toMatchObject({ media: "all", activePlugins: "none", themes: { mode: "all", items: [] }, pace: "normal", database: true });
+    expect(tampered.settings).toMatchObject({ media: "all", activePlugins: "none", themes: { mode: "all", items: [] }, pace: "normal", database: true, users: "local" });
+    // The account choice is saved; older presets and unknown values keep only the local administrator.
+    expect(record.data.settings.users).toBe("exact");
+    expect(parseCopyPreset({ id: "refresh-preset:s", kind: "refresh-preset", data: { name: "S", settings: { users: "source" } } })!.settings.users).toBe("source");
+    expect(parseCopyPreset({ id: "refresh-preset:o", kind: "refresh-preset", data: { name: "O", settings: {} } })!.settings.users).toBe("local");
+    expect(parseCopyPreset({ id: "refresh-preset:b", kind: "refresh-preset", data: { name: "B", settings: { users: "everyone" } } })!.settings.users).toBe("local");
     expect(parseCopyPreset({ id: "pull:x", kind: "pull", data: { name: "X" } })).toBeNull();
     expect(parseCopyPreset({ id: "refresh-preset:y", kind: "refresh-preset", data: { name: "" } })).toBeNull();
   });

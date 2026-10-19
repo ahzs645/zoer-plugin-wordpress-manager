@@ -12,7 +12,7 @@ export interface CopySettings {
   themes: ResourceMode;
   plugins: ResourceMode;
   /** Refresh: delete local files in placed theme/plugin folders that live no longer has. */ removeStale: boolean;
-  /** Also place wp-content/languages (translations; Zoer Connect 0.8.1 on the live site). */ languages: boolean;
+  /** Also place wp-content/languages (translations; Zoer Connect 0.9.0 on the live site). */ languages: boolean;
   excludeRevisions: boolean;
   excludeSpam: boolean;
   postTypes: "all" | string[];
@@ -22,13 +22,19 @@ export interface CopySettings {
   replacePaths: boolean;
   custom: ReplacementRow[];
   pace: "normal" | "gentle";
+  /**
+   * Accounts when the database is replaced: "local" keeps only the local administrator, "source"
+   * copies the source's users beside it, "exact" copies exactly the source's users. Saved with a
+   * preset so loading it restores the whole operation.
+   */
+  users: "local" | "source" | "exact";
 }
 
 export const ALL: ResourceMode = { mode: "all", items: [] };
 
 export function defaultCopySettings(refresh: boolean): CopySettings {
   return { database: true, files: !refresh, media: "all", themes: ALL, plugins: ALL, removeStale: false, languages: false, excludeRevisions: false, excludeSpam: false, postTypes: "all", tables: "all",
-    keepLocalDesign: true, activePlugins: "none", replacePaths: false, custom: [], pace: "normal" };
+    keepLocalDesign: true, activePlugins: "none", replacePaths: false, custom: [], pace: "normal", users: "local" };
 }
 
 export type CopyScope = "complete" | "database" | "files";
@@ -128,6 +134,7 @@ export function copySettingsSummary(settings: CopySettings, refresh: boolean): s
     const rules = settings.custom.filter(row => row.find).length + (settings.replacePaths ? 1 : 0);
     if (rules) parts.push(`${rules} extra ${rules === 1 ? "replacement" : "replacements"}`);
   }
+  if (settings.database && settings.users !== "local") parts.push(settings.users === "exact" ? "exactly the live site's users" : "live site's users copied");
   if (settings.pace === "gentle") parts.push("gentle pace");
   return parts.join(" · ");
 }
@@ -157,7 +164,9 @@ export function parseCopyPreset(record: { id: string; kind: string; data: Record
     settings: { ...base, database: bool("database"), files: bool("files"), removeStale: bool("removeStale"), languages: bool("languages"), excludeRevisions: bool("excludeRevisions"), excludeSpam: bool("excludeSpam"), keepLocalDesign: bool("keepLocalDesign"), replacePaths: bool("replacePaths"),
       media: ["all", "since-last", "none"].includes(s.media as string) ? s.media as CopySettings["media"] : "all",
       activePlugins: ["none", "local", "source"].includes(s.activePlugins as string) ? s.activePlugins as CopySettings["activePlugins"] : "none",
-      pace: s.pace === "gentle" ? "gentle" : "normal", themes: modeOf(s.themes), plugins: modeOf(s.plugins), postTypes: listOf(s.postTypes, 100), tables: listOf(s.tables, 500), custom } };
+      pace: s.pace === "gentle" ? "gentle" : "normal",
+      // Presets saved before the account choice was stored keep the local administrator only.
+      users: s.users === "source" || s.users === "exact" ? s.users : "local", themes: modeOf(s.themes), plugins: modeOf(s.plugins), postTypes: listOf(s.postTypes, 100), tables: listOf(s.tables, 500), custom } };
 }
 
 export function copyPresetRecord(id: string, name: string, settings: CopySettings, now = new Date()) {

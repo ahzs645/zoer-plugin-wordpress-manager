@@ -59,7 +59,7 @@ while(!$cursor['done']){
   if(!$validSchema($schema))throw new RuntimeException('Unsupported source schema.');
   foreach($converted as $from=>$to){$collations[$from]??=['from'=>$from,'to'=>$to,'tables'=>0];$collations[$from]['tables']++;}
   $target=$wpdb->prefix.$suffix;$token=substr(hash('sha256',$plan['id'].$table),0,16);
-  $tables[$table]=['target'=>$target,'stage'=>'zc_c_'.$token,'backup'=>'zc_b_'.$token,'hadOld'=>$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s',$wpdb->esc_like($target)))===$target,'schema'=>$schema,'suffix'=>$suffix];
+  $tables[$table]=['target'=>$target,'stage'=>'zc_c_'.$token,'backup'=>'zc_b_'.$token,'hadOld'=>$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s',$wpdb->esc_like($target)))===$target,'schema'=>$schema,'suffix'=>$suffix,'binary'=>\ZoerConnect\Replacement::binaryColumns($schema)];
   $schemas[$table]=$record['schema'];
  }
 }
@@ -104,7 +104,9 @@ while(!$cursor['done']){
    if(Rules::dropUserMeta($key)){$droppedMeta++;continue;}
    $row['meta_key']=Rules::userMetaKey($key,$prefix,$wpdb->prefix);
   }
-  foreach($row as $k=>$v)if(is_string($v)&&$k!=='guid'){$next=\ZoerConnect\Replacement::apply($v,$rules);if($next!==$v){$row[$k]=$next;$replaced++;}}
+  // Binary, BLOB, BIT and spatial bytes are never text to replace.
+  $binary=array_flip($t['binary']??[]);
+  foreach($row as $k=>$v)if(is_string($v)&&$k!=='guid'&&!isset($binary[$k])){$next=\ZoerConnect\Replacement::apply($v,$rules);if($next!==$v){$row[$k]=$next;$replaced++;}}
   if(!$copyUsers&&$suffix==='posts'&&isset($row['post_author']))$row['post_author']=$admin;
   if(!$copyUsers&&$suffix==='comments'&&isset($row['user_id']))$row['user_id']=0;
   if($wpdb->insert($t['stage'],$row)===false)throw new RuntimeException('Local row import failed.');$rows++;

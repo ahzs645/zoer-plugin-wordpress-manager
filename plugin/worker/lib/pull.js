@@ -108,11 +108,20 @@ async function localSiteAddress(host, siteId, resource) {
 /** Pause between download requests at the "gentle" pace. */
 const GENTLE_PAUSE_MS = 1_000;
 
-/** Newest ready media pull of the site (media "since-last"). */
-async function lastMediaDate(host, siteId) {
-  const pulls = (await listKind(host, "pull")).map(r => r.data).filter(d => d?.siteId === siteId && d.status !== "dry-run" && d.finishedAt && d.options?.profile?.media);
+/**
+ * Newest successful, kept media download of the site (media "since-last"). Failed, cancelled,
+ * deleted and dry-run downloads also have a finish time but never advance the baseline; an old
+ * record without a status counts only when it kept a file set.
+ */
+export function mediaBaseline(records, siteId) {
+  const kept = d => d.status === "ready" || (d.status === undefined && typeof d.setId === "string" && !!d.setId);
+  const pulls = records.filter(d => d?.siteId === siteId && kept(d) && d.options?.profile?.media);
   pulls.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   return pulls[0] ? String(pulls[0].createdAt).slice(0, 10) : null;
+}
+
+async function lastMediaDate(host, siteId) {
+  return mediaBaseline((await listKind(host, "pull")).map(r => r.data), siteId);
 }
 
 export async function startPull(kind, input, ctx) {
@@ -514,7 +523,8 @@ export async function stepPull(state, input, ctx) {
   ]);
   return ctx.done({ pullId: state.pullId, kind: state.kind, status: state.result, setId: state.result === "ready" ? state.setId : null, fileCount: state.total, totalBytes: state.bytes,
     skippedCount: kept.skippedCount ?? 0, source: kept.source ? { url: kept.source.url, prefix: kept.source.prefix } : null,
-    summary: state.result === "dry-run" ? `Dry run verified ${state.total} files; nothing was kept.` : `${state.total} files verified and kept.` }, { phase: "done", done: state.bytes, total: state.bytes, unit: "bytes" });
+    ...(state.options.profile?.mediaSince ? { mediaSince: state.options.profile.mediaSince } : {}),
+    summary: (state.result === "dry-run" ? `Dry run verified ${state.total} files; nothing was kept.` : `${state.total} files verified and kept.`) + (state.options.profile?.mediaSince ? ` Media since ${state.options.profile.mediaSince}.` : "") }, { phase: "done", done: state.bytes, total: state.bytes, unit: "bytes" });
 }
 
 /** Cleanup slice after a cancel: the remote export and the local partial set go, like the host engine's cancel. */

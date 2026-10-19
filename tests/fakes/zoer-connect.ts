@@ -56,6 +56,8 @@ export interface FakeSiteOptions {
   /** Refuse a new export while another one exists (the DDEV bridge and Zoer Connect's private storage). */
   singleExport?: boolean;
   batchLimits?: Record<string, number>;
+  /** `/status` transferLimits (Zoer Connect 0.9.0+: maxFiles, manifestMaxBytes, …). */
+  transferLimits?: Record<string, number>;
   version?: string;
   /** WordPress siteurl when it differs from home (Zoer Connect 0.5.3 reports it as `source.originalUrls`). */
   siteUrl?: string;
@@ -121,7 +123,7 @@ export class FakeZoerConnect {
   status() {
     return { target: this.options.origin, version: this.options.version ?? "0.5.0", apiVersion: 1, capabilities: this.capabilities, permissions: { pull: true, push: true }, stagingReady: true,
       migrationMode: this.options.migrationMode ?? "shared-replacement", batchLimits: { blockBytes: BLOCK, maxBatchBytes: 8 * 1024 * 1024, maxJsonBatchBytes: 2 * 1024 * 1024, maxSpans: 1024, deadlineMs: 2000, ...this.options.batchLimits },
-      batchTransports: ["octet-stream", "multipart", "json"] };
+      batchTransports: ["octet-stream", "multipart", "json"], ...(this.options.transferLimits ? { transferLimits: this.options.transferLimits } : {}) };
   }
 
   handle(request: FakeRequest): FakeResponse {

@@ -42,7 +42,7 @@ export function validateExportOptions(value) {
   if (!isObject(value) || !isObject(value.resources)) fail("Choose valid export resources.");
   const resources = {};
   for (const key of ["database", "themes", "plugins", "media", "muplugins", "core"]) resources[key] = bool(value.resources[key], "resource");
-  // Translations (wp-content/languages, Zoer Connect 0.8.1): optional, so older callers stay valid.
+  // Translations (wp-content/languages, Zoer Connect 0.9.0): optional, so older callers stay valid.
   resources.languages = value.resources.languages === undefined ? false : bool(value.resources.languages, "resource");
   if (!Object.values(resources).includes(true)) fail("Select at least one resource.");
   const db = value.database ?? defaultDatabaseFilters();
@@ -126,7 +126,7 @@ export function assertExportCapabilities(pull, caps, where = "the source") {
   if ((pull.profile.themesMode || pull.profile.pluginsMode) && !caps?.resourceModes) missing.push("theme and plugin selection");
   if (pull.profile.mediaSince && !caps?.mediaSince) missing.push("media date filter");
   if (missing.length) fail(`Update Zoer Connect on ${where} to 0.4.0 to use ${missing.join(", ")}, or choose the default selection.`);
-  if (pull.profile.languages && !caps?.languages) fail(`Update Zoer Connect on ${where} to 0.8.1 to copy the translations folder, or leave translations out.`);
+  if (pull.profile.languages && !caps?.languages) fail(`Update Zoer Connect on ${where} to 0.9.0 to copy the translations folder, or leave translations out.`);
 }
 
 function row(value) {

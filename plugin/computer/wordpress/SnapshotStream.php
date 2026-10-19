@@ -7,12 +7,23 @@ namespace ZoerConnect;
  */
 final class SnapshotStream {
     public const HEADER = "-- Zoer Connect database snapshot\nSET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\nSET SQL_MODE='NO_AUTO_VALUE_ON_ZERO';\n";
+    /** Zoer Connect's paged source-maintenance export (0.8.x) wrote this header for
+     * the same format. Sources update separately from Zoer, so both are accepted; nothing else is. */
+    public const MAINTENANCE_HEADER = "-- Zoer Connect source-maintenance snapshot\nSET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\nSET SQL_MODE='NO_AUTO_VALUE_ON_ZERO';\n";
     public const MAX_RECORD_BYTES = 16777216;
     public static function initial(): array { return ['offset'=>0,'current'=>null,'seen'=>[],'done'=>false]; }
     public static function schema(string $sql, string $table): string {
         $prefix='CREATE TABLE `'.$table.'` ';
         if (!str_starts_with($sql,$prefix)) throw new \InvalidArgumentException('Unexpected schema header.');
         return preg_replace('/ AUTO_INCREMENT=[0-9]+(?= |$)/','',substr($sql,strlen($prefix)));
+    }
+    /** Leaves $h just after a supported header (the two differ in length). */
+    private static function header($h): void {
+        foreach ([self::HEADER,self::MAINTENANCE_HEADER] as $header) {
+            if (fseek($h,0)!==0) throw new \RuntimeException('Cannot resume snapshot.');
+            if (fread($h,strlen($header))===$header) return;
+        }
+        throw new \InvalidArgumentException('Unsupported snapshot header.');
     }
     private static function line($h): string {
         $line=fgets($h,self::MAX_RECORD_BYTES+2);
@@ -31,7 +42,7 @@ final class SnapshotStream {
         $records=[]; $bytes=0;
         try {
             if (fseek($h,$cursor['offset'])!==0) throw new \RuntimeException('Cannot resume snapshot.');
-            if ($cursor['offset']===0 && fread($h,strlen(self::HEADER))!==self::HEADER) throw new \InvalidArgumentException('Unsupported snapshot header.');
+            if ($cursor['offset']===0) self::header($h);
             for ($i=0;$i<$budget;$i++) {
                 $line=self::line($h); $bytes+=strlen($line);
                 if ($line==="SET FOREIGN_KEY_CHECKS=1;\n") {

@@ -21,6 +21,16 @@ const PUSH_SLICE_MS = 30_000;
 /** Output one more compare batch can add: its request and its 20 entries in the page commit. */
 const PREVIEW_BATCH_OUTPUT = 64 * 1024;
 const MANIFEST_BODY_BYTES = 8 * 1024 * 1024;
+/** Files one import manifest may name when the destination does not say (Zoer Connect StageStore::MAX_FILES). */
+const DEFAULT_MAX_FILES = 20_000;
+
+/** The destination's advertised import limits, falling back to the bounds every Zoer Connect enforces. */
+export function importLimits(status) {
+  const limits = status?.transferLimits ?? {};
+  const positive = value => Number.isSafeInteger(value) && value > 0;
+  return { maxFiles: positive(limits.maxFiles) ? limits.maxFiles : DEFAULT_MAX_FILES,
+    manifestBytes: positive(limits.manifestMaxBytes) ? Math.min(limits.manifestMaxBytes, MANIFEST_BODY_BYTES) : MANIFEST_BODY_BYTES };
+}
 const TERMINAL = ["complete", "rolled_back", "cancelled"];
 const CHANGED = "Connection changed. Restore the original connection to recover this import.";
 const GIB = 1024 ** 3;
@@ -416,8 +426,11 @@ export async function stepPush(state, input, ctx) {
     const status = state.phase === "submitting" && state.destination ? state.destination : await client.request("/status");
     if (!status.permissions?.push || !status.capabilities?.databaseImport || typeof status.target !== "string") fail(state.kind === "replace" ? "This site needs a verified plugin supporting imports and Push permission." : "The destination needs a verified plugin supporting imports and Push permission.");
     const built = await buildManifest(state, input, status, ctx);
+    // Refuse what the destination would refuse only after creating the import: nothing is sent yet.
+    const limits = importLimits(status), fileCount = built.manifest.files?.length ?? 0;
+    if (fileCount > limits.maxFiles) fail(`${status.target} accepts at most ${limits.maxFiles.toLocaleString("en-US")} files in one Push; this selection has ${fileCount.toLocaleString("en-US")}. Narrow the selection (for example media since a date) and push the rest separately. Nothing was sent.`);
     const body = JSON.stringify(built.manifest);
-    if (Buffer.byteLength(body) > MANIFEST_BODY_BYTES - 4096) fail("The import manifest exceeds the 8 MiB endpoint limit. Compare first and push a smaller selection.");
+    if (Buffer.byteLength(body) > limits.manifestBytes - 4096) fail(`The import manifest exceeds the destination's ${Math.floor(limits.manifestBytes / 1048576)} MiB limit. Compare first and push a smaller selection.`);
     // The manifest leaves the worker base64-encoded in one host call (counted as output).
     const manifestOutput = Buffer.byteLength(body) * 4 / 3 + 4096;
     if (manifestOutput > ctx.outputLimit - OUTPUT_RESERVE - 64 * 1024) fail("The import manifest is too large for one request from this worker. Compare first and push a smaller selection.");

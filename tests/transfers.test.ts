@@ -6,9 +6,9 @@ import { createTicketHost } from "../plugin/worker/lib/host.js";
 import { connectClient, mapConnectResponse } from "../plugin/worker/lib/zoer-connect.js";
 import { connectRefusal, validatePullFiles } from "../plugin/worker/lib/files.js";
 import { defaultExportOptions } from "../plugin/worker/lib/options.js";
-import { preparationMessage } from "../plugin/worker/lib/pull.js";
+import { mediaBaseline, preparationMessage } from "../plugin/worker/lib/pull.js";
 import { isTransient, runtimeError } from "../plugin/worker/lib/slices.js";
-import { statsText, waitingReason } from "../plugin/worker/lib/push.js";
+import { importLimits, statsText, waitingReason } from "../plugin/worker/lib/push.js";
 import { EXPORT_CREATE_INPUT_SCHEMA, schemaIssues } from "./fakes/ddev-schemas";
 
 const PULL = "a".repeat(32), PULL2 = "b".repeat(32), IMPORT = "c".repeat(32), COPY = "d".repeat(32), PREVIEW = "e".repeat(32), RESTORE = "f".repeat(32);
@@ -59,6 +59,38 @@ describe("transfer.pull", () => {
     const routes = source.log.map(l => `${l.method} ${l.route.replace(/\?.*$/, "")}`);
     expect(routes.slice(0, 3)).toEqual(["GET /status", "POST /exports", `POST /exports/${PULL}/step`]);
     expect(routes.slice(3).every(r => r === `GET /exports/${PULL}/chunks`)).toBe(true);
+  });
+
+  test("media since-last counts only from a successful, kept download", () => {
+    const media = { profile: { media: true } };
+    const records = [
+      { siteId: "hostinger-1", status: "ready", setId: "fs_1", createdAt: "2026-10-01T10:00:00Z", finishedAt: "2026-10-01T11:00:00Z", options: media },
+      { siteId: "hostinger-1", status: "failed", createdAt: "2026-10-05T10:00:00Z", finishedAt: "2026-10-05T10:05:00Z", options: media },
+      { siteId: "hostinger-1", status: "cancelled", createdAt: "2026-10-06T10:00:00Z", finishedAt: "2026-10-06T10:05:00Z", options: media },
+      { siteId: "hostinger-1", status: "dry-run", createdAt: "2026-10-07T10:00:00Z", finishedAt: "2026-10-07T10:05:00Z", options: media },
+      { siteId: "hostinger-1", status: "deleted", createdAt: "2026-10-08T10:00:00Z", finishedAt: "2026-10-08T10:05:00Z", options: media },
+      { siteId: "hostinger-1", status: "downloading", createdAt: "2026-10-09T10:00:00Z", options: media },
+      { siteId: "hostinger-1", status: "ready", setId: "fs_2", createdAt: "2026-10-10T10:00:00Z", finishedAt: "2026-10-10T11:00:00Z", options: { profile: { media: false } } },
+      { siteId: "other", status: "ready", setId: "fs_3", createdAt: "2026-10-11T10:00:00Z", finishedAt: "2026-10-11T11:00:00Z", options: media },
+    ];
+    expect(mediaBaseline(records, "hostinger-1")).toBe("2026-10-01");
+    // An old record without a status counts only when it kept a file set.
+    expect(mediaBaseline([...records, { siteId: "hostinger-1", createdAt: "2026-10-12T00:00:00Z", finishedAt: "x", options: media }], "hostinger-1")).toBe("2026-10-01");
+    expect(mediaBaseline([...records, { siteId: "hostinger-1", setId: "fs_4", createdAt: "2026-10-12T00:00:00Z", options: media }], "hostinger-1")).toBe("2026-10-12");
+    expect(mediaBaseline(records.filter(r => r.status !== "ready"), "hostinger-1")).toBeNull();
+  });
+
+  test("a since-last pull ignores a failed newer download and reports the resolved date", async () => {
+    const { w, source } = world();
+    const media = { profile: { media: true } };
+    w.catalog.records.set("pull:" + "1".repeat(32), { id: "pull:" + "1".repeat(32), kind: "pull", title: "ok", data: { v: 1, pullId: "1".repeat(32), siteId: "hostinger-1", status: "ready", setId: "fs_x", createdAt: "2026-09-01T00:00:00Z", finishedAt: "2026-09-01T01:00:00Z", options: media } });
+    w.catalog.records.set("pull:" + "2".repeat(32), { id: "pull:" + "2".repeat(32), kind: "pull", title: "failed", data: { v: 1, pullId: "2".repeat(32), siteId: "hostinger-1", status: "failed", createdAt: "2026-09-20T00:00:00Z", finishedAt: "2026-09-20T01:00:00Z", options: media } });
+    const options = defaultExportOptions();
+    const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL, exportOptions: { ...options, media: { ...options.media, mode: "since-last" } } });
+    expect(result.status).toBe("succeeded");
+    expect(source.exports.get(PULL)!.input.profile.mediaSince).toBe("2026-09-01");
+    expect((result.output as any).mediaSince).toBe("2026-09-01");
+    expect((result.output as any).summary).toContain("Media since 2026-09-01.");
   });
 
   test("paged manifests are declared page by page and read in batches", async () => {
@@ -433,6 +465,20 @@ describe("transfer.preview and transfer.push", () => {
     expect(routes).toContain("POST /imports");
     expect(routes).toContain(`GET /imports/${IMPORT}?view=upload`);
     expect(routes.filter(r => r === `POST /imports/${IMPORT}/batch`).length).toBeGreaterThan(0);
+  });
+
+  test("a selection with more files than the destination accepts stops before the import is created", async () => {
+    const { w, destination } = world();
+    destination.options.transferLimits = { maxFiles: 3 };
+    await pulled(w);
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
+    expect((result as any).output).toMatchObject({ status: "failed", phase: "creating" });
+    expect((result as any).output.error.message).toContain("https://dest.example accepts at most 3 files in one Push; this selection has 4.");
+    expect(destination.log.some(l => l.method === "POST" && l.route.startsWith("/imports"))).toBe(false);
+    // Without advertised limits the Zoer Connect bound (20,000 files, 8 MiB manifest) applies.
+    expect(importLimits({})).toEqual({ maxFiles: 20_000, manifestBytes: 8 * 1024 * 1024 });
+    expect(importLimits({ transferLimits: { maxFiles: 50_000, manifestMaxBytes: 4 * 1024 * 1024 } })).toEqual({ maxFiles: 50_000, manifestBytes: 4 * 1024 * 1024 });
+    expect(importLimits({ transferLimits: { maxFiles: -1, manifestMaxBytes: 64 * 1024 * 1024 } })).toEqual({ maxFiles: 20_000, manifestBytes: 8 * 1024 * 1024 });
   });
 
   test("compact import summaries are negotiated without changing upload or manifest contracts", async () => {
@@ -818,7 +864,7 @@ describe("copy.local", () => {
     expect(w.ddev.sites.get((plain as any).output.targetId)!.files.has("wp-content/languages/fr_FR.mo")).toBe(false);
     const old = new FakeWorld();
     old.addSite("hostinger-1", sampleSite("https://source.example", { capabilities: { languages: false } }));
-    expect(((await old.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop", languages: true })) as any).error.message).toContain("Update Zoer Connect on the source to 0.8.1");
+    expect(((await old.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop", languages: true })) as any).error.message).toContain("Update Zoer Connect on the source to 0.9.0");
     expect(old.ddev.sites.size).toBe(0);
   });
 

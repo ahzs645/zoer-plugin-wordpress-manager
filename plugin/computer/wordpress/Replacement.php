@@ -32,7 +32,36 @@ final class Replacement {
             if($r['mode']==='map'){foreach($r['pairs'] as $find=>$_)if(str_contains($value,(string)$find))return true;}
             elseif(str_contains($value,$r['find']))return true;
         }
-        return false;
+        // Escaped JSON text (a\"b, \u00e9) can hide a match that its decoded strings contain.
+        return str_contains($value,'\\')&&self::jsonContainer($value);
+    }
+    private static function jsonContainer(string $value): bool {
+        if(!preg_match('/^\s*[\[{]/',$value))return false;
+        if(function_exists('json_validate'))return json_validate($value);
+        json_decode($value);return json_last_error()===JSON_ERROR_NONE;
+    }
+    /** A JSON object or array: rules apply to each decoded string (keys and values), which is
+     * re-encoded in its original escaping style, so a replacement containing quotes or backslashes
+     * stays valid JSON. Bytes outside changed strings are kept exactly. Null when not JSON. */
+    private static function json(string $value,array $rules,int $depth): ?string {
+        if(!self::jsonContainer($value))return null;
+        // Valid JSON has no quote outside its string tokens, so this matches exactly those.
+        $out=preg_replace_callback('/"(?:[^"\\\\]++|\\\\.)*+"/s',static function($m)use($rules,$depth){
+            $text=json_decode($m[0]);if(!is_string($text))throw new \RuntimeException('Malformed JSON value.');
+            $next=self::walk($text,$rules,$depth+1);if($next===$text)return $m[0];
+            $flags=(str_contains($m[0],'\\u')?0:JSON_UNESCAPED_UNICODE)|(str_contains($m[0],'\\/')?0:JSON_UNESCAPED_SLASHES);
+            $encoded=json_encode($next,$flags);if(!is_string($encoded))throw new \RuntimeException('A replacement produced text that cannot be stored in JSON.');
+            return $encoded;
+        },$value);
+        if(!is_string($out))throw new \RuntimeException('JSON replacement failed or exceeded limits.');
+        if(strlen($out)>self::MAX_VALUE_BYTES)throw new \RuntimeException('Replacement output too large.');
+        return $out;
+    }
+    /** Columns whose bytes are never text: binary strings, BLOBs, BIT and spatial values.
+     * Replacement skips them, so matching bytes inside an image or hash stay unchanged. */
+    public static function binaryColumns(string $createTable): array {
+        preg_match_all('/^\s*`([A-Za-z0-9_]+)`\s+(?:binary|varbinary|tinyblob|blob|mediumblob|longblob|bit|geometry|geometrycollection|geomcollection|point|multipoint|linestring|multilinestring|polygon|multipolygon)\b/mi',$createTable,$m);
+        return array_values(array_unique($m[1]));
     }
     private static function serialized(string $value,int $depth): bool {
         try{SerializedReplacement::apply($value,static fn($text)=>$text,$depth);return true;}
@@ -48,6 +77,8 @@ final class Replacement {
         if(preg_match('/^(?:a|s|i|b|d|O|C|E|R|r):|^N;$/',$value)&&self::serialized($value,$depth)){
             return SerializedReplacement::apply($value,fn($text,$level)=>self::walk($text,$rules,$level),$depth);
         }
+        $json=self::json($value,$rules,$depth);
+        if($json!==null)return $json;
         foreach($rules as $r){
             if($r['mode']==='literal')$value=str_replace($r['find'],$r['replace'],$value);
             elseif($r['mode']==='map')$value=strtr($value,$r['pairs']);
