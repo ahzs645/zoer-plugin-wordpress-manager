@@ -526,7 +526,20 @@ describe("transfer.preview and transfer.push", () => {
     expect(manifest.files.map((f: any) => f.path)).toEqual(["wp-content/uploads/2024/01/photo.jpg"]);
     expect(manifest.files[0].expectedDestinationSha256).toBeNull();
     expect(manifest.resources).toMatchObject({ plugins: false, themes: false });
+    // With the database the source's active theme and plugins come along, not the destination's.
+    expect(manifest.options).toMatchObject({ keepActivePlugins: false, keepActiveTheme: false });
     expect(destination.site.get("wp-content/uploads/2024/01/photo.jpg")!.length).toBe(BLOCK * 2 + 12345);
+  });
+
+  test("a compared push without the database, or with an explicit choice, keeps the activation as chosen", async () => {
+    const { w, destination } = world();
+    await pulled(w);
+    await w.run("transfer.preview", { siteId: "external:dest", setId: `fs_${PULL}`, previewId: PREVIEW });
+    await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, previewId: PREVIEW, selectedPaths: ["wp-content/uploads/2024/01/photo.jpg"], ...confirm });
+    expect(destination.imports.get(IMPORT)!.manifest.options?.keepActiveTheme ?? null).toBeNull();
+    const kept = { replacements: { automatic: true, variants: false, paths: false, custom: [] }, keepActiveTheme: true, keepActivePlugins: null };
+    await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: PULL2, previewId: PREVIEW, selectedPaths: ["database.sql"], importOptions: kept, ...confirm });
+    expect(destination.imports.get(PULL2)!.manifest.options).toMatchObject({ keepActiveTheme: true, keepActivePlugins: false });
   });
 
   test("the import ID is checkpointed before the import is created; a lost answer picks up the same import", async () => {

@@ -225,6 +225,13 @@ async function buildManifest(state, input, status, ctx) {
   }
   const blocks = (entry) => entry.bytes === 0 ? [] : entry.blockSha256;
   const db = ordered.find(f => f.path === "database.sql");
+  // A compared push declares themes and plugins as not sent, so Zoer Connect removes nothing it did not
+  // receive; it then keeps the destination's active theme and plugins unless told otherwise. The pushed
+  // database carries the source's, so "automatic" means the source's activation here.
+  if (reviewed && db && pluginOptions && caps.keepActivePlugins === true) {
+    if (state.options.keepActivePlugins === null) pluginOptions.keepActivePlugins = false;
+    if (state.options.keepActiveTheme === null) pluginOptions.keepActiveTheme = false;
+  }
   const manifest = {
     id: state.importId, target: status.target, sourceUrl: pull.source.url, originalUrls: pull.source.originalUrls ?? [], sourcePrefix: pull.source.prefix, ...policy(status, input),
     database: db ? { bytes: db.bytes, sha256: db.sha256, chunkSha256: blocks(db) } : null,
