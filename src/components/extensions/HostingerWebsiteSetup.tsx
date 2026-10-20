@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type HostingerConnectionPublic } from "../../lib/api";
+import { api, type HostingerConnectionPublic, type WordPressDeployment } from "../../lib/api";
 import { wordpressQueries } from "../../lib/queries/wordpress";
 import { Btn as Btn } from "@zoer/plugin-ui/controls";
 import { Select as Select } from "@zoer/plugin-ui/controls";
@@ -16,7 +16,9 @@ const radioClass = "flex cursor-pointer items-start gap-2 rounded-md border bord
  * WordPress, install and pair Zoer Connect, so the site appears in Push to live; "Empty website" is
  * the earlier target for publishing through Hostinger's import.
  */
-export default function HostingerWebsiteSetup({connections,onCreated,newSite=false}:{connections:HostingerConnectionPublic[];onCreated:()=>void;/** In New site: always WordPress with Zoer Connect, a temporary domain ready, no destination tools. */newSite?:boolean}) {
+export default function HostingerWebsiteSetup({connections,onCreated,newSite=false,intro,createLabel,onStarted,confirmText}:{connections:HostingerConnectionPublic[];onCreated:()=>void;/** In New site: always WordPress with Zoer Connect, a temporary domain ready, no destination tools. */newSite?:boolean;
+  /** newSite: replaces the explanation above the form. */intro?:React.ReactNode;/** newSite: the create button's label. */createLabel?:string;
+  /** Called with the receipt once Hostinger accepted the website (Create a live site continues from it). */onStarted?:(deployment:WordPressDeployment)=>void|Promise<void>;/** The confirmation dialog's text. */confirmText?:string}) {
   const dialogs=useDialogs();
   const queryClient=useQueryClient();
   const [plan,setPlan]=useState("");
@@ -62,11 +64,11 @@ export default function HostingerWebsiteSetup({connections,onCreated,newSite=fal
   async function create() {
     if(busy||!chosen||!domain)return;
     const name=domain.trim().toLowerCase();const phrase=`CREATE ${name}`;
-    const typed=await dialogs.prompt({title:`Create ${name}?`,description:kind==="wordpress"?"Hostinger creates the website and installs WordPress, then Zoer installs and pairs Zoer Connect. This takes about 5 to 15 minutes. The site then appears in Push to live.":"Creates an empty website on the selected hosting plan. You can then publish a local WordPress site to it.",label:`Type ${phrase}`,submitLabel:"Create website"});
+    const typed=await dialogs.prompt({title:`Create ${name}?`,description:confirmText??(kind==="wordpress"?"Hostinger creates the website and installs WordPress, then Zoer installs and pairs Zoer Connect. This takes about 5 to 15 minutes. The site then appears in Push to live.":"Creates an empty website on the selected hosting plan. You can then publish a local WordPress site to it."),label:`Type ${phrase}`,submitLabel:"Create website"});
     if(typed!==phrase)return;
     setBusy("create");setError("");setNotice("");
     try{
-      if(kind==="wordpress"){await api.startHostingerTestSite(chosen.connectionId,{domain:name,orderId:chosen.orderId,adminEmail:adminEmail.trim()||undefined,datacenterCode:datacenter||undefined,confirmation:typed});setNotice(`Setting up ${name}. You can leave this page; progress is shown below.`);}
+      if(kind==="wordpress"){const {deployment}=await api.startHostingerTestSite(chosen.connectionId,{domain:name,orderId:chosen.orderId,adminEmail:adminEmail.trim()||undefined,datacenterCode:datacenter||undefined,confirmation:typed});setNotice(`Setting up ${name}. You can leave this page; progress is shown below.`);await onStarted?.(deployment);}
       else{await api.createHostingerWebsite({connectionId:chosen.connectionId,domain:name,orderId:chosen.orderId,datacenterCode:datacenter||undefined,confirmation:typed});setNotice("Website creation queued. Refresh destinations after Hostinger finishes setup.");}
       setDomain("");await deployments.refetch();void inventories.find((_,index)=>connections[index]?.id===chosen.connectionId)?.refetch();onCreated();
     }
@@ -87,7 +89,7 @@ export default function HostingerWebsiteSetup({connections,onCreated,newSite=fal
   }
 
   return <section className={newSite?"space-y-3":"space-y-3 rounded-md border border-border-default p-3"} aria-label="Create Hostinger destination">{!newSite&&<h4 className="text-sm font-semibold text-text-heading">Create Hostinger website</h4>}
-    {newSite?<p className="text-[12px] leading-5 text-text-secondary">Hostinger creates the website with WordPress, then Zoer installs and pairs <strong>Zoer Connect</strong>, so you can push to it and pull from it. About 5 to 15 minutes; it keeps going if you close this window.</p>:<fieldset className="grid gap-2 sm:grid-cols-2"><legend className="mb-1 text-sm">What to create</legend>
+    {newSite&&intro?intro:newSite?<p className="text-[12px] leading-5 text-text-secondary">Hostinger creates the website with WordPress, then Zoer installs and pairs <strong>Zoer Connect</strong>, so you can push to it and pull from it. About 5 to 15 minutes; it keeps going if you close this window.</p>:<fieldset className="grid gap-2 sm:grid-cols-2"><legend className="mb-1 text-sm">What to create</legend>
       <label className={radioClass}><input type="radio" name="hostinger-site-kind" className="mt-1" checked={kind==="wordpress"} disabled={!!busy} onChange={()=>setKind("wordpress")} /><span><span className="block text-sm font-medium">WordPress with Zoer Connect</span><span className="block text-xs text-text-secondary">Ready for Push to live from a local copy.</span></span></label>
       <label className={radioClass}><input type="radio" name="hostinger-site-kind" className="mt-1" checked={kind==="empty"} disabled={!!busy} onChange={()=>setKind("empty")} /><span><span className="block text-sm font-medium">Empty website</span><span className="block text-xs text-text-secondary">For publishing through Hostinger's import.</span></span></label>
     </fieldset>}
@@ -100,7 +102,7 @@ export default function HostingerWebsiteSetup({connections,onCreated,newSite=fal
       {kind==="wordpress"&&<label className="block text-sm sm:col-span-2">Administrator email<input aria-label="Administrator email" type="email" className={controlClass()} value={adminEmail} disabled={!!busy} onChange={e=>setAdminEmail(e.target.value)} placeholder="Leave empty to use the one on this account's other sites" /></label>}
     </div>
     <details><summary data-zoer-disclosure="" className="cursor-pointer py-1 text-[13px] text-text-secondary">Advanced</summary><label className="mt-2 block text-sm">Datacenter code (only for an account's first website)<input aria-label="Datacenter code" className={controlClass()} value={datacenter} disabled={!!busy} onChange={e=>setDatacenter(e.target.value)} /></label></details>
-    <div className="flex flex-wrap items-center gap-3 text-sm"><Btn variant="primary" disabled={!chosen||!domain||!!busy} loading={busy==="create"} onClick={()=>void create()}>{newSite?"Create website":"Review and create"}</Btn>{!newSite&&<><Btn disabled={!!busy} loading={loading} onClick={()=>{inventories.forEach(query=>void query.refetch());onCreated();}}>Refresh destinations</Btn><a href="https://hpanel.hostinger.com/websites" target="_blank" rel="noreferrer" className="text-accent underline">Open Hostinger websites</a></>}</div>
+    <div className="flex flex-wrap items-center gap-3 text-sm"><Btn variant="primary" disabled={!chosen||!domain||!!busy} loading={busy==="create"} onClick={()=>void create()}>{newSite?(createLabel??"Create website"):"Review and create"}</Btn>{!newSite&&<><Btn disabled={!!busy} loading={loading} onClick={()=>{inventories.forEach(query=>void query.refetch());onCreated();}}>Refresh destinations</Btn><a href="https://hpanel.hostinger.com/websites" target="_blank" rel="noreferrer" className="text-accent underline">Open Hostinger websites</a></>}</div>
     {kind==="wordpress"&&<p className="text-xs text-text-secondary">Zoer creates an administrator with a generated password, used only to pair Zoer Connect and then deleted. Open the site's admin later through Hostinger.</p>}
     {failures.map(text=><p key={text} role="alert" className="text-sm text-status-warning">{text}</p>)}
     {error&&<p role="alert" className="text-sm text-status-warning">{error}</p>}{notice&&<p role="status" className="text-sm">{notice}</p>}

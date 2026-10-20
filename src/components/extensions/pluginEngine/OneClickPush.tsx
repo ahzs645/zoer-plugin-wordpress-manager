@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Circle, Loader2, MinusCircle, Play, XCircle } from "lucide-react";
 import { Btn, checkboxClass, controlClass, fieldLabelClass, radioClass, textareaClass } from "@zoer/plugin-ui/controls";
 import type { WordPressManagedSite } from "../../../lib/api";
-import type { WordPressDiagnostics, ZoerConnectConnection } from "../../../lib/api/types/wordpress-transfer";
+import type { ImportOptions, WordPressDiagnostics, ZoerConnectConnection } from "../../../lib/api/types/wordpress-transfer";
 import { cancelRun, engineKeys, startEngineAction, useEngineRun, useRecentRuns } from "../../../lib/queries/plugin-engine";
 import { useWordPressDiagnostics } from "../../../lib/queries/wordpress-transfer";
 import { applyExportCapabilities, applyImportCapabilities, defaultImportOptions, exportOptionsErrors, exportOptionsForAction, defaultExportOptions } from "../../../lib/wordpress-transfer/options";
@@ -16,7 +16,8 @@ import ThemeOverrideWarnings from "./ThemeOverrideWarnings";
 import { abandonedPush, activeRunsOf, findOneClickPush, oneClickStages, type OneClickRuns, type PushStage } from "./oneClickRuns";
 import { ENGINE_ACTIONS, engineErrorMessage, isBusyError, isTerminalStatus, newHexId, progressView, runInput, runsOfSite, SITE_RUN_ACTIONS } from "./runState";
 
-type Mode = "code" | "everything";
+export type PushMode = "code" | "everything";
+type Mode = PushMode;
 const HIDDEN_PLUGINS = new Set(["zoer-connect"]);
 const host = (url: string) => url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
@@ -40,6 +41,54 @@ function Checklist({ label, items, selected, onChange, empty }: { label: string;
   </fieldset>;
 }
 
+/** Export options of a push: the whole site (Everything) or the chosen themes and plugins (Code only). */
+export function pushExportOptions(mode: Mode, themes: string[] = [], plugins: string[] = [], excludes = "") {
+  const raw = exportOptionsForAction("push", defaultExportOptions("push"));
+  const custom = [...new Set([...CODE_EXCLUDES, ...excludes.split("\n").map(line => line.trim()).filter(Boolean)])];
+  if (mode === "everything") return applyExportCapabilities({ ...raw, excludes: custom }, undefined, true).options;
+  const selection = { ...raw, resources: { ...raw.resources, themes: themes.length > 0, plugins: plugins.length > 0 }, themes: { mode: "selected" as const, items: themes }, plugins: { mode: "selected" as const, items: plugins }, excludes: custom };
+  return applyExportCapabilities(codeExportOptions(selection), undefined, true).options;
+}
+
+/** Import options of a push, staged with review (which a one-press push approves itself) and gated by the live site's plugin. */
+export function pushImportOptions(mode: Mode, importOptions: ImportOptions, caps: ZoerConnectConnection["status"]["capabilities"]) {
+  const requested = mode === "code" ? { ...importOptions, review: true, fence: "activation" as const, keepActivePlugins: true, keepActiveTheme: true, createTables: false, replaceGuids: false, replacements: { automatic: false, variants: false, paths: false, custom: [] } } : { ...importOptions, review: true };
+  return applyImportCapabilities(requested, caps).options;
+}
+
+/**
+ * Requests the approved push of the local export `pullId` (started now, or already running) and
+ * starts its comparison with the live site. The push waits for both, sends what differs and
+ * finishes by itself unless `reviewFirst`. Zoer asks for approval as soon as this is called.
+ */
+export async function requestOneClickPush({ source, destinationId, connection, pullId, mode, importOptions, reviewFirst = false, dryRun = false }: {
+  source: WordPressManagedSite; destinationId: string; connection: ZoerConnectConnection; pullId: string; mode: Mode; importOptions: ImportOptions; reviewFirst?: boolean; dryRun?: boolean;
+}) {
+  const caps = connection.status.capabilities;
+  const previewId = caps?.selectivePush === true ? newHexId() : null;
+  const push = await startEngineAction(ENGINE_ACTIONS.push, {
+    siteId: destinationId, exportPullId: pullId, sourceSiteId: source.id, importId: newHexId(), confirmTarget: connection.url, importOptions: pushImportOptions(mode, importOptions, caps),
+    ...(previewId ? { previewId, autoSelect: { database: mode === "everything" } } : {}), ...(mode === "code" ? { codeOnly: true } : {}),
+    finishAutomatically: !reviewFirst,
+    ...(connection.status.migrationMode === "shared-replacement" ? { replacementAccepted: true } : { wordpressOnlyWriters: true }), ...(dryRun ? { dryRun: true } : {}),
+  }, { approval: true });
+  try {
+    const preview = previewId ? await startEngineAction(ENGINE_ACTIONS.preview, { siteId: destinationId, previewId, exportPullId: pullId }) : null;
+    return { push, preview };
+  } catch (caught) {
+    // A push whose comparison could not start would only wait: withdraw it.
+    await cancelRun(push).catch(() => undefined);
+    throw caught;
+  }
+}
+
+/** Starts exporting a local site for a push; returns the pull ID the push waits for. */
+export async function startPushExport(source: WordPressManagedSite, exportOptions: ReturnType<typeof pushExportOptions>) {
+  const pullId = newHexId();
+  const runId = await startEngineAction(ENGINE_ACTIONS.localExport, { siteId: source.id, pullId, exportOptions });
+  return { pullId, runId };
+}
+
 /**
  * Push to live as one form: what to push, then one press. The export, the comparison with the
  * live site and the push start together on the Zoer server and wait for each other; Zoer asks
@@ -54,7 +103,6 @@ export function PushForm({ source, sourceBusy = false, onStartSource, onStarted,
   const client = useQueryClient();
   const caps = connection.status.capabilities;
   const target = connection.url;
-  const shared = connection.status.migrationMode === "shared-replacement";
   const canCompare = caps?.selectivePush === true;
   const codeSupported = canCompare && caps?.reviewPause === true && caps?.lateFence === true;
   const running = source.status === "running";
@@ -64,7 +112,9 @@ export function PushForm({ source, sourceBusy = false, onStartSource, onStarted,
   const [plugins, setPlugins] = useState<string[]>([]);
   // Extra patterns; CODE_EXCLUDES always apply (a code export adds them back regardless).
   const [excludes, setExcludes] = useState("");
-  const [importOptions, setImportOptions] = useState(defaultImportOptions);
+  // Everything replaces the database, so tables the live site lacks (a new site has none of the
+  // source's plugin tables) are created; Code only never sends the database.
+  const [importOptions, setImportOptions] = useState(() => ({ ...defaultImportOptions(), createTables: caps?.createTables === true }));
   const [reviewFirst, setReviewFirst] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [busy, setBusy] = useState<"push" | "test" | null>(null);
@@ -83,13 +133,7 @@ export function PushForm({ source, sourceBusy = false, onStartSource, onStarted,
   const themeItems = (inventory.data?.themes ?? []).map(t => ({ slug: t.slug, name: t.name || t.slug, detail: [t.active ? "active" : "", t.version ?? ""].filter(Boolean).join(" · ") }));
   const pluginItems = (inventory.data?.plugins ?? []).filter(p => !HIDDEN_PLUGINS.has(p.slug)).map(p => ({ slug: p.slug, name: p.name || p.slug, detail: [p.active ? "active" : "", p.version ?? ""].filter(Boolean).join(" · ") }));
 
-  const exportOptions = useMemo(() => {
-    const raw = exportOptionsForAction("push", defaultExportOptions("push"));
-    const custom = [...new Set([...CODE_EXCLUDES, ...excludes.split("\n").map(line => line.trim()).filter(Boolean)])];
-    if (mode === "everything") return applyExportCapabilities({ ...raw, excludes: custom }, undefined, true).options;
-    const selection = { ...raw, resources: { ...raw.resources, themes: themes.length > 0, plugins: plugins.length > 0 }, themes: { mode: "selected" as const, items: themes }, plugins: { mode: "selected" as const, items: plugins }, excludes: custom };
-    return applyExportCapabilities(codeExportOptions(selection), undefined, true).options;
-  }, [mode, themes, plugins, excludes]);
+  const exportOptions = useMemo(() => pushExportOptions(mode, themes, plugins, excludes), [mode, themes, plugins, excludes]);
   const chosen = themes.length + plugins.length;
   const blocker = !running ? `Start ${source.name} to push it.`
     : waiting ? (sourceBusy ? `Waiting for the transfer on ${source.name} to finish.` : `${source.name} is busy with another transfer. Trying again every few seconds.`)
@@ -97,29 +141,22 @@ export function PushForm({ source, sourceBusy = false, onStartSource, onStarted,
     : mode === "code" && !chosen ? "Choose at least one theme or plugin."
     : exportOptionsErrors(exportOptions)[0] ?? null;
   const extraExcludes = excludes.split("\n").filter(line => line.trim()).length;
-  const requested = mode === "code" ? { ...importOptions, review: true, fence: "activation" as const, keepActivePlugins: true, keepActiveTheme: true, createTables: false, replaceGuids: false, replacements: { automatic: false, variants: false, paths: false, custom: [] } } : { ...importOptions, review: true };
-  const gated = applyImportCapabilities(requested, caps).options;
+  const gated = pushImportOptions(mode, importOptions, caps);
   const typed = mode === "code" || host(confirmText.trim()).toLowerCase() === host(target).toLowerCase();
 
   async function start(dryRun: boolean) {
     setBusy(dryRun ? "test" : "push"); setError("");
-    const pullId = newHexId(), previewId = canCompare ? newHexId() : null;
-    let pushRun: string | null = null;
+    let started: { pullId: string; runId: string } | null = null;
     try {
-      // The approval request first, so Zoer asks right away; the push itself waits for the export and the comparison.
-      pushRun = await startEngineAction(ENGINE_ACTIONS.push, {
-        siteId: destinationId, exportPullId: pullId, sourceSiteId: source.id, importId: newHexId(), confirmTarget: target, importOptions: gated,
-        ...(previewId ? { previewId, autoSelect: { database: mode === "everything" } } : {}), ...(mode === "code" ? { codeOnly: true } : {}),
-        finishAutomatically: !reviewFirst,
-        ...(shared ? { replacementAccepted: true } : { wordpressOnlyWriters: true }), ...(dryRun ? { dryRun: true } : {}),
-      }, { approval: true });
-      const exportRun = await startEngineAction(ENGINE_ACTIONS.localExport, { siteId: source.id, pullId, exportOptions });
-      const previewRun = previewId ? await startEngineAction(ENGINE_ACTIONS.preview, { siteId: destinationId, previewId, exportPullId: pullId }) : null;
+      // The export starts first (no approval); requesting the push then has Zoer ask right away,
+      // and the push waits for the export and the comparison.
+      started = await startPushExport(source, exportOptions);
+      const runs = await requestOneClickPush({ source, destinationId, connection, pullId: started.pullId, mode, importOptions, reviewFirst, dryRun });
       setConfirmText("");
-      onStarted({ push: pushRun, export: exportRun, preview: previewRun });
+      onStarted({ push: runs.push, export: started.runId, preview: runs.preview });
     } catch (caught) {
-      // A push whose export could not start would only wait: withdraw it.
-      if (pushRun) await cancelRun(pushRun).catch(() => undefined);
+      // An export without its push is work for nothing: stop it.
+      if (started) await cancelRun(started.runId).catch(() => undefined);
       setError(engineErrorMessage(caught, "The push could not start."));
     } finally {
       setBusy(null);

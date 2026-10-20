@@ -36,7 +36,7 @@ function LastPush({ local, live, onOpen }: { local: WordPressManagedSite; live: 
  * Overview and on Publish): the pair, Push to live (one press: export, compare and push run by
  * themselves) and Pull from live, and how the last push went. From the live side: its local copies.
  */
-export default function SiteSyncCard({ site, live, copies, onPush, onRefresh, onSelect, onCompare, makeCopy, paused = false }: {
+export default function SiteSyncCard({ site, live, copies, onPush, onRefresh, onSelect, onCompare, makeCopy, onGoLive, goLive, paused = false }: {
   site: WordPressManagedSite;
   /** For a local site: the live site it was copied from, if any. */ live: WordPressManagedSite | null;
   /** For a live site: its local copies. */ copies: WordPressManagedSite[];
@@ -45,21 +45,25 @@ export default function SiteSyncCard({ site, live, copies, onPush, onRefresh, on
   onSelect: (site: WordPressManagedSite) => void;
   /** Compares a live site with one of its local copies. */ onCompare?: (live: WordPressManagedSite, local: WordPressManagedSite) => void;
   /** The live site's "Make a local copy" button. */ makeCopy?: React.ReactNode;
+  /** Create a live site for a local site that has none (needs a Hostinger account). */ onGoLive?: () => void;
+  /** A Create a live site process under way for this local site: its one-line state. */ goLive?: { text: string; tone: "running" | "warning" | "error" } | null;
   /** A transfer is changing this site: pushing and pulling wait for it. */ paused?: boolean;
 }) {
   const pausedNote = paused && <p className="text-xs text-status-warning">A transfer is changing this site. Push and pull come back when it finishes.</p>;
   if (LOCAL.includes(site.provider)) return <section aria-label="Local and live" className="space-y-3 rounded-lg border border-border-default p-4">
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
       <h4 className="text-sm font-semibold text-text-heading">Local and live</h4>
-      <LastPush local={site} live={live} onOpen={() => onPush(site)} />
+      {goLive ? <button type="button" onClick={onGoLive} className={`flex min-h-8 max-w-full items-center gap-1.5 text-left text-xs hover:underline ${goLive.tone === "error" ? "text-status-error" : goLive.tone === "warning" ? "text-status-warning" : "text-text-primary"}`}>{goLive.tone === "running" && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />}<span className="min-w-0 break-words">{goLive.text}</span></button>
+        : <LastPush local={site} live={live} onOpen={() => onPush(site)} />}
     </div>
     {live ? <div className="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center">
       <Node icon={<Server className="h-3 w-3" aria-hidden="true" />} label="This site · local" site={site} />
       <ArrowLeftRight className="h-4 w-4 shrink-0 self-center text-text-muted" aria-hidden="true" />
       <Node icon={<Globe2 className="h-3 w-3" aria-hidden="true" />} label="Live" site={live} onClick={() => onSelect(live)} />
-    </div> : <p className="text-sm text-text-secondary">Not linked to a live site yet. Push to any site connected with Zoer Connect.</p>}
+    </div> : <p className="text-sm text-text-secondary">No live site yet. Create one on Hostinger with a temporary domain, or push to a site you already connected.</p>}
     <div className="flex flex-wrap gap-2">
-      <Btn variant="primary" icon={<ArrowUp className="h-4 w-4" />} disabled={paused} onClick={() => onPush(site)}>{live ? "Push to live" : "Push to a live site"}</Btn>
+      {!live && onGoLive && <Btn variant="primary" icon={<Globe2 className="h-4 w-4" />} disabled={paused && !goLive} onClick={onGoLive}>{goLive ? "View live site setup" : "Create a live site"}</Btn>}
+      <Btn variant={!live && onGoLive ? "secondary" : "primary"} icon={<ArrowUp className="h-4 w-4" />} disabled={paused} onClick={() => onPush(site)}>{live ? "Push to live" : "Push to a live site"}</Btn>
       {live && <Btn icon={<ArrowDown className="h-4 w-4" />} disabled={paused} onClick={() => onRefresh(site, live)}>Pull from live</Btn>}
       {live && onCompare && <Btn variant="ghost" icon={<ArrowLeftRight className="h-4 w-4" />} onClick={() => onCompare(live, site)}>Compare</Btn>}
     </div>

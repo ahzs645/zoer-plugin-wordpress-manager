@@ -64,6 +64,8 @@ import WordPressUpdraftImport from "./WordPressUpdraftImport";
 import { wordpressExtensionActions, wordpressExtensionActionLabel, wordpressExtensionAutoUpdateLabel } from "./wordpressExtensionActions";
 import WordPressConnect from "./WordPressConnect";
 import PushToLiveDialog from "./PushToLiveDialog";
+import { GoLiveDialog, goLiveStage, useGoLiveOrchestrator, useGoLivePlans } from "./GoLive";
+import { hostingerTestSites } from "./hostingerTestSites";
 import SiteSyncCard from "./SiteSyncCard";
 import SiteCompareDialog from "./SiteCompareDialog";
 import PluginLocalCopy from "./pluginEngine/PluginLocalCopy";
@@ -173,6 +175,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   // A live Hostinger change refused until a recent hPanel backup is recorded; retried after recording.
   const [recoveryGate, setRecoveryGate] = useState<{ gate: RecoveryGate; input: { siteId: string; kind: WordPressExtensionKind; operation: WordPressExtensionOperation; slugs: string[] }; error?: string } | null>(null);
   const [pushFrom, setPushFrom] = useState<WordPressManagedSite | null>(null);
+  const [goLiveFor, setGoLiveFor] = useState<WordPressManagedSite | null>(null);
   /** The one local-copy dialog: pull `live` into `local`, or into a new copy when `local` is null. */
   const [pullInto, setPullInto] = useState<{ local: WordPressManagedSite | null; live: WordPressManagedSite } | null>(null);
   const [compare, setCompare] = useState<{ live: WordPressManagedSite; local: WordPressManagedSite } | null>(null);
@@ -788,6 +791,9 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     { label: "Refresh", iconOnly: true, tooltip: checkedAt ? `Last checked ${checkedAt}` : undefined, icon: <RefreshCw className="h-4 w-4" />, loading: busy === "refresh", disabled: busy !== null, onClick: () => void refreshAll() },
   ];
   const newSiteButton = <div className="flex flex-wrap gap-2"><Btn size="sm" onClick={() => setPilotOpen(true)}>Kubernetes pilot</Btn><Btn variant="primary" aria-label="New site" icon={<Plus className="h-4 w-4" />} onClick={() => { setCreateMode("blank"); setCreateOpen(true); }}>New site</Btn></div>;
+  // Create a live site: plans continue (link + push) while this page is open.
+  useGoLiveOrchestrator(sites);
+  const goLivePlans = useGoLivePlans();
   if (loading) return <PluginPage title={page} fill actions={headerActions} primary={newSiteButton}><div className="flex min-h-72 items-center justify-center text-[13px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading sites…</div></PluginPage>;
 
   const lifecycle = selected ? wordpressLifecycleAction(selected) : null;
@@ -826,8 +832,11 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     : null;
   // A website reachable through Zoer Connect always offers its Transfers, also when WordPress admin is the main button.
   const transfersAction = selected && canAdmin && connectSite?.provider === "zoer-connect" && connectSite.status === "connected" ? <WordPressConnect key={`transfers:${connectSite.id}`} siteId={connectSite.id} siteName={selected.name} label="Transfers" headerButton /> : null;
+  const goLivePlan = selected ? goLivePlans.find(plan => plan.sourceSiteId === selected.id) ?? null : null;
+  const goLiveState = goLivePlan ? goLiveStage(goLivePlan, hostingerTestSites(deploymentsQuery.data ?? []).find(site => site.id === goLivePlan.deploymentId)) : null;
   // Local and live: the same card on Overview and on Publish, so pushing and pulling have one place.
   const syncCard = selected && ["ddev", "kubernetes", "hostinger", "zoer-connect"].includes(selected.provider) ? <SiteSyncCard site={selected} live={selectedSource} copies={selectedCopies} onSelect={selectSite} onPush={setPushFrom} onRefresh={(local, live) => setPullInto({ local, live })} onCompare={(live, local) => setCompare({ live, local })} paused={transferWriting}
+    onGoLive={connections.length && ["ddev", "kubernetes"].includes(selected.provider) ? () => setGoLiveFor(selected) : undefined} goLive={goLivePlan && (!selectedSource || (!goLivePlan.pushRunId && !goLivePlan.error)) ? goLiveState : null}
     makeCopy={<Btn size="sm" onClick={() => setPullInto({ local: null, live: selected })}>{selectedCopies.length ? "Make another local copy" : "Make a local copy"}</Btn>} /> : null;
   const scopeSelect = (className: string, short = false) => <label className={className}><span className="sr-only">Show sites</span><Select aria-label="Show WordPress sites" presentation="dropdown" searchable={false} value={siteScope} onChange={event => setSiteScope(event.target.value as "all" | "local")} className={selectClass("compact", "w-full")}><option value="all">{short ? "All" : "All sites"}</option><option value="local">{short ? "Local" : "Local only"}</option></Select></label>;
 
@@ -982,6 +991,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
       </div>
 
       {pushFrom && <PushToLiveDialog key={pushFrom.id} source={sites.find(site => site.id === pushFrom.id) ?? pushFrom} onStartSource={() => void changeLifecycle(sites.find(site => site.id === pushFrom.id) ?? pushFrom)} sites={sites} onClose={() => setPushFrom(null)} onHosting={pushFrom.capabilities.deploySource && connections.length ? () => { openPublish(pushFrom); setPushFrom(null); } : undefined} />}
+      {goLiveFor && <GoLiveDialog key={goLiveFor.id} source={sites.find(site => site.id === goLiveFor.id) ?? goLiveFor} connections={connections} onClose={() => setGoLiveFor(null)} onStartSource={() => void changeLifecycle(sites.find(site => site.id === goLiveFor.id) ?? goLiveFor)} />}
       {compare && <SiteCompareDialog key={`${compare.live.id}:${compare.local.id}`} live={sites.find(site => site.id === compare.live.id) ?? compare.live} local={sites.find(site => site.id === compare.local.id) ?? compare.local} onClose={() => setCompare(null)} onStartSite={site => void changeLifecycle(site)} onReviewFiles={local => { setCompare(null); setPushFrom(local); }} />}
       {pullInto && (() => {
         const live = identity.connector(pullInto.live) ?? pullInto.live;
