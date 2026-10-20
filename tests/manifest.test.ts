@@ -7,8 +7,8 @@ test("package retains WordPress identity, isolated actions, native entrypoint an
  for(const action of manifest.integration.actions)expect(action.execution.kind).toBe("isolated-process");
  expect(manifest.integration.actions.map(a=>a.id)).toContain("site.start");expect(manifest.integration.actions.map(a=>a.id)).toContain("backup.restore");expect(recipe.manifest).toBe("plugin/manifest.json");expect(recipe.package).toBe("dist/package");
 });
-test("0.12.2 keeps the generic runtime names and the P3 transfer services",()=>{
- expect(manifest.version).toBe("0.12.2");expect(pkg.version).toBe(manifest.version);
+test("0.12.3 keeps the generic runtime names and the P3 transfer services",()=>{
+ expect(manifest.version).toBe("0.12.3");expect(pkg.version).toBe(manifest.version);
  const permissions=manifest.integration.permissions;
  for(const legacy of ["runtime:wordpress:read","runtime:wordpress:lifecycle","wordpress:wp-cli:read","wordpress:snapshots","wordpress:backups"])expect(permissions).not.toContain(legacy);
  expect([...permissions].sort()).toEqual(["database:linked-register","routes:hosted","runtime:backups","runtime:commands:read","runtime:commands:write","runtime:files","runtime:lifecycle","runtime:manage","runtime:read","runtime:snapshots","workspace:catalog","workspace:filesets","workspace:native","workspace:repositories","workspace:wordpress"]);
@@ -79,7 +79,7 @@ test("file rules and command bundles ship with the package",async()=>{
  const integration=manifest.integration as any;
  expect(integration.fileRules.map((r:any)=>r.id)).toEqual(["site-export","updraft-set","hostinger-backup"]);
  const siteExport=integration.fileRules[0];expect(siteExport.executables).toMatchObject({under:["wp-content/uploads/**"],allowPlaceholders:"php-silence"});expect(siteExport.exclude).toEqual(["**/wp-config.php","wp-content/plugins/zoer-connect/**"]);
- expect(integration.hostedRoutes).toEqual({family:"wp",profile:"https-upgrade",ports:[80,9400]});
+  expect(integration.hostedRoutes).toEqual({family:"wp",profile:"https-upgrade",ports:[80,8080,9400]});
  for(const command of integration.computerCommands){
   expect(command).toMatchObject({bundle:"computer/wordpress",targets:["runtime"],effect:"local_write"});expect(command.timeoutMs).toBeLessThanOrEqual(840000);
   expect(await Bun.file(new URL(`../plugin/${command.bundle}/${command.argv[1]}`,import.meta.url)).exists()).toBe(true);

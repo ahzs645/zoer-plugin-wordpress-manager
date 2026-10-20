@@ -5,10 +5,9 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { json } from "../api/_http";
-import { ActionFailedError, runAction } from "../../host/actions";
+import { runAction } from "../../host/actions";
 import { wordpressKeys } from "./wordpress";
 import type { WordPressDiagnostics, ZoerConnectConnection } from "../api/types/wordpress-transfer";
-import { LOCAL_INVENTORY_COMMANDS, parseLocalInventory } from "../wordpress-transfer/inventory";
 
 const connectPath = (siteId: string) => `/wordpress-manager/connect/${encodeURIComponent(siteId)}`;
 export const transferKeys = {
@@ -50,44 +49,14 @@ export async function readSiteDiagnostics(siteId: string): Promise<WordPressDiag
   return result.diagnostics;
 }
 
-const WORKER_CLEANUP_WAIT = "Waiting for prior plugin worker cleanup. Its run has ended but its worker is still present; retry resume after workflow recovery removes it.";
-// Normal pod termination takes one second; the host's recovery sweep runs every 30 seconds.
-// Share this 35-second budget across the entire inventory, rather than retrying each command independently.
-const LOCAL_INVENTORY_RETRY_DELAYS = [2_000, 3_000, 30_000] as const;
-const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
-// Each read has its own lock (readId): reads neither wait for transfers of the site nor refuse one another.
-const localInventoryRead = (siteId: string, args: readonly string[]) =>
-  runAction<{ summary: string }>("wpcli.read", { readId: crypto.randomUUID().replaceAll("-", ""), siteId, args: [...args] }, { timeoutMs: 3 * 60_000 }).then(r => r.summary ?? "");
-
-function isWorkerCleanupWait(error: unknown): boolean {
-  // Cancellation and an unknown action outcome must never start another action.
-  if (error instanceof ActionFailedError && error.run.status !== "failed") return false;
-  return error instanceof Error && (error.message === WORKER_CLEANUP_WAIT ||
-    error.message === `Integration kubernetes worker failed to start: ${WORKER_CLEANUP_WAIT}`);
-}
-
-/** A running local DDEV site's tables, plugins and themes through bounded read-only WP-CLI. */
+/** One cached host read collects tables, post types, plugins and themes without temporary workers. */
 export async function readLocalInventory(siteId: string, dependencies: {
-  read?: typeof localInventoryRead;
-  pause?: typeof pause;
+  inventory?: (siteId: string) => Promise<{ inventory: WordPressDiagnostics }>;
 } = {}): Promise<WordPressDiagnostics> {
-  const readCommand = dependencies.read ?? localInventoryRead;
-  const wait = dependencies.pause ?? pause;
-  let retries = 0;
-  const read = async (args: readonly string[]) => {
-    for (;;) {
-      try { return await readCommand(siteId, args); }
-      catch (error) {
-        if (!isWorkerCleanupWait(error) || retries >= LOCAL_INVENTORY_RETRY_DELAYS.length) throw error;
-        await wait(LOCAL_INVENTORY_RETRY_DELAYS[retries++]);
-      }
-    }
-  };
-  // Finished workers are removed asynchronously. Parallel actions can contend with that host guard.
-  const tables = await read(LOCAL_INVENTORY_COMMANDS.tables);
-  const plugins = await read(LOCAL_INVENTORY_COMMANDS.plugins);
-  const themes = await read(LOCAL_INVENTORY_COMMANDS.themes);
-  return parseLocalInventory({ tables, plugins, themes });
+  const read = dependencies.inventory ?? (id => json<{ inventory: WordPressDiagnostics }>(`/wordpress-manager/sites/${encodeURIComponent(id)}/transfer-inventory`));
+  const { inventory } = await read(siteId);
+  if (!inventory || !Array.isArray(inventory.database?.tables) || !Array.isArray(inventory.plugins) || !Array.isArray(inventory.themes)) throw new Error("The local site returned an incomplete inventory.");
+  return inventory;
 }
 
 /** Zoer Connect diagnostics of a connected site, or the inventory of a local DDEV export source. */

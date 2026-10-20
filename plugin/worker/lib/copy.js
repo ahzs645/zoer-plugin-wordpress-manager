@@ -10,6 +10,7 @@ import { defaultExportOptions, validateExportOptions, validateReplacementRows } 
 import { HEX32, pullOfSet, pullSpec, releaseRemoteExport, runHex } from "./pull.js";
 import { fail, TransferError, UPLOAD_RUNTIME_REQUESTS } from "./slices.js";
 import { validateUpdraftSet, validateHostingSet } from "./updraft.js";
+import { isManagedSiteId, sitePort, destinationProfile } from "./managed-site.js";
 
 export const RUNTIME_ALIAS = "wordpress_site";
 const FILE_BATCH = 2000;
@@ -169,6 +170,7 @@ export async function startCopy(input, ctx) {
   const copyId = input.copyId ?? runHex(request);
   if (!HEX32.test(copyId)) fail("A valid copy request ID is required.");
   const state = { v: 1, kind: "copy", copyId, siteId: input.siteId, phase: "pulling", dryRun: input.dryRun === true, users: userMode(input.users), fileOffset: 0, startedAt: new Date(now()).toISOString() };
+  if (input.runtimeProfile !== undefined) state.runtimeProfile = destinationProfile(input.runtimeProfile);
   if (input.scope !== undefined && !["complete", "database", "without-media", "files"].includes(input.scope)) fail("Choose a complete, database-only, no-media or files-only refresh.");
   if (input.keepLocalDesign !== undefined && typeof input.keepLocalDesign !== "boolean") fail("Choose whether to keep local pages and blocks.");
   const scope = input.scope ?? "complete";
@@ -181,7 +183,7 @@ export async function startCopy(input, ctx) {
   const opts = copyOptions(input, scope, refresh, state.users);
   state.options = opts;
   if (refresh) {
-    if (typeof input.replaceSiteId !== "string" || !input.replaceSiteId.startsWith("ddev-")) fail("Choose a local DDEV copy to refresh.");
+    if (!isManagedSiteId(input.replaceSiteId)) fail("Choose a managed local copy to refresh.");
     if (state.dryRun) fail("A dry run creates its own scratch site; refresh an existing copy without a dry run.");
     const copies = (await listKind(host, "local-copy")).map(r => r.data).filter(d => d?.targetId === input.replaceSiteId && d.sourceSiteId === input.siteId && d.phase === "complete");
     if (!copies.length) fail("Only a completed local copy that Zoer created from this same site can be refreshed.");
@@ -209,7 +211,7 @@ export async function startCopy(input, ctx) {
     state.setId = input.pullSetId;
     state.phase = "checking";
   } else {
-    state.pull = await pullSpec("pull").start({ siteId: input.siteId, pullId: copyId, exportOptions: copyExportOptions(scope, opts, state.mediaSince), ...(opts.pace ? { pace: opts.pace } : {}) }, ctx);
+    state.pull = await pullSpec(isManagedSiteId(input.siteId) ? "local-export" : "pull").start({ siteId: input.siteId, pullId: copyId, exportOptions: copyExportOptions(scope, opts, state.mediaSince), ...(opts.pace ? { pace: opts.pace } : {}) }, ctx);
     state.pullOwned = true;
   }
   return state;
@@ -223,6 +225,7 @@ export async function startRestore(input, ctx) {
   if (!name) fail("Invalid backup site name.");
   const dryRun = input.dryRun === true;
   return { v: 1, kind: "restore", copyId: restoreId, setId: input.uploadSetId, name, siteName: dryRun ? `zoer-dryrun-${restoreId.slice(0, 8)}` : `${name.slice(0, 50)}-${restoreId.slice(0, 8)}`,
+    ...(input.runtimeProfile !== undefined ? { runtimeProfile: destinationProfile(input.runtimeProfile) } : {}),
     phase: "checking", dryRun, users: userMode(input.users), fileOffset: 0, startedAt: new Date(now()).toISOString() };
 }
 
@@ -355,15 +358,16 @@ async function ensureSite(state, ctx) {
     const listed = await runtime(host, "runtime.list.v1", undefined, {});
     // A replayed slice finds the site it created before (by name, or by the DDEV ID derived from it).
     const slug = `ddev-${state.siteName.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "")}`;
-    const existing = (listed?.resources ?? []).find(r => (r?.name === state.siteName || r?.id === slug) && r.state !== "archived");
-    const resource = existing ?? (await runtime(host, "runtime.create.v1", undefined, { name: state.siteName, profile: "wordpress-ddev" })).resource;
+    const profile = state.runtimeProfile ?? "wordpress-ddev";
+    const existing = (listed?.resources ?? []).find(r => (r?.name === state.siteName || r?.id === slug) && (profile === "wordpress-kubernetes" ? String(r.id).startsWith("wpilot-") : String(r.id).startsWith("ddev-")) && r.state !== "archived");
+    const resource = existing ?? (await runtime(host, "runtime.create.v1", undefined, { name: state.siteName, profile })).resource;
     if (!resource?.id) fail("Local site is being provisioned. Retry to discover the reserved site.", { transient: true });
     state.targetId = resource.id;
   }
   const { resource } = await runtime(host, "runtime.inspect.v1", state.targetId);
   if (resource?.status !== "running") return false;
   if (!state.targetUrl) {
-    const { route } = await host.call("routes.assign", { runtimeAlias: RUNTIME_ALIAS, resourceId: state.targetId, port: 80, name: state.siteName.slice(0, 100) });
+    const { route } = await host.call("routes.assign", { runtimeAlias: RUNTIME_ALIAS, resourceId: state.targetId, port: sitePort(state.targetId), name: state.siteName.slice(0, 100) });
     const url = String(route?.url ?? "").replace(/\/+$/, "");
     if (!/^https:\/\/[^\s/]+/.test(url)) fail("Local site is being provisioned. Retry to discover the reserved site.", { transient: true });
     state.targetUrl = url;
@@ -423,7 +427,7 @@ function nested(ctx) {
 export async function stepCopy(state, input, ctx) {
   const { host } = ctx;
   if (state.phase === "pulling") {
-    const outcome = await pullSpec("pull").step(state.pull, input, nested(ctx));
+    const outcome = await pullSpec(state.pull.kind === "local-export" ? "local-export" : "pull").step(state.pull, input, nested(ctx));
     if (outcome.kind === "continue") return ctx.continue(state, { ...outcome.progress, phase: `pulling: ${outcome.progress?.phase ?? "working"}` }, outcome.waitMs);
     state.setId = outcome.output.setId;
     // The verified download is on Zoer now; free the source for the next pull or refresh.
@@ -538,7 +542,7 @@ export function copySummary(state, copied = "") {
 
 /** Cleanup after a cancel while still pulling: the embedded pull's remote export and partial set go. */
 export async function cancelCopy(state, input, ctx) {
-  if (state?.phase === "pulling" && state.pull) await pullSpec("pull").cancel(state.pull, input, ctx);
+  if (state?.phase === "pulling" && state.pull) await pullSpec(state.pull.kind === "local-export" ? "local-export" : "pull").cancel(state.pull, input, ctx);
 }
 
 /** History record of a failed local copy or backup restore (named like the host engine's local copies). */

@@ -140,6 +140,8 @@ export function describeRun(run: Pick<EngineRun<unknown>, "status" | "error" | "
       const after = output.cancelledImport ? (output.cleanedUp ? " The staged import was cancelled and its files removed from the site; nothing was activated." : " The staged import was cancelled; nothing was activated.") : "";
       return { ...base, label: "Failed", tone: "error", terminal: true, working: false, reason: `${message}${after}`, buttons: [] };
     }
+    // A one-click push that found nothing new: nothing was sent, so there is nothing to roll back.
+    if (output.status === "unchanged") return { ...base, label: "Already up to date", tone: "success", terminal: true, working: false, reason: output.summary ?? null, buttons: [] };
     if (output.status === "rolled_back") return { ...base, label: "Rolled back · nothing was activated", tone: "neutral", terminal: true, working: false, reason: output.summary ?? null, buttons: remote && !later.cleanedUp && output.cleanedUp !== true ? ["cleanup"] : [] };
     const cleanedUp = output.cleanedUp === true || later.cleanedUp === true;
     if (remote && output.status === "complete" && later.rolledBack) {

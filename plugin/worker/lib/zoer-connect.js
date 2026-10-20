@@ -114,9 +114,26 @@ export function connectClient(host, endpoint, generation = endpoint.generation, 
   };
 }
 
+/**
+ * A WordPress installation may still declare its canonical home with HTTP behind an HTTPS
+ * proxy. Compare only that scheme difference; requests remain bound to the HTTPS endpoint.
+ * Host, installation path, ports and all other URL components must still match exactly.
+ */
+export function sameSiteTarget(origin, target) {
+  if (typeof origin !== "string" || typeof target !== "string" || /[\s\\%?#]/.test(origin + target)) return false;
+  let endpoint;
+  try { endpoint = new URL(origin); } catch { return false; }
+  if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password) return false;
+  // Preserve exact HTTPS identities, including an explicitly recorded legacy port.
+  if (trimSlash(target) === trimSlash(origin)) return true;
+  // Scheme compatibility applies only to ordinary port-free installation addresses.
+  if (endpoint.port || /:\d+$/.test(origin.split("/")[2]) || !/^http:\/\//.test(target)) return false;
+  return trimSlash(target.replace(/^http:/, "https:")) === trimSlash(origin);
+}
+
 /** The checks Zoer applied to a pasted connection (target, version, connection key) and the saved status shape. */
 export function parseStatus(origin, body) {
-  if (typeof body?.target !== "string" || trimSlash(body.target) !== trimSlash(origin) || typeof body.version !== "string" || !/^\d+\.\d+\.\d+$/.test(body.version) || body.capabilities?.connectionKey !== true) {
+  if (!sameSiteTarget(origin, body?.target) || typeof body.version !== "string" || !/^\d+\.\d+\.\d+$/.test(body.version) || body.capabilities?.connectionKey !== true) {
     throw new TransferError("The response does not match this site or Zoer Connect 0.2+.");
   }
   return body;

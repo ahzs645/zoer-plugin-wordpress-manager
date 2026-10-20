@@ -115,7 +115,7 @@ export function existingCopies(copies: LocalCopyRecord[], sourceSiteId: string) 
 export function refreshCandidates(copies: LocalCopyRecord[], sourceSiteId: string) {
   const byTarget = new Map<string, LocalCopyRecord>();
   for (const copy of copies) {
-    if (copy.kind !== "copy" || copy.phase !== "complete" || copy.sourceSiteId !== sourceSiteId || !copy.targetId.startsWith("ddev-")) continue;
+    if (copy.kind !== "copy" || copy.phase !== "complete" || copy.sourceSiteId !== sourceSiteId || !/^(?:ddev-[a-z0-9-]+|wpilot-[a-f0-9]{12})$/.test(copy.targetId)) continue;
     const seen = byTarget.get(copy.targetId);
     if (!seen || String(copy.finishedAt ?? copy.createdAt ?? "") > String(seen.finishedAt ?? seen.createdAt ?? "")) byTarget.set(copy.targetId, copy);
   }

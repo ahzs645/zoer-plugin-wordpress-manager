@@ -63,12 +63,16 @@ zoer_main(function (): void {
     if (!in_array($plan['scope'] ?? 'complete', ['database', 'files'], true)) zoer_wp(['rewrite', 'flush', '--hard'], $fail, 300, ['--skip-plugins', '--skip-packages']);
     @unlink($stage . '/pending');
     $path = ($url['path'] ?? '') === '' ? '/' : $url['path'];
-    [$code, $status] = zoer_run(['curl', '-sk', '-H', 'X-Forwarded-Proto: https', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '20', '--resolve', $url['host'] . ':443:127.0.0.1', 'https://' . $url['host'] . $path], 30);
+    // The native runtime terminates public HTTPS at Zoer; its private Apache listens on 8080.
+    $native = getenv('ZOER_WORDPRESS_HTTP_PORT') === '8080';
+    $port = $native ? '8080' : '443';
+    [$code, $status] = zoer_run(['curl', '-sk', '-H', 'X-Forwarded-Proto: https', '-H', 'Host: ' . $url['host'], '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '20', '--resolve', $url['host'] . ':' . $port . ':127.0.0.1', ($native ? 'http://' : 'https://') . $url['host'] . ($native ? ':8080' : '') . $path], 30);
     if ($code !== 0 || trim($status) !== '200') {
         zoer_write($stage . '/pending', 'pending');
         throw new ZoerCommandError('Local website verification failed.');
     }
     // The tables the cutover replaced are not a recovery point (a refresh takes a DDEV backup first).
     $cleaned = zoer_drop_replaced_tables($stage);
+    zoer_write($stage . '/completed.json', json_encode(['ok' => true, 'completedAt' => gmdate('c')]), 0600);
     echo json_encode(['ok' => true, 'http' => 200, 'replacedTablesDropped' => $cleaned, ...($pruned !== null ? ['pruned' => $pruned] : [])]), "\n";
 }, 'Local copy operation failed. The partial destination and private staging are retained for inspection or retry.');

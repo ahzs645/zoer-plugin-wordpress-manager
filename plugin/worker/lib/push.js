@@ -56,20 +56,65 @@ function policy(status, input) {
 // Preview (compare the source set with the destination, 20 paths per request)
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * How long a compare or push waiting for an earlier run of the same one-click push sleeps before
+ * looking again: 5 s at first, then longer (every look is a worker slice), at most 30 s.
+ */
+const waitMs = (state) => Math.min(30_000, 5_000 + 2_500 * (state.waits = (state.waits ?? 0) + 1) - 2_500);
+/** The pause after the import was asked to finish, before reading it again. */
+const WAIT_MS = 5_000;
+/** A waited-for export or comparison that has not even started after this long is given up. */
+const START_WAIT_MS = 30 * 60_000;
+
+/**
+ * The local export a one-click push waits for (`exportPullId`): its set once it is ready, null
+ * while it runs. A failed, cancelled or deleted export, or one that never starts, fails the wait.
+ */
+async function awaitedExport(host, pullId, waitingSince, now, what) {
+  const record = (await readRecord(host, `pull:${pullId}`))?.data;
+  if (!record) {
+    if (now - waitingSince > START_WAIT_MS) fail(`The local export did not start. Nothing was ${what}.`);
+    return null;
+  }
+  if (record.status === "downloading") return null;
+  if (record.status !== "ready" || typeof record.setId !== "string") fail(`The local export ${record.status === "cancelled" ? "was cancelled" : record.status === "failed" ? "failed" : "is not available"}. Nothing was ${what}.`);
+  return pullOfSet(host, record.setId);
+}
+
+/** Starts comparing `set` (a waited-for export that just became ready, or the input's set). */
+function beginCompare(state, set, pull, now) {
+  const created = now;
+  delete state.waits;
+  Object.assign(state, { setId: set.id ?? state.setId, pullId: pull.pullId, total: set.entryCount, waiting: false,
+    createdAt: new Date(created).toISOString(), expiresAt: new Date(created + PREVIEW_TTL_MS).toISOString() });
+}
+
 export const previewSpec = {
   async start(input, { host, request, now }) {
     if (!HEX32.test(input.previewId ?? "")) fail("A valid preview ID is required.");
     const endpoint = endpointOf(request, input.siteId);
     const status = await connectClient(host, endpoint).request("/status");
     if (!status.permissions?.push || !status.capabilities?.selectivePush) fail("Update the destination Zoer Connect plugin for selective Push and enable Push permission.");
+    const state = { v: 1, previewId: input.previewId, siteId: input.siteId, setId: input.setId ?? null, pullId: null, generation: endpoint.generation, cursor: 0, page: 0, total: 0,
+      counts: { new: 0, changed: 0, unchanged: 0, blocked: 0, database: 0 }, createdAt: null, expiresAt: null };
+    // One-click push: compare the local export started with it as soon as that export is ready.
+    if (input.exportPullId !== undefined) {
+      if (input.setId !== undefined || !HEX32.test(input.exportPullId)) fail("Compare either a verified download or the local export being made, not both.");
+      return { ...state, exportPullId: input.exportPullId, waiting: true, waitingSince: new Date(now()).toISOString() };
+    }
     const { set, pull } = await pullOfSet(host, input.setId);
     if (pull.siteId === input.siteId) fail("Choose a different local source export.");
-    const created = now();
-    return { v: 1, previewId: input.previewId, siteId: input.siteId, setId: input.setId, pullId: pull.pullId, generation: endpoint.generation, cursor: 0, page: 0, total: set.entryCount,
-      counts: { new: 0, changed: 0, unchanged: 0, blocked: 0, database: 0 }, createdAt: new Date(created).toISOString(), expiresAt: new Date(created + PREVIEW_TTL_MS).toISOString() };
+    beginCompare(state, { ...set, id: input.setId }, pull, now());
+    return state;
   },
   async step(state, input, ctx) {
     const { host, request } = ctx;
+    if (state.waiting) {
+      const ready = await awaitedExport(host, state.exportPullId, Date.parse(state.waitingSince), ctx.now(), "compared");
+      if (!ready) return ctx.continue(state, { phase: "waiting for export", message: "Waiting for the local export to finish." }, waitMs(state));
+      if (ready.pull.siteId === state.siteId) fail("Choose a different local source export.");
+      beginCompare(state, { ...ready.set, id: ready.pull.setId }, ready.pull, ctx.now());
+    }
     const client = connectClient(host, endpointOf(request, state.siteId), state.generation);
     // Pages of ≤ 400 files, each committed with the summary, until the slice's time or output
     // budget runs out (the page and every compare request count against maxOutputBytes).
@@ -82,6 +127,13 @@ export const previewSpec = {
     // The result is the preview's summary (the same as its catalog record), never empty.
     return ctx.done({ previewId: state.previewId, siteId: state.siteId, setId: state.setId, pullId: state.pullId ?? null, complete: true, total: state.total, pages: state.page, counts: state.counts,
       createdAt: state.createdAt, expiresAt: state.expiresAt, summary: previewSummaryText(state) }, progress);
+  },
+  /** A push waiting for this comparison learns it failed from its record, instead of waiting on. */
+  async failed(state, input, ctx, error) {
+    if (!state?.previewId) return;
+    await commitRecords(ctx.host, [{ id: `preview:${state.previewId}`, kind: "preview", title: `Preview ${state.previewId.slice(0, 8)}`,
+      data: { v: 1, previewId: state.previewId, siteId: state.siteId, setId: state.setId, pullId: state.pullId, generation: state.generation, createdAt: state.createdAt, expiresAt: state.expiresAt,
+        cursor: state.cursor, total: state.total, pages: state.page, counts: state.counts, complete: false, failed: true, error: String(error?.message ?? "The comparison failed.").slice(0, 300) } }]);
   },
 };
 
@@ -165,23 +217,78 @@ export async function startPush(kind, input, ctx) {
     if (kind !== "push" || !input.previewId) fail("Code updates require a completed file comparison.");
     state.codeOnly = true;
   }
+  if (input.finishAutomatically !== undefined) {
+    if (kind !== "push" || typeof input.finishAutomatically !== "boolean") fail("Choose whether the push finishes by itself.");
+    if (input.finishAutomatically) state.finishAutomatically = true;
+  }
   if (kind === "replace") {
     state.options = validateImportOptions(input.importOptions, { requireCustom: true });
     state.tables = validateTableSuffixes(input.tables) ?? null;
   } else {
-    if (typeof input.setId !== "string") fail("Choose a verified local export or completed pull as the source.");
-    const { pull } = await pullOfSet(host, input.setId);
-    if (pull.siteId === input.siteId) fail("Choose a different source and confirm the destination replacement policy.");
-    if (pull.options?.profile?.muplugins || pull.options?.profile?.core) fail("Import supports database, themes, plugins and media. Exclude core and must-use plugins.");
-    state.setId = input.setId;
     state.options = input.importOptions === undefined ? legacyImportOptions() : validateImportOptions(input.importOptions);
-    if (input.previewId !== undefined) {
+    if (input.exportPullId !== undefined) {
+      // One-click push: the local export (and its comparison) started with this push; it waits for them.
+      if (input.setId !== undefined || !HEX32.test(input.exportPullId)) fail("Push either a verified download or the local export being made, not both.");
+      if (typeof input.sourceSiteId !== "string" || !input.sourceSiteId) fail("Name the local site being exported.");
+      state.exportPullId = input.exportPullId;
+      state.phase = "waiting";
+      state.waitingSince = state.startedAt;
+    } else {
+      if (typeof input.setId !== "string") fail("Choose a verified local export or completed pull as the source.");
+      checkSource(input, (await pullOfSet(host, input.setId)).pull);
+      state.setId = input.setId;
+    }
+    if (input.autoSelect !== undefined) {
+      // The files the comparison finds new or changed (and the database when asked), chosen by the worker.
+      const auto = input.autoSelect;
+      if (!auto || typeof auto !== "object" || Array.isArray(auto) || Object.keys(auto).some(key => key !== "database") || (auto.database !== undefined && typeof auto.database !== "boolean")) fail("Choose a valid automatic selection.");
+      if (input.selectedPaths !== undefined || !HEX32.test(input.previewId ?? "")) fail("An automatic selection needs a comparison and no file list.");
+      state.previewId = input.previewId;
+      state.autoSelect = { database: auto.database === true };
+    } else if (input.previewId !== undefined) {
       if (!HEX32.test(input.previewId)) fail("Preview is incomplete, expired or changed. Compare again.");
       if (!Array.isArray(input.selectedPaths) || !input.selectedPaths.length || input.selectedPaths.some(p => typeof p !== "string") || new Set(input.selectedPaths).size !== input.selectedPaths.length) fail("Select files or the database once each.");
       state.previewId = input.previewId;
     } else if (input.selectedPaths !== undefined) fail("File selection requires a completed preview.");
   }
   return state;
+}
+
+/** Source checks shared by a chosen download and a waited-for local export. */
+function checkSource(input, pull) {
+  if (pull.siteId === input.siteId) fail("Choose a different source and confirm the destination replacement policy.");
+  if (pull.options?.profile?.muplugins || pull.options?.profile?.core) fail("Import supports database, themes, plugins and media. Exclude core and must-use plugins.");
+  if (input.exportPullId !== undefined && (pull.kind !== "local-export" || pull.siteId !== input.sourceSiteId)) fail("The local export does not belong to the site being pushed.");
+}
+
+/**
+ * One slice of a one-click push waiting for its local export and then its comparison. Returns
+ * the envelope to end the slice with, or null once the source set (and comparison) are ready.
+ */
+async function waitForSource(state, input, ctx) {
+  const { host } = ctx;
+  if (!state.setId) {
+    const ready = await awaitedExport(host, state.exportPullId, Date.parse(state.waitingSince), ctx.now(), "sent");
+    if (!ready) return ctx.continue(state, { phase: "exporting", message: "Exporting the local site." }, waitMs(state));
+    checkSource(input, ready.pull);
+    state.setId = ready.pull.setId;
+    state.waitingSince = new Date(ctx.now()).toISOString();
+    state.waits = 0;
+  }
+  if (state.previewId) {
+    const summary = (await readRecord(host, `preview:${state.previewId}`))?.data;
+    if (summary?.failed) fail(`The comparison with the live site failed: ${String(summary.error ?? "").slice(0, 200) || "unknown error"}. Nothing was sent.`);
+    if (!summary?.complete) {
+      if (!summary && ctx.now() - Date.parse(state.waitingSince) > START_WAIT_MS) fail("The comparison with the live site did not start. Nothing was sent.");
+      const counted = summary && Number.isSafeInteger(summary.cursor) && Number.isSafeInteger(summary.total);
+      return ctx.continue(state, { phase: "comparing", ...(counted ? { done: summary.cursor, total: summary.total, unit: "files" } : {}), message: "Comparing with the live site." }, waitMs(state));
+    }
+    if (summary.setId !== state.setId || summary.siteId !== state.siteId) fail("Preview is incomplete, expired or changed. Compare again.");
+  }
+  state.phase = "creating";
+  delete state.waitingSince;
+  delete state.waits;
+  return null;
 }
 
 /** Selected source entries (database first) and the Zoer Connect import manifest, recomputed deterministically. */
@@ -207,7 +314,8 @@ async function buildManifest(state, input, status, ctx) {
     const s = reviewed?.summary;
     if (!s || s.setId !== state.setId || !s.complete || Date.parse(s.expiresAt) < ctx.now() || s.generation !== state.generation || s.siteId !== state.siteId) fail("Preview is incomplete, expired or changed. Compare again.");
     const byPath = new Map(selected.map(e => [e.path, e]));
-    selected = input.selectedPaths.map(path => {
+    const paths = state.autoSelect ? autoPaths(state, selected, reviewed, pull) : input.selectedPaths;
+    selected = paths.map(path => {
       const file = byPath.get(path), before = reviewed.byPath.get(path);
       if (!file || !before || before.state === "blocked" || before.sha256 !== file.sha256 || before.bytes !== file.bytes) fail("Selected artifact is unavailable or changed. Compare again.");
       return file;
@@ -250,6 +358,20 @@ async function buildManifest(state, input, status, ctx) {
     ...(pluginOptions ? { options: pluginOptions } : {}), ...(pluginOptions?.replacements?.paths && abspath ? { sourcePath: abspath } : {}),
   };
   return { manifest, order: ordered.map(f => f.index), caps, warnings, skipped, source: pull.source, sourceTables: Array.isArray(pull.source?.tables) ? pull.source.tables : null, totalBytes: ordered.reduce((sum, f) => sum + f.bytes, 0) };
+}
+
+/**
+ * The automatic selection of a one-click push, in set order: files the comparison found new or
+ * changed, and the database when asked. A code push leaves out what a code update refuses.
+ */
+function autoPaths(state, entries, reviewed, pull) {
+  return entries.filter(entry => {
+    const compared = reviewed.byPath.get(entry.path);
+    if (!compared) return false;
+    if (compared.state === "database") return state.autoSelect.database === true;
+    if (compared.state !== "new" && compared.state !== "changed") return false;
+    return !(state.codeOnly && codePathReason(entry.path, pull.options?.profile));
+  }).map(entry => entry.path);
 }
 
 /** Bounded, resumable reads of sealed source bytes before any destination import is created. */
@@ -382,7 +504,9 @@ async function uploadOrder(state, input, ctx) {
   const entries = (await listEntries(ctx.host, state.setId)).map((entry, index) => ({ ...entry, index }));
   const byPath = new Map(entries.map(entry => [entry.path, entry]));
   // Same order as the manifest: the selection's order when a preview chose paths, else the set's.
-  const selected = (state.previewId ? input.selectedPaths.map(path => byPath.get(path)).filter(Boolean) : entries).filter(entry => entry.path === "database.sql" || !connectRefusal(entry.path));
+  let paths = state.previewId ? input.selectedPaths : null;
+  if (state.autoSelect) paths = autoPaths(state, entries, await loadPreview(ctx.host, state.previewId), (await pullOfSet(ctx.host, state.setId)).pull);
+  const selected = (paths ? paths.map(path => byPath.get(path)).filter(Boolean) : entries).filter(entry => entry.path === "database.sql" || !connectRefusal(entry.path));
   return [...selected].sort((a, b) => Number(b.path === "database.sql") - Number(a.path === "database.sql")).map(entry => entry.index);
 }
 
@@ -420,12 +544,20 @@ async function uploadSlice(state, input, ctx, client, until) {
 export async function stepPush(state, input, ctx) {
   const { host, request } = ctx;
   const client = connectClient(host, endpointOf(request, state.siteId), state.generation);
+  if (state.phase === "waiting") {
+    const waiting = await waitForSource(state, input, ctx);
+    if (waiting) return waiting;
+  }
   if (state.phase === "creating" || state.phase === "submitting") {
     // Submitting rebuilds the manifest from the destination status seen while planning, so the
     // retried request is byte-identical (only a changed download can alter it; see the digest).
     const status = state.phase === "submitting" && state.destination ? state.destination : await client.request("/status");
     if (!status.permissions?.push || !status.capabilities?.databaseImport || typeof status.target !== "string") fail(state.kind === "replace" ? "This site needs a verified plugin supporting imports and Push permission." : "The destination needs a verified plugin supporting imports and Push permission.");
     const built = await buildManifest(state, input, status, ctx);
+    if (state.autoSelect && !built.manifest.database && !built.manifest.files.length) {
+      return ctx.done({ importId: state.importId, kind: state.kind, status: "unchanged", phase: "compared", fileCount: 0, totalBytes: 0, ...(state.dryRun ? { dryRun: true } : {}),
+        ...(built.skipped?.length ? { skipped: skippedSummary(built.skipped, 50) } : {}), summary: `${status.target} already has these changes. Nothing was sent.` }, { phase: "unchanged" });
+    }
     // Refuse what the destination would refuse only after creating the import: nothing is sent yet.
     const limits = importLimits(status), fileCount = built.manifest.files?.length ?? 0;
     if (fileCount > limits.maxFiles) fail(`${status.target} accepts at most ${limits.maxFiles.toLocaleString("en-US")} files in one Push; this selection has ${fileCount.toLocaleString("en-US")}. Narrow the selection (for example media since a date) and push the rest separately. Nothing was sent.`);
@@ -495,6 +627,19 @@ export async function stepPush(state, input, ctx) {
     applyRemotePhase(state, remote);
   }
   if (["importing", "rolling_back", "uploading"].includes(state.phase)) return ctx.continue(state, progressOf(state));
+  if (state.finishAutomatically && state.phase === "review_required") {
+    // Chosen with the push: approve the staged import at once (a retried approval is a no-op on the site).
+    applyRemotePhase(state, await client.request(importRoute(`/imports/${state.importId}/approve`, state.destination?.capabilities?.compactImportResponses === true), "POST"));
+    if (state.phase === "review_required") state.phase = "importing";
+    return ctx.continue(state, progressOf(state));
+  }
+  if (state.finishAutomatically && state.phase === "verification_required") {
+    // Reopen the site: the same request the Finish control sends, repeated while it reports finishing.
+    let remote;
+    for (let calls = 0; calls < 6 && (calls === 0 || (remote?.phase ?? remote?.status) === "finishing"); calls++) remote = await client.request(importRoute(`/imports/${state.importId}/finish`, state.destination?.capabilities?.compactImportResponses === true), "POST");
+    applyRemotePhase(state, remote);
+    if (state.phase !== "complete") return ctx.continue(state, { ...progressOf(state), phase: "finishing" }, WAIT_MS);
+  }
   if (state.phase === "review_required") return ctx.needsUser(state, waitingReason(state, "Approve or roll back in WordPress Manager."), progressOf(state));
   if (state.phase === "verification_required") return ctx.needsUser(state, waitingReason(state, "Then finish or roll back the import in WordPress Manager."), progressOf(state));
   return ctx.done({ importId: state.importId, kind: state.kind, status: state.phase, phase: state.remotePhase ?? state.phase, fileCount: state.fileCount ?? 0, totalBytes: state.totalBytes ?? 0,
@@ -506,7 +651,7 @@ export async function stepPush(state, input, ctx) {
 export async function cancelPush(state, input, ctx) {
   // "submitting": the import may exist if the creating slice was lost; a rollback of a missing
   // import is a harmless 404.
-  if (!state || state.phase === "creating" || TERMINAL.includes(state.phase)) return;
+  if (!state || state.phase === "creating" || state.phase === "waiting" || TERMINAL.includes(state.phase)) return;
   const client = connectClient(ctx.host, endpointOf(ctx.request, state.siteId), state.generation);
   // One rollback tick per request: keep going for the whole cleanup slice. What is left (a large
   // import) continues with the Roll back control, which picks up the current phase.

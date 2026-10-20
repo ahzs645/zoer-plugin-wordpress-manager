@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { wordpressQueries } from "../../../lib/queries/wordpress";
+import { OneClickPushPanel } from "./OneClickPush";
 import { Archive, DatabaseBackup, Download, Replace, Upload } from "lucide-react";
 import { Btn, CheckboxField, Select, fieldLabelClass, selectClass } from "@zoer/plugin-ui/controls";
 import type { ImportOptions, TransferAction, WordPressDiagnostics, ZoerConnectConnection } from "../../../lib/api/types/wordpress-transfer";
@@ -139,18 +141,44 @@ function ReplaceStart({ siteId, connection, diagnostics, diagnosticsLoading, dra
   </div>;
 }
 
+const LOCAL_PROVIDERS = ["ddev", "kubernetes"];
+
+/**
+ * Push into this site from a local site: the same one-press push as Push to live (its local
+ * copies first). Pushing a saved download of another site stays available, folded away.
+ */
+function LocalPush({ siteId, connection, diagnostics, preferredSourceId, advanced }: { siteId: string; connection: ZoerConnectConnection; diagnostics: WordPressDiagnostics | null | undefined; preferredSourceId?: string; advanced: React.ReactNode }) {
+  const sites = useQuery(wordpressQueries.sites()).data ?? [];
+  const locals = sites.filter(site => LOCAL_PROVIDERS.includes(site.provider)).sort((a, b) => Number(b.sourceSiteId === siteId) - Number(a.sourceSiteId === siteId));
+  const [chosenId, setChosenId] = useState(preferredSourceId ?? "");
+  const source = locals.find(site => site.id === (chosenId || locals[0]?.id)) ?? null;
+  const target = connection.url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  return <div className="min-w-0 space-y-4">
+    {locals.length > 0 ? <>
+      <label className="block max-w-md"><span className={fieldLabelClass}>From local site</span>
+        <Select searchable aria-label="Local site to push" className={selectClass("compact", "w-full")} value={source?.id ?? ""} onChange={event => setChosenId(event.target.value)}>
+          {locals.map(site => <option key={site.id} value={site.id}>{site.name}{site.sourceSiteId === siteId ? " · local copy" : ""}{site.status !== "running" ? " · stopped" : ""}</option>)}
+        </Select>
+      </label>
+      {source && <OneClickPushPanel key={source.id} source={source} destinationId={siteId} destinationHost={target} connection={connection.status.push && connection.status.publish ? connection : null} destination={diagnostics}
+        fallback={<p role="status" className="text-sm text-status-warning">Turn on Push and imports in WordPress → Tools → Zoer Connect on {target}.</p>} />}
+    </> : <p className="text-sm text-text-secondary">No local site yet. Make a local copy of this site, change it, then push it back here.</p>}
+    <details className="min-w-0 rounded-md border border-border-muted px-3 text-sm"><summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary">Push a saved download instead</summary><div className="pb-3">{advanced}</div></details>
+  </div>;
+}
+
 /**
  * A Zoer Connect site's transfer workspace: action picker and option panels; transfers run as
  * this plugin's resumable actions (the only transfer engine since 0.8.0).
  */
-export default function PluginTransferWorkspace({ siteId, siteName, connection, diagnostics, diagnosticsLoading, onLocalCopy, initialPushSource }: {
+export default function PluginTransferWorkspace({ siteId, siteName, connection, diagnostics, diagnosticsLoading, onLocalCopy, initialPushSource, initialAction: startAction }: {
   siteId: string; siteName: string; connection: ZoerConnectConnection; diagnostics: WordPressDiagnostics | null | undefined; diagnosticsLoading: boolean;
-  initialPushSource?: string;
+  initialPushSource?: string; /** The tool to open on (when the site allows it). */ initialAction?: TransferAction;
   onLocalCopy?: (pull: PullRecord) => void;
 }) {
   const client = useQueryClient();
   const availability = actionAvailability(connection);
-  const [draft, setDraft] = useState(() => initialDraft(initialPushSource ? "push" : initialAction(availability)));
+  const [draft, setDraft] = useState(() => initialDraft(initialPushSource ? "push" : initialAction(availability, startAction)));
   const update: DraftUpdate = fn => setDraft(fn);
   const [dryRuns, setDryRuns] = useState(DRY_RUN_DEFAULTS);
   const action = draft.action;
@@ -168,23 +196,22 @@ export default function PluginTransferWorkspace({ siteId, siteName, connection, 
   }, [siteRuns, client]);
 
   return <div className="min-w-0 space-y-4">
-    <fieldset className="min-w-0">
-      <legend className="mb-2 text-sm font-medium">What do you want to do?</legend>
-      <div role="radiogroup" aria-label="Transfer action" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+    <div className="min-w-0 space-y-1.5">
+      <div role="radiogroup" aria-label="Transfer tool" className="flex min-w-0 flex-wrap gap-1 rounded-lg border border-border-default bg-surface-secondary p-1">
         {TRANSFER_ACTIONS.map(value => {
-          const reason = availability[value];
           const selected = action === value;
-          return <label key={value} className={`relative flex min-h-11 min-w-0 cursor-pointer flex-col gap-1 rounded-lg border p-2.5 text-sm transition-colors focus-within:ring-2 focus-within:ring-input-focus ${selected ? "border-accent bg-surface-hover" : "border-border-default hover:bg-surface-hover"} ${reason ? "opacity-60" : ""} ${value === "export" ? "col-span-2 sm:col-span-1" : ""}`}>
-            <input type="radio" name={`zoer-plugin-transfer-action-${siteId}`} className="sr-only" checked={selected} onChange={() => setDraft(d => switchAction(d, value))} aria-describedby={`zoer-plugin-action-${value}`} />
-            <span className="flex items-center gap-1.5 font-medium text-text-primary">{ICONS[value]}{ACTION_LABELS[value].title}</span>
-            <span id={`zoer-plugin-action-${value}`} className="text-[12px] leading-4 text-text-muted">{reason ?? ACTION_LABELS[value].description}</span>
+          return <label key={value} title={availability[value] ?? ACTION_LABELS[value].description} className={`inline-flex min-h-11 min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors focus-within:ring-2 focus-within:ring-input-focus sm:min-h-9 ${selected ? "bg-surface-primary text-text-heading shadow-sm" : "text-text-secondary hover:text-text-primary"} ${availability[value] ? "opacity-50" : ""}`}>
+            <input type="radio" name={`zoer-plugin-transfer-action-${siteId}`} className="sr-only" checked={selected} onChange={() => setDraft(d => switchAction(d, value))} />
+            {ICONS[value]}{ACTION_LABELS[value].title}
           </label>;
         })}
       </div>
-    </fieldset>
+      <p className="text-xs text-text-secondary">{ACTION_LABELS[action].description}</p>
+    </div>
     {availability[action] ? <p role="status" className="text-sm text-status-warning">{availability[action]}.</p> : <>
       {(action === "pull" || action === "backup" || action === "export") && <PullStart siteId={siteId} connection={connection} diagnostics={diagnostics} diagnosticsLoading={diagnosticsLoading} draft={draft} update={update} busy={busy} {...dryRunFor(action)} />}
-      {action === "push" && <PluginPushFlow siteId={siteId} connection={connection} destination={diagnostics} guidedSourceId={initialPushSource} draft={draft} update={update} busy={busy} {...dryRunFor("push")} />}
+      {action === "push" && <LocalPush siteId={siteId} connection={connection} diagnostics={diagnostics} preferredSourceId={initialPushSource}
+        advanced={<PluginPushFlow siteId={siteId} connection={connection} destination={diagnostics} guidedSourceId={initialPushSource} draft={draft} update={update} busy={busy} {...dryRunFor("push")} />} />}
       {action === "replace" && <ReplaceStart siteId={siteId} connection={connection} diagnostics={diagnostics} diagnosticsLoading={diagnosticsLoading} draft={draft} update={update} busy={busy} {...dryRunFor("replace")} />}
     </>}
 

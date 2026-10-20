@@ -12,11 +12,36 @@ Independent source and releases for the `wordpress-manager` native plugin. This 
 
 It takes about 5 to 15 minutes; progress, **Retry** (continues from the last finished step) and **Delete this site** are under *Websites created here*. The administrator gets a generated password that is kept only as a host-only secret until pairing finishes, then deleted; open the site's admin later through Hostinger. The administrator email defaults to the one used by the account's other WordPress sites. **Delete this site** asks for `DELETE <domain>` and permanently deletes only websites created here (`DELETE /api/hosting/v1/websites/{domain}`), with their Zoer Connect connection. **Empty website** keeps the earlier target for publishing through Hostinger's import. Needs the matching Zoer host (`/wordpress-manager/connections/:id/test-sites`).
 
+## One-press Push to live (unreleased)
+
+**Push to live** is one form: *Code only* (chosen themes and plugins) or *Everything* (database, themes, plugins and media; live accounts stay), optional exclusions and database/address options under **Options**, then **Push to live** or **Test run**. One press starts three runs on the Zoer server that wait for each other, so nobody comes back to start the next step:
+
+1. `transfer.push` with `exportPullId`, `previewId`, `autoSelect` and `finishAutomatically` is requested first, so Zoer asks for approval once, right away;
+2. `transfer.local-export` exports the local site;
+3. `transfer.preview` with `exportPullId` waits for that export, then compares it with the live site.
+
+The push waits for the export and the comparison, sends only the files the comparison found new or changed (and the database for *Everything*), approves its own staged import and finishes it. When nothing differs it ends as *Already up to date* and sends nothing. **Stop before going live so I can review** (under Options) keeps the old approve-then-Finish pause. A failed export or comparison fails the push without sending anything (the comparison records its failure; the dialog also withdraws a push left waiting). The dialog shows five stages (approve, export, compare, upload, update the live site) and can be closed: reopening it, or the line under **Local and live**, shows where the push is. Roll back and Clean up stay on the finished push. The manifest only gains input properties; no permission or capability changes.
+
+The live site's **Transfers → Push** uses the same form with a local-site picker; pushing a saved download of another site is under *Push a saved download instead*.
+
+**Site page.** *Local and live* is the same card on Overview and on **Push & pull** (formerly *Publish*): the pair, Push to live, Pull from live, Compare, and the last push in one line; from a live site, its local copies. A live site's Push & pull adds its Zoer Connect tools (Download to Zoer, Find & replace, Back up database, Export), each opening Transfers on that tool. Hostinger-account publishing, new Hostinger websites and Hostinger backups are folded under *Other ways to publish*. Site Health is one summary line with only the checks that need attention; site details and resources are folded.
+
 ## Site page layout (unreleased)
 
 A site's page has seven sections: **Overview** (Local and live, WordPress core updates, Site Health), **Plugins & themes** (one list with a Plugins | Themes switch), **Development**, **Publish** (Push to live and Hostinger publishing), **Backups** (download, automatic recovery points, restore into a new local site), **Activity** and **Security** (local DDEV sites; formerly *Scan & report*). Earlier routes keep working: `themes` opens the Themes half, `updates` and `history` open Activity.
 
 - **Running transfers.** A banner above the sections names any transfer running on the site, its stage and progress. While a transfer writes to the site (a refresh into a local copy, a push, Find & Replace, an import control), plugin and theme changes, backups, Push/Pull, Stop and Move to trash wait for it. **View progress** opens Activity.
+
+- **Kubernetes WordPress pilot (partial).** When the operator enables the runtime,
+  copy and backup-restore dialogs offer **Kubernetes pilot** alongside DDEV. The
+  pilot uses the same resumable, verified transfer protocol and preserves its
+  local administrator on the default import path. Managed pilots can be transfer
+  sources and linked refresh destinations. **Kubernetes pilot → Sleep settings**
+  controls idle sleeping and browser wake without recreating the site. Inventory
+  polling does not count as activity, and active or paused workflows block sleep
+  and Stop. Storage remains node-local, and admin auto-login and full computer
+  tools are unavailable. Live qualification is recorded in Zoer's dated
+  `output/ui-audit/2026-10-20-kubernetes-transfers/REPORT.json`.
 - **Activity** gathers what used to be split across three places: running transfers with their controls, recent failures that can be retried (*Needs attention*), the transfer history for this site or all sites, plugin and theme change receipts, and Hostinger publishing receipts. Publish no longer repeats them.
 - **Phones and narrow panels.** The site header scrolls away with the content; a sticky *Section* picker replaces the tab strip when the panel is narrower than the seven tabs. The phone site picker lists each live site followed by its local copies. Changing section starts at the top.
 - **Plugin rows** keep the common change as a button; Delete and *Develop from a repository* are in the row's menu. Slug-only names are shown readably (UpdraftPlus, Twenty Twenty-Five). A stopped local site says to start it instead of listing nothing.

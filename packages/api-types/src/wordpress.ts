@@ -1,7 +1,7 @@
 import type { BrowserProvider } from "./browser-providers";
 import type { CentralFileRecord } from "./central-files";
 
-export type WordPressProvider = "ddev" | "playground" | "hostinger" | "zoer-connect";
+export type WordPressProvider = "ddev" | "kubernetes" | "playground" | "hostinger" | "zoer-connect";
 export type WordPressExtensionKind = "plugin" | "theme";
 export type WordPressExtensionOperation = "install" | "activate" | "deactivate" | "update" | "uninstall";
 

@@ -53,6 +53,8 @@ export interface FakeSiteOptions {
   importTables?: number;
   /** POST /imports/<id>/cleanup calls before cleanedUp (Zoer Connect cleans in 2 s batches). */
   cleanupCalls?: number;
+  /** An applied import waits in verification_required (the site paused) until finish, like an early-fenced import. */
+  verification?: boolean;
   /** Refuse a new export while another one exists (the DDEV bridge and Zoer Connect's private storage). */
   singleExport?: boolean;
   batchLimits?: Record<string, number>;
@@ -279,7 +281,7 @@ export class FakeZoerConnect {
     if (action === "step") {
       if (job.phase === "importing") {
         job.stepped++;
-        if (job.stepped >= 2) job.phase = job.review && !job.manifest.approved ? "review_required" : "complete";
+        if (job.stepped >= 2) job.phase = job.review && !job.manifest.approved ? "review_required" : this.options.verification ? "verification_required" : "complete";
         if (job.phase === "complete") this.activate(job);
       }
     } else if (action === "approve") { if (job.phase !== "review_required") return json(409, { code: "zoer_import_state", message: "Not in review." }); job.manifest.approved = true; job.phase = "importing"; }

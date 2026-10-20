@@ -1,7 +1,7 @@
 {
   "id": "wordpress-manager",
   "name": "WordPress Manager",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "description": "Independent WordPress workspace with Hostinger temporary-domain setup, safe imports, backups, transfers, update review and cache tools.",
   "author": "Zoer contributors",
   "type": "integration",
@@ -1999,9 +1999,10 @@
         "requiredRuntimes": [
           {
             "alias": "wordpress_site",
-            "purpose": "Export a local DDEV WordPress site into a file set.",
+            "purpose": "Export a local DDEV or Kubernetes WordPress site into a file set.",
             "connectorIds": [
-              "ddev"
+              "ddev",
+              "wordpress-kubernetes"
             ],
             "operations": [
               "runtime.inspect.v1",
@@ -2021,7 +2022,7 @@
           "properties": {
             "siteId": {
               "type": "string",
-              "pattern": "^ddev-[a-z0-9-]+$"
+              "pattern": "^(?:ddev-[a-z0-9-]+|wpilot-[a-f0-9]{12})$"
             },
             "pullId": {
               "type": "string",
@@ -2085,7 +2086,6 @@
           "additionalProperties": false,
           "required": [
             "siteId",
-            "setId",
             "previewId"
           ],
           "properties": {
@@ -2100,6 +2100,11 @@
             "previewId": {
               "type": "string",
               "pattern": "^[a-f0-9]{32}$"
+            },
+            "exportPullId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$",
+              "description": "Compare the local export with this pull ID once it is ready (one-click push), instead of setId."
             }
           }
         },
@@ -2189,6 +2194,25 @@
             "codeOnly": {
               "type": "boolean",
               "description": "Require an explicit code-only source, completed comparison, and review before activation. Database, media and environment files are refused."
+            },
+            "exportPullId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$",
+              "description": "Push the local export with this pull ID once it, and the comparison named by previewId, are ready (one-click push), instead of setId."
+            },
+            "autoSelect": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "database": {
+                  "type": "boolean"
+                }
+              },
+              "description": "Push the files the comparison found new or changed, and the database when database is true, instead of selectedPaths."
+            },
+            "finishAutomatically": {
+              "type": "boolean",
+              "description": "Approve the staged import and finish it without waiting for the user; rollback stays available afterwards."
             }
           }
         },
@@ -2377,9 +2401,10 @@
         "requiredRuntimes": [
           {
             "alias": "wordpress_site",
-            "purpose": "Create or refresh a local DDEV copy and restore the verified files into it.",
+            "purpose": "Create or refresh a local DDEV or Kubernetes copy and restore the verified files into it.",
             "connectorIds": [
-              "ddev"
+              "ddev",
+              "wordpress-kubernetes"
             ],
             "operations": [
               "runtime.list.v1",
@@ -2388,7 +2413,11 @@
               "runtime.archive.v1",
               "runtime.exec.v1",
               "files.stage.v1",
-              "backup.create.v1"
+              "backup.create.v1",
+              "export.create.v1",
+              "export.step.v1",
+              "export.chunk.v1",
+              "export.cancel.v1"
             ]
           }
         ],
@@ -2417,7 +2446,7 @@
             },
             "replaceSiteId": {
               "type": "string",
-              "pattern": "^ddev-[a-z0-9-]+$"
+              "pattern": "^(?:ddev-[a-z0-9-]+|wpilot-[a-f0-9]{12})$"
             },
             "scope": {
               "type": "string",
@@ -2622,6 +2651,13 @@
             "languages": {
               "type": "boolean",
               "description": "Also place wp-content/languages (translations). Needs Zoer Connect 0.9.0 on the source."
+            },
+            "runtimeProfile": {
+              "type": "string",
+              "enum": [
+                "wordpress-ddev",
+                "wordpress-kubernetes"
+              ]
             }
           }
         },
@@ -2666,9 +2702,10 @@
         "requiredRuntimes": [
           {
             "alias": "wordpress_site",
-            "purpose": "Create a local DDEV site and restore a supported WordPress backup into it.",
+            "purpose": "Create a local DDEV or Kubernetes site and restore a supported WordPress backup into it.",
             "connectorIds": [
-              "ddev"
+              "ddev",
+              "wordpress-kubernetes"
             ],
             "operations": [
               "runtime.list.v1",
@@ -2710,6 +2747,13 @@
                 "exact"
               ],
               "description": "local keeps the copy's own accounts (default); source copies the source's users and user meta with their IDs, keeping the local administrator; exact copies them with no extra administrator, like WP Migrate."
+            },
+            "runtimeProfile": {
+              "type": "string",
+              "enum": [
+                "wordpress-ddev",
+                "wordpress-kubernetes"
+              ]
             }
           }
         },
@@ -3034,7 +3078,7 @@
       },
       {
         "id": "backups-table",
-        "title": "Application backups \u00b7 database + WP_CONTENT_DIR",
+        "title": "Application backups · database + WP_CONTENT_DIR",
         "placement": "dashboard",
         "renderer": "table",
         "recordType": "wordpress-backup",
@@ -3076,6 +3120,7 @@
       "profile": "https-upgrade",
       "ports": [
         80,
+        8080,
         9400
       ]
     },

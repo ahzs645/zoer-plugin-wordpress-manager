@@ -29,7 +29,7 @@ const REMOVED: Array<[string, RegExp]> = [
 ];
 
 /** Route families of `/wordpress-manager` that Zoer keeps after removing the legacy transfer engine. */
-const KEPT = new Set(["sites", "security-sites", "connections", "connect", "hostinger", "deployments", "recovery-points", "plugins", "extension-search", "extension-actions", "admin-link", "overview", "workspace", "repositories"]);
+const KEPT = new Set(["sites", "security-sites", "connections", "connect", "hostinger", "deployments", "recovery-points", "plugins", "extension-search", "extension-actions", "admin-link", "overview", "workspace", "repositories", "runtime-pilots"]);
 
 async function sources() {
   const out: Array<{ path: string; text: string }> = [];

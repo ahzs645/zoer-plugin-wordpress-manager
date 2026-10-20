@@ -11,7 +11,7 @@ export const MANAGER_SECTIONS: ReadonlyArray<{ id: ManagerSection; label: string
   { id: "overview", label: "Overview" },
   { id: "plugins", label: "Plugins & themes" },
   { id: "development", label: "Development" },
-  { id: "deployments", label: "Publish" },
+  { id: "deployments", label: "Push & pull" },
   { id: "backups", label: "Backups" },
   { id: "history", label: "Activity" },
   { id: "security", label: "Security" },

@@ -8,7 +8,8 @@ import { checkSelection, normalizeConnectUrl, parsePullSource, parseSkipped, val
 import { declareEntries, deleteSet, describeSet, setIdFor } from "./filesets.js";
 import { assertExportCapabilities, pullOptionsFrom } from "./options.js";
 import { fail, runtimeError, stopIfPaused, TransferError } from "./slices.js";
-import { connectClient, parseStatus, siteEndpoint } from "./zoer-connect.js";
+import { connectClient, parseStatus, sameSiteTarget, siteEndpoint } from "./zoer-connect.js";
+import { sitePort } from "./managed-site.js";
 
 export const HEX32 = /^[a-f0-9]{32}$/;
 const PREPARATION_KEYS = ["table", "tables", "rows", "rowsPart", "bytes", "fileBytes", "fileOffset"];
@@ -37,7 +38,7 @@ function remoteSource(host, request, state) {
     peer: (id) => client.peer(state.paged ? `exports/paged/${id}/batch` : `exports/${id}/chunks`),
     protocol: state.paged ? "chunk-batch-json-v1" : "chunked-json-v1",
     remove: (id) => client.request(`${root}/${id}`, "DELETE"),
-    sameSource: (url) => { try { return normalizeConnectUrl(String(url).replace(/\/+$/, "")) === normalizeConnectUrl(endpoint.origin); } catch { return false; } },
+    sameSource: (url) => sameSiteTarget(endpoint.origin, url),
   };
 }
 
@@ -93,7 +94,7 @@ const sourceOf = (host, request, state) => state.kind === "local-export" ? local
  */
 async function localSiteAddress(host, siteId, resource) {
   let route;
-  try { ({ route } = await host.call("routes.assign", { runtimeAlias: RUNTIME_ALIAS, resourceId: siteId, port: 80, name: String(resource?.name || siteId).slice(0, 100) })); }
+  try { ({ route } = await host.call("routes.assign", { runtimeAlias: RUNTIME_ALIAS, resourceId: siteId, port: sitePort(siteId), name: String(resource?.name || siteId).slice(0, 100) })); }
   catch (error) {
     if (error?.name !== "HostCallError" || error.code === "ZOER_PAUSED") throw error;
     throw new TransferError(error.message || "This local site has no Zoer address.", { code: error.code });

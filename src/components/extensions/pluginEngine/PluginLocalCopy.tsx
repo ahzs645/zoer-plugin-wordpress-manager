@@ -25,7 +25,8 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   const client = useQueryClient();
   const connectors = useQuery({ ...resourceQueries.connectors(), refetchInterval: 10_000 });
   const ddev = connectors.data?.find(c => c.id === "ddev");
-  const available = ddev?.active === true;
+  const kubernetes = connectors.data?.find(c => c.id === "wordpress-kubernetes");
+  const [runtimeProfile, setRuntimeProfile] = useState("wordpress-ddev");
   const copies = useCatalogKind("local-copy");
   const copyRecords = (copies.data ?? []).map(parseLocalCopyRecord).filter((c): c is LocalCopyRecord => !!c);
   const candidates = refreshCandidates(copyRecords, siteId);
@@ -36,6 +37,8 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   // One destination list: each earlier copy of this site (refresh it) or a new copy.
   const [replaceSiteId, setReplaceSiteId] = useState(refreshSiteId ?? "");
   const mode: "new" | "refresh" = replaceSiteId ? "refresh" : "new";
+  const selectedConnector = (replaceSiteId ? replaceSiteId.startsWith("wpilot-") : runtimeProfile === "wordpress-kubernetes") ? kubernetes : ddev;
+  const available = selectedConnector?.active === true;
   const [name, setName] = useState(siteName ? `${siteName} local`.slice(0, 60) : "");
   const siteLabel = (id: string) => sites.find(site => site.id === id)?.name;
   const targets = [
@@ -48,7 +51,7 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
   const [presetIds, setPresetIds] = useState<Record<"new" | "refresh", string>>({ new: "", refresh: "" });
   const dialogs = useDialogs();
   // The live site's inventory fills the post type, table, theme and plugin pickers.
-  const diagnostics = useWordPressDiagnostics(siteId, { enabled: available });
+  const diagnostics = useWordPressDiagnostics(siteId, { enabled: available, local: /^(?:ddev-|wpilot-)/.test(siteId) });
   const [dryRun, setDryRun] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
@@ -104,7 +107,7 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
     try {
       await startEngineAction(ENGINE_ACTIONS.copy, {
         siteId, copyId: newHexId(),
-        ...(refresh ? { replaceSiteId } : { name: name.trim() }),
+        ...(refresh ? { replaceSiteId } : { name: name.trim(), ...(runtimeProfile === "wordpress-kubernetes" ? { runtimeProfile } : {}) }),
         // An existing download keeps the selection it was made with; only the import options apply.
         ...(pull?.setId ? copyInputForDownload(settings, refresh, pull) : copyInput(settings, refresh)),
         ...(pull?.setId ? { pullSetId: pull.setId } : {}),
@@ -119,10 +122,11 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
 
   return <section className="min-w-0 space-y-3 rounded-lg border border-border-default p-3" aria-label="Local copies">
     {heading && <h3 className="font-medium">Local copy</h3>}
-    <p className="text-xs text-text-secondary">Copies {pull ? `the download of ${new Date(pull.createdAt).toLocaleString()}` : `a fresh pull of ${siteName || "this site"}`} into a local DDEV site: a new one, or one of its earlier copies. Runs on the Zoer server; you can close this dialog.</p>
+    <p className="text-xs text-text-secondary">Copies {pull ? `the download of ${new Date(pull.createdAt).toLocaleString()}` : `a fresh pull of ${siteName || "this site"}`} into a new local site or refreshes one of its earlier copies. Runs on the Zoer server; you can close this dialog.</p>
     {pull && onClearPull && <Btn size="sm" variant="ghost" onClick={onClearPull}>Pull again instead</Btn>}
-    {!available && <p role="status" className="text-sm text-status-warning">{connectors.isLoading ? "Checking local WordPress availability…" : ddev?.unavailableReason || "DDEV is unavailable. Complete server setup before creating a local copy."}</p>}
+    {!available && <p role="status" className="text-sm text-status-warning">{connectors.isLoading ? "Checking local WordPress availability…" : selectedConnector?.unavailableReason || "This local runtime is unavailable."}</p>}
     <form onSubmit={start} className="min-w-0 space-y-3">
+      {!replaceSiteId && <label className="block"><span className={fieldLabelClass}>Local runtime</span><Select aria-label="Local runtime" value={runtimeProfile} disabled={starting} onChange={e => setRuntimeProfile(e.target.value)}><option value="wordpress-ddev" disabled={!ddev?.active}>DDEV</option><option value="wordpress-kubernetes" disabled={!kubernetes?.active}>Kubernetes pilot</option></Select></label>}
       <fieldset className="min-w-0 space-y-2" disabled={!available || starting}>
         <legend className={fieldLabelClass}>Into</legend>
         {targets.map(target => <label key={target.id} className={`${INTO_OPTION} ${replaceSiteId === target.id ? "border-accent bg-surface-hover" : "border-border-default"}`}>
@@ -131,7 +135,7 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
         </label>)}
         <label className={`${INTO_OPTION} ${!replaceSiteId ? "border-accent bg-surface-hover" : "border-border-default"}`}>
           <input type="radio" name={`plugin-copy-target-${siteId}`} className={`${radioClass} mt-0.5`} checked={!replaceSiteId} onChange={() => setReplaceSiteId("")} />
-          <span><span className="block text-text-primary">A new local copy</span><span className="block text-[12px] text-text-muted">A separate DDEV site with its own administrator account.</span></span>
+          <span><span className="block text-text-primary">A new local copy</span><span className="block text-[12px] text-text-muted">A separate site with its own administrator account.</span></span>
         </label>
       </fieldset>
       {!refresh && <label className="block"><span className={fieldLabelClass}>Local site name</span><input className={controlClass("default", "text-base sm:text-[14px]")} value={name} maxLength={60} onChange={event => setName(event.target.value)} required disabled={starting || !available} /></label>}
@@ -141,19 +145,19 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
         : "The refresh replaces the copy's accounts with exactly the source's, including its local administrator."}</p>}
       {problem && <p role="status" className="text-xs text-status-warning">{problem}</p>}
       <div className="flex min-w-0 flex-wrap items-end gap-2">
-        <label className="min-w-0 flex-1 basis-48"><span className={fieldLabelClass}>Saved settings</span>
-          <Select aria-label="Saved copy settings" className={selectClass("default", "w-full")} value={presetId} disabled={starting} onChange={event => {
+        {presetList.length > 0 && <label className="min-w-0 flex-1 basis-48"><span className={fieldLabelClass}>Saved settings</span>
+          <Select searchable aria-label="Saved copy settings" className={selectClass("default", "w-full")} value={presetId} disabled={starting} onChange={event => {
             const preset = presetList.find(item => item.id === event.target.value);
             setPresetId(event.target.value);
             // A new copy always takes the database and files, with every table.
             if (preset) setSettings({ ...preset.settings, ...(refresh ? {} : { database: true, files: true, tables: "all" }) });
           }}>
-            <option value="">{presetList.length ? "Choose saved settings" : "No saved settings yet"}</option>
+            <option value="">Choose saved settings</option>
             {presetList.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
           </Select>
-        </label>
-        <Btn size="sm" disabled={starting} onClick={() => void savePreset()}>{presetId ? "Save changes" : "Save settings"}</Btn>
-        {presetId && <Btn size="sm" variant="ghost" disabled={starting} onClick={() => void deletePreset()}>Delete</Btn>}
+        </label>}
+        <Btn disabled={starting} onClick={() => void savePreset()}>{presetId ? "Save changes" : "Save settings"}</Btn>
+        {presetId && <Btn variant="ghost" disabled={starting} onClick={() => void deletePreset()}>Delete</Btn>}
       </div>
       {!refresh && <CheckboxField label="Dry run" description={refresh ? "Not available when refreshing an existing copy." : "Builds a scratch site named zoer-dryrun-…, verifies the import and archives the scratch site. Your sites are unchanged."} checked={dryRun && !refresh} onChange={setDryRun} disabled={refresh || starting} />}
       {running && <p className="text-xs text-text-secondary">Wait for the current copy of this site to finish before starting another.</p>}

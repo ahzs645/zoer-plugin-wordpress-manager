@@ -16,6 +16,7 @@ function readableBytes(bytes: number): string {
 
 interface Props {
   ddevAvailable?: boolean;
+  kubernetesAvailable?: boolean;
   ddevUnavailableReason?: string | null;
   onRunningChange?: (running: boolean) => void;
 }
@@ -23,7 +24,9 @@ interface Props {
 /**
  * Select a supported backup pair or five-component set for the resumable local restore.
  */
-export default function WordPressUpdraftImport({ onRunningChange, ddevAvailable = false, ddevUnavailableReason = null }: Props) {
+export default function WordPressUpdraftImport({ onRunningChange, ddevAvailable = false, kubernetesAvailable = false, ddevUnavailableReason = null }: Props) {
+  const [runtimeProfile, setRuntimeProfile] = useState("wordpress-ddev");
+  const available = runtimeProfile === "wordpress-kubernetes" ? kubernetesAvailable : ddevAvailable;
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const [sessionName, setSessionName] = useState("");
@@ -58,12 +61,13 @@ export default function WordPressUpdraftImport({ onRunningChange, ddevAvailable 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
 
-          <p className="mt-1 max-w-3xl text-sm leading-5 text-text-secondary">Choose a supported backup and restore it into a new local DDEV site. Review its WordPress version and activate the required plugins before publishing.</p>
+          <p className="mt-1 max-w-3xl text-sm leading-5 text-text-secondary">Choose a supported backup and restore it into a new local site. Review its WordPress version and activate the required plugins before publishing.</p>
         </div>
         <span className="rounded border border-border-default bg-surface-primary/60 px-2 py-1 text-[12px] text-text-muted">Single-site backup</span>
       </div>
 
-      {!ddevAvailable && <p role="status" className="mt-3 text-sm text-status-warning">{ddevUnavailableReason || "Restores create a local DDEV site, and the DDEV connector is not available. Configure it in Extensions."}</p>}
+      <label className="mt-3 block text-sm font-medium">Local runtime<Select aria-label="Restore runtime" value={runtimeProfile} disabled={busy} onChange={e => setRuntimeProfile(e.target.value)}><option value="wordpress-ddev" disabled={!ddevAvailable}>DDEV</option><option value="wordpress-kubernetes" disabled={!kubernetesAvailable}>Kubernetes pilot</option></Select></label>
+      {!available && <p role="status" className="mt-3 text-sm text-status-warning">{ddevUnavailableReason || "The selected local runtime is not available."}</p>}
       <label className="mt-3 block text-sm font-medium text-text-primary">Backup format
         <Select aria-label="Backup format" value={format} disabled={busy} className={controlClass("default", "mt-1 w-full sm:max-w-md")} onChange={event => { setFormat(event.target.value as BackupFormat); setFiles({}); setSelectionError(null); if (inputRef.current) inputRef.current.value = ""; }}>
           <option value="updraft">UpdraftPlus · five backup files</option>
@@ -100,7 +104,7 @@ export default function WordPressUpdraftImport({ onRunningChange, ddevAvailable 
       </div>
 
       {selectionError && <div role="alert" className="mt-3 flex gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[12px] text-status-error"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{selectionError}</div>}
-      {ddevAvailable && <PluginUpdraftRestore format={format} files={files} complete={complete} name={sessionName} onBusyChange={setRunning} />}
+      {available && <PluginUpdraftRestore runtimeProfile={runtimeProfile} format={format} files={files} complete={complete} name={sessionName} onBusyChange={setRunning} />}
     </section>
   );
 }

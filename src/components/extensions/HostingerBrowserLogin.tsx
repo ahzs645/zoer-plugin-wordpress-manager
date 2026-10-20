@@ -12,8 +12,8 @@ export function unloadedHostingerAccounts(accounts: readonly HostConnectionAccou
 }
 
 /**
- * Hostinger sign-in through Zoer (S7a, `connections.connect { alias: "hostinger" }`): Zoer asks
- * for confirmation, runs the sign-in in its own browser and keeps the tokens. The account is then
+ * Hostinger sign-in through Zoer (S7a, `connections.connect { alias: "hostinger" }`): Zoer opens
+ * one host sign-in form, runs the sign-in in its own browser and keeps the tokens. The account is then
  * loaded into WordPress Manager (`POST /wordpress-manager/connections/oauth`), which reads its
  * websites with the host-held token. Accounts already connected to WordPress Manager elsewhere
  * (for example in Zoer Settings) can be loaded the same way.
@@ -47,10 +47,10 @@ export default function HostingerBrowserLogin({ name, setName, onConnected, conn
   const signIn = async () => {
     setBusy("sign-in"); setError(null); setStatus(null);
     try {
-      const result = await hostConnections.connect("hostinger");
+      const result = await hostConnections.connect("hostinger", name.trim() || undefined);
       if (!result.started) { setStatus("Sign-in cancelled."); return; }
       if (!result.connected || !result.connectionId) { setError("Hostinger sign-in could not finish. Try again, or use an API token under Advanced setup."); return; }
-      await load(result.connectionId, name.trim() || undefined);
+      await load(result.connectionId);
     } catch (err) { setError(err instanceof Error ? err.message : "Unable to start Hostinger sign-in."); }
     finally { setBusy(null); }
   };

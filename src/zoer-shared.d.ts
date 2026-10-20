@@ -99,4 +99,5 @@ declare module "@zoer/plugin-ui/controls" {
  export function Field(props:{label:string;value:string;onChange:(value:string)=>void;placeholder?:string;className?:string;disabled?:boolean}):JSX.Element;
  export function ComputerSelect(props:SelectHTMLAttributes<HTMLSelectElement>&{computers:{id:string;name:string;status:string}[];children?:ReactNode}):JSX.Element;
  export function CodeBlock(props:{code:string;language?:string;filename?:string}):JSX.Element;
+ export function InlineAlert(props:{error:unknown;onRetry?:()=>void;onDismiss?:()=>void}):JSX.Element;
 }

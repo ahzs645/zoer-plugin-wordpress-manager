@@ -71,8 +71,8 @@ export interface HostConnection { alias: string; connected: boolean; accounts?: 
 
 export const hostConnections = {
   list: () => hostRequest<{ connections: HostConnection[] }>("connections.list"),
-  /** Host confirmation, then the host's sign-in dialog. */
-  connect: (alias: string) => hostRequest<{ started: boolean; connected?: boolean; connectionId?: string }>("connections.connect", { alias }),
+  /** The host-owned sign-in form; tokens stay on Zoer. */
+  connect: (alias: string, label?: string) => hostRequest<{ started: boolean; connected?: boolean; connectionId?: string }>("connections.connect", { alias, ...(label ? { label } : {}) }),
 };
 
 export interface HostEndpoint { id: string; alias: string; origin: string; label: string; generation: string; testedAt: string | null; createdAt: string }

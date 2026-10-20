@@ -5,6 +5,7 @@
 // Zoer's legacy transfer routes proxied before 0.8.0; `hostinger.check` lists
 // one page of websites with one Hostinger account bound through `connections.connect` (S7a bearer auth).
 import { createInterface } from "node:readline";
+import { sameSiteTarget } from "./lib/zoer-connect.js";
 
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const input = lines[Symbol.asyncIterator]();
@@ -30,7 +31,6 @@ async function fetchThroughHost(url, auth) {
 }
 // A bounded read uses the site's durable lock instead of reserving the whole dispatcher.
 const done = (output) => process.stdout.write(JSON.stringify({ protocolVersion: "1", runId: request.run.id, ok: true, output: request.resumable ? { resumable: "done", output } : output }), () => process.exit(0));
-const trim = (value) => String(value).replace(/\/+$/, "");
 
 /** The checks Zoer applied to a pasted connection (target, version, connection key). */
 function checkZoerConnectStatus(origin, answer) {
@@ -39,7 +39,7 @@ function checkZoerConnectStatus(origin, answer) {
   if (answer.status === 404 || answer.status === 410) return { ok: false, summary: "Zoer Connect was not found. Check the website address and activate the plugin in WordPress." };
   const body = answer.body;
   if (answer.status < 200 || answer.status >= 300 || !body || typeof body !== "object") return { ok: false, summary: "Zoer Connect did not answer with its status." };
-  if (typeof body.target !== "string" || trim(body.target) !== trim(origin) || typeof body.version !== "string" || !/^\d+\.\d+\.\d+$/.test(body.version) || body.capabilities?.connectionKey !== true) {
+  if (!sameSiteTarget(origin, body.target) || typeof body.version !== "string" || !/^\d+\.\d+\.\d+$/.test(body.version) || body.capabilities?.connectionKey !== true) {
     return { ok: false, summary: "The response does not match this site or Zoer Connect 0.2+." };
   }
   const pull = body.permissions?.pull === true && body.capabilities?.pull === true;

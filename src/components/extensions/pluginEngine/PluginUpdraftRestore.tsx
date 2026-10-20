@@ -31,8 +31,8 @@ async function findUpload(entries: Entry[], format: BackupFormat) {
  * Backup uploads use the format-specific rules and resumable verified file sets.
  * The local restore action creates a DDEV site; dry runs inspect without creating one.
  */
-export default function PluginUpdraftRestore({ files, complete, name, onBusyChange, format = "updraft" }: {
-  format?: BackupFormat; files: Partial<Record<BackupComponent, File>>; complete: boolean; name: string; onBusyChange?: (busy: boolean) => void;
+export default function PluginUpdraftRestore({ files, complete, name, onBusyChange, runtimeProfile = "wordpress-ddev", format = "updraft" }: {
+  runtimeProfile?: string; format?: BackupFormat; files: Partial<Record<BackupComponent, File>>; complete: boolean; name: string; onBusyChange?: (busy: boolean) => void;
 }) {
   const components = backupComponents(format);
   const client = useQueryClient();
@@ -46,7 +46,7 @@ export default function PluginUpdraftRestore({ files, complete, name, onBusyChan
   const runs = useRecentRuns(RESTORE_ACTIONS);
   const related = (runs.data ?? []).filter(run => (setId && runInput(run).uploadSetId === setId) || !isTerminalStatus(run.status)).slice(0, 5);
   const active = related.some(run => !isTerminalStatus(run.status));
-  const restored = related.some(run => run.status === "succeeded" && runInput(run).dryRun !== true);
+  const restored = related.some(run => run.status === "succeeded" && runInput(run).dryRun !== true && (runInput(run).runtimeProfile ?? "wordpress-ddev") === runtimeProfile);
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
   useEffect(() => { onBusyChange?.(busy || active); }, [busy, active, onBusyChange]);
@@ -104,7 +104,7 @@ export default function PluginUpdraftRestore({ files, complete, name, onBusyChan
     try {
       const uploadSetId = setId ?? await upload();
       setStage(real ? "Starting the restore…" : "Starting the dry run…");
-      await startEngineAction(ENGINE_ACTIONS.restore, { uploadSetId, restoreId: newHexId(), name: restoreName.slice(0, 100), ...(real ? {} : { dryRun: true }), ...(users !== "local" ? { users } : {}) });
+      await startEngineAction(ENGINE_ACTIONS.restore, { uploadSetId, restoreId: newHexId(), name: restoreName.slice(0, 100), ...(runtimeProfile === "wordpress-kubernetes" ? { runtimeProfile } : {}), ...(real ? {} : { dryRun: true }), ...(users !== "local" ? { users } : {}) });
       setStage(real ? "Restore started. It continues on the Zoer server if you close this dialog." : "Dry run started.");
       await client.invalidateQueries({ queryKey: [...engineKeys.all(), "recent"] });
     } catch (caught) {
@@ -114,11 +114,11 @@ export default function PluginUpdraftRestore({ files, complete, name, onBusyChan
 
   const lastDry = related.find(run => runInput(run).dryRun === true && run.status === "succeeded" && runInput(run).uploadSetId === setId);
   return <div className="mt-3 min-w-0 space-y-3 rounded-lg border border-status-warning/40 p-3">
-    <p className="text-sm text-text-secondary">WordPress Manager uploads the backup files to the Zoer server as one verified set, then restores them into a new local DDEV site. Uploads resume after a reload when you choose the same files again.</p>
+    <p className="text-sm text-text-secondary">WordPress Manager uploads the backup files to the Zoer server as one verified set, then restores them into a new local site. Uploads resume after a reload when you choose the same files again.</p>
     <LocalImportPanels id={`restore-${format}`} kind={format} users={users} onUsers={setUsers} disabled={busy} />
     <CheckboxField label="Dry run" description="Inspects the archive and plans the restore without creating a site. The database and every extracted file are checked during the actual restore." checked={dryRun} onChange={setDryRun} disabled={busy} />
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-      <Btn variant="primary" className="w-full sm:w-auto" loading={busy} disabled={!complete || busy || active || restored} onClick={() => void start(!dryRun)}>{setId ? (dryRun ? "Run another dry run" : "Restore into a new DDEV site") : dryRun ? "Upload and check (dry run)" : "Upload and restore"}</Btn>
+      <Btn variant="primary" className="w-full sm:w-auto" loading={busy} disabled={!complete || busy || active || restored} onClick={() => void start(!dryRun)}>{setId ? (dryRun ? "Run another dry run" : "Restore into a new local site") : dryRun ? "Upload and check (dry run)" : "Upload and restore"}</Btn>
       {lastDry && !dryRun && <span className="self-center text-xs text-text-secondary">Uses the files already uploaded for the dry run.</span>}
     </div>
     {!complete && <p className="text-[12px] text-text-muted">Add each required component to enable the restore.</p>}

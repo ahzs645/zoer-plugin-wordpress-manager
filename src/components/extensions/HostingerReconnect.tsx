@@ -26,7 +26,7 @@ export default function HostingerReconnect({ connection, size = "sm", onDone }: 
   async function signIn() {
     setBusy("sign-in"); setError("");
     try {
-      const result = await hostConnections.connect("hostinger");
+      const result = await hostConnections.connect("hostinger", connection.name);
       if (!result.started) return;
       if (!result.connected || !result.connectionId) throw new Error("The Hostinger sign-in did not finish. Try again.");
       await api.reconnectWordPressManagerConnection(connection.id, { oauthConnectionId: result.connectionId });

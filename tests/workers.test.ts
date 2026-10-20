@@ -83,6 +83,9 @@ test("site.test checks the Zoer Connect status through the endpoint grant",async
  const good=await runWorker("connections.js",{action:{id:"site.test"},input:{endpointId:"ep_1"},grants},()=>body({target:origin+"/",version:"0.4.0",capabilities:{connectionKey:true,pull:true},permissions:{pull:true,push:false},stagingReady:true}));
  expect(good.calls[0].input).toEqual({ticket:"n0",url:`${origin}/wp-json/zoer-connect/v1/status`,method:"GET",headers:{accept:"application/json"},auth:{type:"endpoint",endpointId:"ep_1",generation:"g1"}});
  expect(good.output.output).toMatchObject({ok:true,version:"0.4.0",pull:true,push:false,stagingReady:true});
+ const http=await runWorker("connections.js",{action:{id:"site.test"},input:{endpointId:"ep_1"},grants},()=>body({target:"http://shop.example/blog",version:"0.9.0",capabilities:{connectionKey:true,pull:true},permissions:{pull:true,push:false},stagingReady:true}));
+ expect(http.output.output).toMatchObject({ok:true,version:"0.9.0",pull:true});
+ expect(http.calls[0].input.url).toBe(`${origin}/wp-json/zoer-connect/v1/status`);
  const other=await runWorker("connections.js",{action:{id:"site.test"},input:{endpointId:"ep_1"},grants},()=>body({target:"https://other.example",version:"0.4.0",capabilities:{connectionKey:true}}));
  expect(other.output.output).toMatchObject({ok:false,summary:"The response does not match this site or Zoer Connect 0.2+."});
  const gone=await runWorker("connections.js",{action:{id:"site.test"},input:{endpointId:"ep_2"},grants},()=>body({}));

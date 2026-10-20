@@ -39,7 +39,7 @@ function useNow(intervalMs: number) {
 function LocalExportSource({ destinationSiteId, draft, update, guidedSourceId, codeOnly, hasExport = false }: { guidedSourceId?: string; destinationSiteId: string; draft: TransferDraft; update: DraftUpdate; codeOnly: boolean; /** A verified export of the guided source exists already. */ hasExport?: boolean }) {
   const client = useQueryClient();
   const sites = useQuery(wordpressQueries.sites()).data ?? [];
-  const choices = sites.filter(site => site.provider === "ddev" && site.id !== destinationSiteId && (!guidedSourceId || site.id === guidedSourceId));
+  const choices = sites.filter(site => ["ddev", "kubernetes"].includes(site.provider) && site.id !== destinationSiteId && (!guidedSourceId || site.id === guidedSourceId));
   const [siteId, setSiteId] = useState(guidedSourceId ?? "");
   const site = choices.find(item => item.id === siteId) ?? null;
   const diagnostics = useWordPressDiagnostics(siteId, { local: true, enabled: site?.status === "running" });

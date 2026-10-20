@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { hostEndpoints, runAction } from "../../host/actions";
+import { hostEndpoints, runAction, type HostEndpoint } from "../../host/actions";
 import { Btn as Btn } from "@zoer/plugin-ui/controls";
 import { Modal as Modal } from "@zoer/plugin-ui/controls";
 import { controlClass } from "@zoer/plugin-ui/controls";
@@ -15,7 +15,7 @@ type SiteCheck = { ok: boolean; summary: string };
  *
  * The manager owns the trigger so it can sit in the toolbar or the phone Tools menu.
  */
-export default function WordPressAddSite({ open, onOpenChange, onAdded, existingUrls = [] }: { open: boolean; onOpenChange: (open: boolean) => void; onAdded: (id: string) => Promise<void>; existingUrls?: readonly string[] }) {
+export default function WordPressAddSite({ open, onOpenChange, onAdded, existingUrls = [] }: { open: boolean; onOpenChange: (open: boolean) => void; onAdded: (endpoint: HostEndpoint, verified?: boolean) => Promise<void>; existingUrls?: readonly string[] }) {
   const setOpen = onOpenChange;
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -47,11 +47,11 @@ export default function WordPressAddSite({ open, onOpenChange, onAdded, existing
         setError(`${check.summary} Zoer saved the connection; remove it, then add the site again after fixing it.`);
         const { removed } = await hostEndpoints.remove(endpoint.id).catch(() => ({ removed: false }));
         if (removed) setError(`${check.summary} The connection was removed.`);
-        else await onAdded(endpoint.id);
+        else await onAdded(endpoint, false);
         return;
       }
       setOpen(false); setName(""); setUrl("");
-      await onAdded(endpoint.id);
+      await onAdded(endpoint);
     } catch (err) { setError(err instanceof Error ? err.message : "Unable to add site."); }
     finally { setKey(""); setUrl(""); setBusy(false); }
   }
@@ -62,7 +62,7 @@ export default function WordPressAddSite({ open, onOpenChange, onAdded, existing
         <label className="flex flex-col gap-1"><span>Connection info (website and key)</span><input className={controlClass()} type="password" required maxLength={4096} placeholder="Paste both connection lines" autoComplete="new-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-describedby="wordpress-add-paste-help" value={key} onPaste={pasteConnection} onChange={e => { setKey(e.target.value); setUrl(""); setError(e.target.value ? "Copy and paste the full connection info so Zoer can detect the website address." : ""); }} disabled={busy} /></label>
         {url && <p role="status" className="break-all text-sm text-text-secondary">Website detected: <span className="font-medium text-text-primary">{url}</span></p>}
         <label className="block space-y-1"><span>Site name (optional)</span><input className={controlClass()} maxLength={120} value={name} onChange={e => setName(e.target.value)} disabled={busy} /></label>
-        <p className="text-xs text-text-secondary">Zoer asks you to confirm, tests the connection and keeps the key on the server; this page never sees it again. You can import content after connecting, if enabled in WordPress.</p>
+        <p className="text-xs text-text-secondary">Zoer tests the connection and keeps the key on the server; this page never sees it again. You can import content after connecting, if enabled in WordPress.</p>
         {error && <p role="alert" className="text-status-error">{error}</p>}
       </form>
     </Modal>}

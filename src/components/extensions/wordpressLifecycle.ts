@@ -9,5 +9,5 @@ export function wordpressLifecycleAction(site: Pick<WordPressManagedSite, "provi
 }
 
 export function isLocalWordPress(site: Pick<WordPressManagedSite, "provider" | "environment">): boolean {
-  return (site.provider === "ddev" && site.environment === "local") || (site.provider === "playground" && site.environment === "playground");
+  return (["ddev", "kubernetes"].includes(site.provider) && site.environment === "local") || (site.provider === "playground" && site.environment === "playground");
 }

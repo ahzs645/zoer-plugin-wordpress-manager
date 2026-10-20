@@ -3,7 +3,7 @@ import { FakeWorld } from "./fakes/host";
 import { BLOCK, FakeZoerConnect, sampleSite, sha } from "./fakes/zoer-connect";
 import { writeZip } from "./fakes/zip";
 import { createTicketHost } from "../plugin/worker/lib/host.js";
-import { connectClient, mapConnectResponse } from "../plugin/worker/lib/zoer-connect.js";
+import { connectClient, mapConnectResponse, parseStatus, sameSiteTarget } from "../plugin/worker/lib/zoer-connect.js";
 import { connectRefusal, validatePullFiles } from "../plugin/worker/lib/files.js";
 import { defaultExportOptions } from "../plugin/worker/lib/options.js";
 import { mediaBaseline, preparationMessage } from "../plugin/worker/lib/pull.js";
@@ -39,6 +39,29 @@ describe("every managed site (0.8.0: no engine switch)", () => {
   });
 });
 
+describe("HTTPS endpoint identity", () => {
+  test("accepts only an HTTP canonical scheme difference and retains HTTPS transport", () => {
+    const origin = "https://shop.example/blog";
+    for (const target of [origin, origin + "/", "http://shop.example/blog", "http://shop.example/blog/"]) {
+      expect(sameSiteTarget(origin, target)).toBe(true);
+      expect(parseStatus(origin, { target, version: "0.9.0", capabilities: { connectionKey: true } }).target).toBe(target);
+    }
+    // New endpoint normalization rejects ports, but exact legacy HTTPS identities still work.
+    for (const originWithPort of ["https://shop.example:8443/blog", "https://shop.example:443/blog"]) {
+      expect(sameSiteTarget(originWithPort, originWithPort + "/")).toBe(true);
+      expect(parseStatus(originWithPort, { target: originWithPort, version: "0.9.0", capabilities: { connectionKey: true } }).target).toBe(originWithPort);
+      expect(sameSiteTarget(originWithPort, originWithPort.replace("https:", "http:"))).toBe(false);
+    }
+    // HTTP endpoints are never accepted, including the reverse scheme direction.
+    expect(sameSiteTarget("http://shop.example/blog", origin)).toBe(false);
+    expect(sameSiteTarget("http://shop.example/blog", "http://shop.example/blog")).toBe(false);
+    for (const target of ["http://other.example/blog", "http://shop.example/other", "http://shop.example/blogger", "http://shop.example:80/blog", "https://shop.example:443/blog", "http://user@shop.example/blog", "http://shop.example/blog?x=1", "http://shop.example/blog?", "http://shop.example/blog#x", "http://shop.example/blog#", "http://shop.example/blog%2F", " http://shop.example/blog", null]) {
+      expect(sameSiteTarget(origin, target)).toBe(false);
+      expect(() => parseStatus(origin, { target, version: "0.9.0", capabilities: { connectionKey: true } })).toThrow("does not match");
+    }
+  });
+});
+
 describe("transfer.pull", () => {
   test("downloads a verified, sealed file set and records the pull", async () => {
     const { w, source } = world();
@@ -59,6 +82,29 @@ describe("transfer.pull", () => {
     const routes = source.log.map(l => `${l.method} ${l.route.replace(/\?.*$/, "")}`);
     expect(routes.slice(0, 3)).toEqual(["GET /status", "POST /exports", `POST /exports/${PULL}/step`]);
     expect(routes.slice(3).every(r => r === `GET /exports/${PULL}/chunks`)).toBe(true);
+  });
+
+  test.each([false, true])("HTTP canonical source downloads over HTTPS with paged export %s", async (pagedExport) => {
+    const { w, source } = world();
+    source.options.origin = "http://source.example";
+    source.options.pagedExport = pagedExport;
+    source.capabilities.pagedExport = pagedExport;
+    const output = await pulled(w);
+    expect(output.status).toBe("ready");
+    expect(w.catalog.records.get(`pull:${PULL}`)!.data.source.url).toBe("http://source.example");
+    expect(w.calls.filter(c => c.method === "network.fetch").every(c => c.input.url.startsWith("https://source.example/"))).toBe(true);
+    expect(w.sets.get(`fs_${PULL}`).status).toBe("sealed");
+  });
+
+  test("a valid status cannot authorize a different installation in the export manifest", async () => {
+    const { w, source } = world();
+    const status = source.status.bind(source);
+    source.status = () => ({ ...status(), target: "https://source.example" });
+    source.options.origin = "http://other.example";
+    const result = await w.run("transfer.pull", { siteId: "hostinger-1", pullId: PULL });
+    expect(result.status).toBe("failed");
+    expect((result as any).error.message).toContain("Export source information does not match");
+    expect(w.sets.sets.has(`fs_${PULL}`)).toBe(false);
   });
 
   test("media since-last counts only from a successful, kept download", () => {
@@ -690,7 +736,125 @@ describe("transfer.preview and transfer.push", () => {
   });
 });
 
+describe("one-click push (export, compare and push started together)", () => {
+  const confirm = { confirmTarget: "https://dest.example", replacementAccepted: true };
+  const staged = { replacements: { automatic: true, variants: false, paths: false, custom: [] }, fence: "activation", review: true };
+  function local(existing: Record<string, string> = { "wp-content/themes/twentyone/style.css": "body{color:red}", "wp-content/plugins/akismet/akismet.php": "old" }, options: Record<string, unknown> = {}) {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    const destination = w.addSite("external:dest", new FakeZoerConnect({ origin: "https://dest.example", files: {}, existing, ...options }));
+    return { w, destination };
+  }
+  const pushInput = (extra: Record<string, unknown> = {}) => ({ siteId: "external:dest", exportPullId: PULL, sourceSiteId: "ddev-shop", previewId: PREVIEW, autoSelect: { database: true },
+    finishAutomatically: true, importId: IMPORT, importOptions: staged, ...confirm, ...extra });
+
+  test("the push waits for its export and comparison, sends only what differs and finishes by itself", async () => {
+    const { w, destination } = local();
+    const early = await w.run("transfer.push", pushInput(), { runId: "push", maxSlices: 2 });
+    expect(early.status).toBe("running");
+    expect(early.envelopes.at(-1)).toMatchObject({ resumable: "continue", waitMs: 7500, progress: { phase: "exporting" } });
+    expect(early.envelopes[0]).toMatchObject({ waitMs: 5000 });
+    const comparing = await w.run("transfer.preview", { siteId: "external:dest", previewId: PREVIEW, exportPullId: PULL }, { runId: "preview", maxSlices: 2 });
+    expect(comparing.envelopes.at(-1)).toMatchObject({ resumable: "continue", progress: { phase: "waiting for export" } });
+    expect((await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { runId: "export" })).status).toBe("succeeded");
+    // The export is ready but not compared yet: the push keeps waiting, now for the comparison.
+    const waiting = await w.run("transfer.push", pushInput(), { runId: "push", checkpoint: early.checkpoint, step: 3, maxSlices: 3 });
+    expect(waiting.envelopes.at(-1)).toMatchObject({ resumable: "continue", progress: { phase: "comparing" } });
+    const compared = await w.run("transfer.preview", { siteId: "external:dest", previewId: PREVIEW, exportPullId: PULL }, { runId: "preview", checkpoint: comparing.checkpoint, step: 3 });
+    expect(compared.status).toBe("succeeded");
+    expect((compared as any).output.counts).toEqual({ new: 2, changed: 1, unchanged: 1, blocked: 2, database: 1 });
+    const pushed = await w.run("transfer.push", pushInput(), { runId: "push", checkpoint: waiting.checkpoint, step: 6 });
+    expect(pushed.status).toBe("succeeded");
+    expect((pushed as any).output).toMatchObject({ status: "complete", importId: IMPORT });
+    const manifest = destination.imports.get(IMPORT)!.manifest;
+    // The unchanged theme stylesheet stays out; refused files are never selected.
+    expect(manifest.files.map((f: any) => f.path).sort()).toEqual(["wp-content/plugins/akismet/akismet.php", "wp-content/uploads/2024/01/photo.jpg", "wp-content/uploads/empty.txt"]);
+    expect(manifest.database).not.toBeNull();
+    expect(manifest.resources).toMatchObject({ plugins: false, themes: false });
+    // Approved without a control run: one approve, then the import completed.
+    expect(destination.log.filter(l => l.route === `/imports/${IMPORT}/approve`)).toHaveLength(1);
+    expect(destination.imports.get(IMPORT)!.phase).toBe("complete");
+  });
+
+  test("an early-fenced push is finished by itself too", async () => {
+    const { w, destination } = local(undefined, { verification: true });
+    await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { runId: "export" });
+    await w.run("transfer.preview", { siteId: "external:dest", previewId: PREVIEW, exportPullId: PULL }, { runId: "preview" });
+    const pushed = await w.run("transfer.push", pushInput({ importOptions: { ...staged, review: false, fence: "early" } }), { runId: "push" });
+    expect(pushed.status).toBe("succeeded");
+    expect((pushed as any).output).toMatchObject({ status: "complete" });
+    expect(destination.log.filter(l => l.route === `/imports/${IMPORT}/finish`)).toHaveLength(1);
+    // Without finishAutomatically the same import waits for the user's Finish.
+    const { w: w2 } = local(undefined, { verification: true });
+    await w2.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { runId: "export" });
+    await w2.run("transfer.preview", { siteId: "external:dest", previewId: PREVIEW, exportPullId: PULL }, { runId: "preview" });
+    const manual = await w2.run("transfer.push", pushInput({ finishAutomatically: false, importOptions: { ...staged, review: false, fence: "early" } }), { runId: "push" });
+    expect(manual.status).toBe("needs-user");
+    expect((manual as any).reason).toContain("Verify the destination site.");
+  });
+
+  test("nothing new on the source sends nothing", async () => {
+    const files = sampleSite().options.files;
+    const same = Object.fromEntries(Object.entries(files).filter(([path]) => path !== "database.sql").map(([path, data]) => [path, typeof data === "string" ? data : data.toString("latin1")]));
+    const { w, destination } = local(same);
+    // Buffer contents must match byte for byte: keep the binary photo as the fake stores it.
+    destination.site.set("wp-content/uploads/2024/01/photo.jpg", files["wp-content/uploads/2024/01/photo.jpg"] as Buffer);
+    await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { runId: "export" });
+    await w.run("transfer.preview", { siteId: "external:dest", previewId: PREVIEW, exportPullId: PULL }, { runId: "preview" });
+    const pushed = await w.run("transfer.push", pushInput({ autoSelect: { database: false } }), { runId: "push" });
+    expect((pushed as any).output).toMatchObject({ status: "unchanged", fileCount: 0, summary: "https://dest.example already has these changes. Nothing was sent." });
+    expect(destination.log.some(l => l.method === "POST" && l.route.startsWith("/imports"))).toBe(false);
+  });
+
+  test("a failed export or comparison ends the waiting push without sending anything", async () => {
+    const { w, destination } = local();
+    w.catalog.records.set(`pull:${PULL}`, { id: `pull:${PULL}`, kind: "pull", title: "Local export", data: { v: 1, pullId: PULL, siteId: "ddev-shop", kind: "local-export", setId: null, status: "failed" } } as any);
+    const preview = await w.run("transfer.preview", { siteId: "external:dest", previewId: PREVIEW, exportPullId: PULL }, { runId: "preview" });
+    expect(preview.status).toBe("failed");
+    expect(w.catalog.records.get(`preview:${PREVIEW}`)!.data).toMatchObject({ failed: true, complete: false });
+    const pushed = await w.run("transfer.push", pushInput(), { runId: "push" });
+    expect((pushed as any).output).toMatchObject({ status: "failed" });
+    expect((pushed as any).output.error.message).toBe("The local export failed. Nothing was sent.");
+    // A comparison that failed after the export: the push names it.
+    w.catalog.records.delete(`pull:${PULL}`);
+    await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { runId: "export" });
+    const again = await w.run("transfer.push", pushInput({ importId: PULL2 }), { runId: "push2" });
+    expect((again as any).output.error.message).toContain("The comparison with the live site failed");
+    expect(destination.log.some(l => l.method === "POST" && l.route.startsWith("/imports"))).toBe(false);
+  });
+
+  test("one-click inputs are refused when they are mixed up", async () => {
+    const { w } = local();
+    for (const [extra, message] of [
+      [{ setId: `fs_${PULL}` }, "Push either a verified download or the local export being made, not both."],
+      [{ sourceSiteId: undefined }, "Name the local site being exported."],
+      [{ autoSelect: { database: true }, selectedPaths: ["database.sql"] }, "An automatic selection needs a comparison and no file list."],
+      [{ autoSelect: { everything: true } }, "Choose a valid automatic selection."],
+    ] as const) {
+      const result = await w.run("transfer.push", pushInput(extra as any), { runId: "push" });
+      expect((result as any).output?.error?.message ?? (result as any).error?.message).toBe(message);
+    }
+    // A local export of another site is not pushed in its name.
+    await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { runId: "export" });
+    const other = await w.run("transfer.push", pushInput({ sourceSiteId: "ddev-other", autoSelect: undefined, previewId: undefined }), { runId: "push" });
+    expect((other as any).output.error.message).toBe("The local export does not belong to the site being pushed.");
+  });
+});
+
 describe("copy.local", () => {
+  test("HTTP canonical home is retained for local database URL replacement", async () => {
+    const { w, source } = world();
+    source.options.origin = "http://source.example";
+    source.options.files["database.sql"] = "INSERT INTO wp_options VALUES ('home', 'http://source.example');";
+    const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
+    expect(result.status).toBe("succeeded");
+    const output = (result as any).output;
+    const site = w.ddev.sites.get(output.targetId)!;
+    expect(site.database!.toString()).toContain(output.targetUrl);
+    expect(site.database!.toString()).not.toContain("http://source.example");
+    expect(w.calls.filter(c => c.method === "network.fetch").every(c => c.input.url.startsWith("https://source.example/"))).toBe(true);
+  });
+
   test("pulls, creates a DDEV site, stages verified files, imports and verifies", async () => {
     const { w, source } = world();
     const result = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Shop" });
@@ -1420,4 +1584,34 @@ test("creating a local copy retains its source checkpoint during a long outage",
   expect(result.reason).toContain("Saved progress is kept");
   lost.count = 0;
   expect((await w.run("copy.local", input, { checkpoint: result.checkpoint })).status).toBe("succeeded");
+});
+
+
+describe("Kubernetes runtime transfer compatibility", () => {
+  test("copies a managed DDEV source into Kubernetes, then copies the native source back into DDEV", async () => {
+    const { w } = world();
+    const source = sampleSite("https://managed-source.wp.example");
+    w.ddev.add("ddev-managed-source", "Managed source", source);
+    const copied = await w.run("copy.local", { siteId: "ddev-managed-source", copyId: COPY, name: "Native copy", runtimeProfile: "wordpress-kubernetes" });
+    expect(copied.status).toBe("succeeded");
+    const native = (copied as any).output.targetId;
+    expect(native).toMatch(/^wpilot-[a-f0-9]{12}$/);
+    expect(w.calls.some(c => c.method === "routes.assign" && c.input.resourceId === native && c.input.port === 8080)).toBe(true);
+    const saved = w.ddev.sites.get(native)!;
+    saved.content = new FakeZoerConnect({ origin: (copied as any).output.targetUrl, files: { ...Object.fromEntries(saved.files), "database.sql": saved.database! } });
+    const reversed = await w.run("copy.local", { siteId: native, copyId: PULL2, name: "Back to DDEV" });
+    expect(reversed.status).toBe("succeeded");
+    expect((reversed as any).output.targetId).toMatch(/^ddev-/);
+    expect(w.ddev.sites.get((reversed as any).output.targetId)!.database).toEqual(w.ddev.sites.get(native)!.database);
+  });
+  test("refreshes a linked Kubernetes destination through the same recovery-backup and journal path", async () => {
+    const { w } = world();
+    const first = await w.run("copy.local", { siteId: "hostinger-1", copyId: COPY, name: "Native refresh", runtimeProfile: "wordpress-kubernetes" });
+    expect(first.status).toBe("succeeded");
+    const targetId = (first as any).output.targetId;
+    const refreshed = await w.run("copy.local", { siteId: "hostinger-1", copyId: PULL2, replaceSiteId: targetId });
+    expect(refreshed.status).toBe("succeeded");
+    expect((refreshed as any).output.targetId).toBe(targetId);
+    expect(w.ddev.sites.get(targetId)!.backups).toBe(1);
+  });
 });
