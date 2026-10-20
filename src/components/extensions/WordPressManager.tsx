@@ -8,6 +8,7 @@ import HostingerReconnect from "./HostingerReconnect";
 import SiteStackPanel from "./SiteStackPanel";
 import WordPressResources from "./WordPressResources";
 import WordPressKubernetesPilot from "./WordPressKubernetesPilot";
+import LiveSiteDevelopment from "./LiveSiteDevelopment";
 import WordPressRepositoryDevelopment from "./WordPressRepositoryDevelopment";
 import { canDevelopInstalledPlugin, type SiteRepositorySource } from "./repositoryPluginSelection";
 import { useResourceSelection } from "@zoer/plugin-ui/workspace";
@@ -968,7 +969,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
             {detailError && (isTransferFence(detailError)
               ? <div role="status" className="mb-3 text-sm text-status-warning">{TRANSFER_FENCE_NOTICE} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>
               : <div role="alert" className="mb-3 text-sm text-status-error">{detailError} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>)}
-            {section === "development" ? <div className="min-w-0 space-y-6"><WordPressRepositoryDevelopment />{selected && <SiteStackPanel site={selected} />}</div>
+            {section === "development" ? <div className="min-w-0 space-y-6">{selected && ["hostinger", "zoer-connect"].includes(selected.provider) ? <LiveSiteDevelopment site={selected} copies={selectedCopies} onSelect={copy => { selectSite(copy); setTab("development"); }} onMakeCopy={() => setPullInto({ local: null, live: selected })} /> : <WordPressRepositoryDevelopment />}{selected && <SiteStackPanel site={selected} />}</div>
             : section === "history" ? (selected ? <SiteActivity key={selected.id} site={selected} transferSiteIds={transferSiteIds} siteIds={selected ? [selected.id, ...connectionMembers.map(member => member.id)] : []} sites={sites} canonicalId={identity.canonicalId} deployments={siteDeployments} loading={deploymentsQuery.isFetching} error={deploymentsQuery.error?.message || deploymentRecords.error?.message} onRefresh={() => { void deploymentsQuery.refetch(); void deploymentRecords.refetch(); }} busy={busy} onVerify={confirmDeployment} /> : <EmptyState icon={<Globe2 className="h-7 w-7" />} title="Select a WordPress site" />)
             : detailLoading && section !== "overview" ? <div className="flex min-h-52 items-center justify-center text-[12px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Inspecting site…</div> : (
               <>
@@ -998,7 +999,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
         const endpoint = siteEndpoints.data?.endpoints.find(item => item.id === live.id);
         // copy.local needs the live site's Zoer Connect endpoint (a DDEV test source can have one too).
         // Without one, the Zoer Connect setup dialog explains how to connect or restore a backup instead.
-        if (!["zoer-connect", "ddev", "kubernetes"].includes(live.provider) && !endpoint) return <WordPressConnect key={`setup:${live.id}`} autoOpen localCopy siteId={live.id} siteName={pullInto.live.name} onSetup={pullInto.live.provider === "hostinger" ? () => void openSite(pullInto.live, true) : undefined} onRestore={openBackupImport} onDismiss={() => setPullInto(null)} />;
+        if (!["zoer-connect", "ddev", "kubernetes"].includes(live.provider) && !endpoint) return <WordPressConnect key={`setup:${live.id}`} autoOpen localCopy siteId={live.id} siteName={pullInto.live.name} hostinger={pullInto.live.provider === "hostinger"} onConnected={() => void load(true, true)} onSetup={pullInto.live.provider === "hostinger" ? () => void openSite(pullInto.live, true) : undefined} onRestore={openBackupImport} onDismiss={() => setPullInto(null)} />;
         return <Modal mobileSheet title={`Pull from ${pullInto.live.name}`} onClose={() => setPullInto(null)}>
           <PluginLocalCopy key={`${live.id}:${pullInto.local?.id ?? "new"}`} siteId={live.id} siteName={pullInto.live.name} sourceUrl={endpoint?.origin ?? live.url} refreshSiteId={pullInto.local?.id ?? null} heading={false} />
         </Modal>;

@@ -12,6 +12,8 @@ export const wordpressQueries = {
   site: (id: string, tab: string) => queryOptions({ queryKey: [...wordpressKeys.all(), "site", id, tab], queryFn: () => api.getWordPressManagedSite(id, tab), staleTime: 30_000 }),
   connections: () => queryOptions({ queryKey: [...wordpressKeys.all(), "connections"], queryFn: async () => (await api.listWordPressManagerConnections()).connections, staleTime: 60_000 }),
   deployments: () => queryOptions({ queryKey: [...wordpressKeys.all(), "deployments"], queryFn: async () => (await api.listWordPressDeployments()).deployments }),
+  /** Zoer Connect on Hostinger websites, checked again every 10 minutes while a page shows it. */
+  zoerConnectCheck: (siteIds: string[]) => queryOptions({ queryKey: [...wordpressKeys.all(), "zoer-connect-check", siteIds.join(",")], queryFn: async () => (await api.checkHostingerZoerConnect(siteIds)).checks, staleTime: 5 * 60_000, refetchInterval: 10 * 60_000 }),
   connectors: resourceQueries.connectors,
 };
 export function activeWordPressDeployment(status: string) { return ["queued", "preparing", "uploading", "importing", "verifying"].includes(status); }

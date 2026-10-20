@@ -55,8 +55,8 @@ test("the remaining /wordpress-manager calls are the routes Zoer keeps", async (
   const families = new Set<string>();
   for (const { text } of files) for (const match of text.matchAll(/\/wordpress-manager\/([a-z-]+)/g)) families.add(match[1]!);
   expect([...families].filter(family => !KEPT.has(family))).toEqual([]);
-  // Hostinger: only website creation (`/hostinger/websites`) is a call; sign-in moved to Zoer's connection dialog.
-  for (const { text } of files) for (const match of text.matchAll(/\/wordpress-manager\/hostinger\/([a-z-]+)/g)) expect(match[1]).toBe("websites");
+  // Hostinger: website creation (`/hostinger/websites`) and the Zoer Connect check are calls; sign-in moved to Zoer's connection dialog.
+  for (const { text } of files) for (const match of text.matchAll(/\/wordpress-manager\/hostinger\/([a-z-]+)/g)) expect(["websites", "zoer-connect-check"]).toContain(match[1]!);
 });
 
 test("the transfer workers never read the 0.7.x per-site engine records", async () => {

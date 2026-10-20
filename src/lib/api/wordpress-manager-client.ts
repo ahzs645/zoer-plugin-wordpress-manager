@@ -34,6 +34,10 @@ export interface ExtensionChangeInput {
 export const wordpressManagerClient = {
   runHostingerSiteTool: (id: string, action: "clear-cache" | "enable-cacheless" | "disable-cacheless" | "detect-installations") => json<{state:"accepted";action:string;siteId:string;requestedAt:string}>(`/wordpress-manager/sites/${encodeURIComponent(id)}/hostinger-tools`, {method:"POST",body:JSON.stringify({action})}),
   getHostingerSetupInventory: (id: string) => json<HostingerSetupInventory>(`/wordpress-manager/connections/${encodeURIComponent(id)}/setup-inventory`),
+  /** Whether Zoer Connect is installed and active on Hostinger websites (checked without a key; cached for 10 minutes). */
+  checkHostingerZoerConnect: (siteIds: string[], fresh = false) => json<{checks:Array<{siteId:string;domain:string;installed:boolean;checkedAt:string}>}>(`/wordpress-manager/hostinger/zoer-connect-check`, {method:"POST",body:JSON.stringify({siteIds,fresh})}),
+  /** Connects a Hostinger website that has Zoer Connect: Hostinger's admin login, a new key (and Pull when asked), saved as its endpoint. */
+  connectHostingerZoerConnect: (id: string, allowPull: boolean) => json<{endpointId:string;domain:string;warning:string|null}>(`/wordpress-manager/sites/${encodeURIComponent(id)}/connect-zoer-connect`, {method:"POST",body:JSON.stringify({allowPull})}),
   generateHostingerTemporaryDomain: (id: string) => json<{domain:string}>(`/wordpress-manager/connections/${encodeURIComponent(id)}/temporary-domain`, {method:"POST",body:"{}"}),
   getWordPressCoreUpdates: (siteId: string) => json<WordPressCoreUpdateState>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/core-updates`),
   checkWordPressCoreUpdates: (siteId: string) => json<WordPressCoreUpdateState>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/core-updates/check`, { method: "POST", body: "{}" }),
