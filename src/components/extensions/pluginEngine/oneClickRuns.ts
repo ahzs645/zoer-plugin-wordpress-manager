@@ -13,8 +13,10 @@ export interface OneClickRuns { push: RecentRun; exportRun: RecentRun | null; pr
 export const isOneClickPush = (run: Pick<RecentRun, "actionId" | "input">) => run.actionId === ENGINE_ACTIONS.push && typeof runInput(run).exportPullId === "string";
 
 /** The newest one-click push from `sourceId` (to `destinationId` when given), with the export and comparison started with it. */
-export function findOneClickPush(runs: readonly RecentRun[], sourceId: string, destinationId?: string): OneClickRuns | null {
-  const push = runs.filter(run => isOneClickPush(run) && runInput(run).sourceSiteId === sourceId && (!destinationId || runInput(run).siteId === destinationId))
+/** The newest one-click push from `sourceId`; to `destination` (one site ID, or every ID of one website) when given. */
+export function findOneClickPush(runs: readonly RecentRun[], sourceId: string, destination?: string | readonly string[]): OneClickRuns | null {
+  const destinations = destination === undefined ? null : typeof destination === "string" ? [destination] : destination;
+  const push = runs.filter(run => isOneClickPush(run) && runInput(run).sourceSiteId === sourceId && (!destinations || destinations.includes(String(runInput(run).siteId))))
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
   if (!push) return null;
   const input = runInput(push);

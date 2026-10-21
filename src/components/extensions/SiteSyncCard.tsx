@@ -21,9 +21,9 @@ function Node({ icon, label, site, onClick }: { icon: React.ReactNode; label: st
 }
 
 /** The newest push from `local` to `live` as one line; opens the Push to live dialog, which shows it in full. */
-function LastPush({ local, live, onOpen }: { local: WordPressManagedSite; live: WordPressManagedSite | null; onOpen: () => void }) {
+function LastPush({ local, live, liveIds, onOpen }: { local: WordPressManagedSite; live: WordPressManagedSite | null; /** Every site ID of the live website: a push to an earlier live site is not this one's. */ liveIds?: readonly string[]; onOpen: () => void }) {
   const runs = useRecentRuns(PUSH_ACTIONS);
-  const found = findOneClickPush(runs.data ?? [], local.id);
+  const found = findOneClickPush(runs.data ?? [], local.id, liveIds);
   if (!found) return null;
   const summary = pushSummary(found, live ? host(live) : "the live site");
   return <button type="button" onClick={onOpen} className={`flex min-h-8 max-w-full items-center gap-1.5 text-left text-xs ${TONE[summary.tone]} hover:underline`}>
@@ -36,7 +36,7 @@ function LastPush({ local, live, onOpen }: { local: WordPressManagedSite; live: 
  * Overview and on Publish): the pair, Push to live (one press: export, compare and push run by
  * themselves) and Pull from live, and how the last push went. From the live side: its local copies.
  */
-export default function SiteSyncCard({ site, live, copies, onPush, onRefresh, onSelect, onCompare, makeCopy, onGoLive, goLive, onLink, onAddCopy, paused = false }: {
+export default function SiteSyncCard({ site, live, copies, onPush, onRefresh, onSelect, onCompare, makeCopy, onGoLive, goLive, onLink, onAddCopy, siteIds = s => [s.id], paused = false }: {
   site: WordPressManagedSite;
   /** For a local site: the live site it was copied from, if any. */ live: WordPressManagedSite | null;
   /** For a live site: its local copies. */ copies: WordPressManagedSite[];
@@ -49,6 +49,7 @@ export default function SiteSyncCard({ site, live, copies, onPush, onRefresh, on
   /** A Create a live site process under way for this local site: its one-line state. */ goLive?: { text: string; tone: "running" | "warning" | "error" } | null;
   /** For a local site: link it to the site it is a copy of, or change that site. */ onLink?: () => void;
   /** For a live site: add an existing local site to its local copies. */ onAddCopy?: () => void;
+  /** Every site ID of a website (its Hostinger site and Zoer Connect connection). */ siteIds?: (site: WordPressManagedSite) => string[];
   /** A transfer is changing this site: pushing and pulling wait for it. */ paused?: boolean;
 }) {
   const pausedNote = paused && <p className="text-xs text-status-warning">A transfer is changing this site. Push and pull come back when it finishes.</p>;
@@ -59,7 +60,7 @@ export default function SiteSyncCard({ site, live, copies, onPush, onRefresh, on
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
       <h4 className="text-sm font-semibold text-text-heading">{localSource ? "Copy and source" : "Local and live"}</h4>
       {goLive ? <button type="button" onClick={onGoLive} className={`flex min-h-8 max-w-full items-center gap-1.5 text-left text-xs hover:underline ${goLive.tone === "error" ? "text-status-error" : goLive.tone === "warning" ? "text-status-warning" : "text-text-primary"}`}>{goLive.tone === "running" && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />}<span className="min-w-0 break-words">{goLive.text}</span></button>
-        : <LastPush local={site} live={live} onOpen={() => onPush(site)} />}
+        : <LastPush local={site} live={live} liveIds={live ? siteIds(live) : undefined} onOpen={() => onPush(site)} />}
     </div>
     {live ? <div className="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center">
       <Node icon={<Server className="h-3 w-3" aria-hidden="true" />} label={localSource ? "This site · copy" : "This site · local"} site={site} />
@@ -90,7 +91,7 @@ export default function SiteSyncCard({ site, live, copies, onPush, onRefresh, on
           <Btn size="sm" variant="primary" icon={<ArrowUp className="h-3.5 w-3.5" />} disabled={paused} onClick={() => onPush(copy)}>Push to live</Btn>
         </div>
       </div>
-      <LastPush local={copy} live={site} onOpen={() => onPush(copy)} />
+      <LastPush local={copy} live={site} liveIds={siteIds(site)} onOpen={() => onPush(copy)} />
     </li>)}</ul> : <p className="text-sm text-text-secondary">No local copy yet. Make one to change the site safely, then push the changes back here. A local site you already have can be added instead.</p>}
     {pausedNote}
   </section>;

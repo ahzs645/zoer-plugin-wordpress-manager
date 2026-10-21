@@ -21,6 +21,9 @@ describe("finding a one-click push", () => {
     const found = findOneClickPush(runs, "ddev-local", "external:live")!;
     expect([found.push.runId, found.exportRun?.runId, found.previewRun?.runId]).toEqual(["push", "export", "preview"]);
     expect(findOneClickPush(runs, "ddev-local", "external:other")).toBeNull();
+    // A website's IDs (its Hostinger site and its connection): a push to an earlier live site does not count.
+    expect(findOneClickPush(runs, "ddev-local", ["hostinger:a:1", "external:live"])!.push.runId).toBe("push");
+    expect(findOneClickPush(runs, "ddev-local", ["hostinger:b:2", "external:new"])).toBeNull();
     expect(activeRunsOf(found).map(r => r.runId)).toEqual(["push", "export", "preview"]);
   });
 
