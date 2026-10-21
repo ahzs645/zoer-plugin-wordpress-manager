@@ -19,8 +19,8 @@ import { assertNotForbidden, zoerOrigin } from "./guard";
 
 /** Zoer's removed legacy WordPress transfer routes (tests/host-routes.test.ts, as request paths). */
 export const LEGACY = /\/wordpress-pulls\b|\/wordpress-transfers\b|\/wordpress-manager\/(?:transfers|local-exports|backup-restores|local-copies|copy-workflows|transfer-profiles)\b|\/connect\/[^/?]+\/(?:pulls|pushes|replacements|diagnostics|local-copies|copy-workflows)\b|download-ticket|wordpress-updraft-imports/;
-/** Non-GET requests the UI makes while only reading. */
-const READ_POSTS = /\/workspace\/catalog\/(?:list|read)|\/workspace\/runs(?:\?|$)|\/actions\/(?:site\.test|wpcli\.read|[a-z]+\.refresh|sites\.trash|snapshot\.list|backup\.list)\/(?:plan|run)/;
+/** Non-GET requests the UI makes while only reading (connection tests and the Zoer Connect check included). */
+const READ_POSTS = /\/wordpress-manager\/connect\/[^/?]+\/test\b|\/wordpress-manager\/hostinger\/zoer-connect-check\b|\/workspace\/catalog\/(?:list|read)|\/workspace\/runs(?:\?|$)|\/actions\/(?:site\.test|wpcli\.read|[a-z]+\.refresh|sites\.trash|snapshot\.list|backup\.list)\/(?:plan|run)/;
 
 const { values } = parseArgs({
   args: process.argv.slice(2),
