@@ -6,8 +6,10 @@ const fresh = (patch: Partial<CopySettings> = {}) => ({ ...defaultCopySettings(f
 
 describe("copy settings → copy.local input", () => {
   test("defaults: a new copy takes everything; a refresh starts as database only and keeps local pages", () => {
-    expect(copyInput(fresh(), false)).toEqual({});
+    expect(copyInput(fresh(), false)).toEqual({ activePlugins: "source" });
     expect(copyInput(refresh(), true)).toEqual({ scope: "database", keepLocalDesign: true });
+    expect(copyInput(refresh({ files: true }), true)).toEqual({ scope: "complete", activePlugins: "source" });
+    expect(copyInput(fresh({ activePlugins: "none" }), false)).toEqual({});
   });
   test("a refresh with every option maps each one to the worker's fields", () => {
     const input = copyInput(refresh({ files: true, media: "since-last", plugins: { mode: "selected", items: ["akismet"] }, themes: { mode: "except", items: [] }, removeStale: true, languages: true, excludeRevisions: true, excludeSpam: true,
@@ -36,7 +38,7 @@ describe("copy settings → copy.local input", () => {
     expect(copySettingsSummary(refresh({ files: true, media: "since-last", removeStale: true, activePlugins: "local", pace: "gentle" }), true))
       .toBe("Database and files · new media only · deleted files removed · local plugins stay active · gentle pace");
     expect(copySettingsSummary(refresh(), true)).toBe("Database only");
-    expect(copySettingsSummary(fresh(), false)).toBe("Database and files · all media · plugins inactive");
+    expect(copySettingsSummary(fresh(), false)).toBe("Database and files · all media · live plugins active");
   });
 });
 
@@ -47,7 +49,7 @@ describe("copies from an existing download", () => {
     expect(copyInputForDownload(settings, true, noMedia)).toEqual({ scope: "without-media", removeStale: true, activePlugins: "local", replacements: { custom: [{ find: "a", replace: "b", regex: false, caseSensitive: true }] } });
     expect(copyInputForDownload(settings, true, { options: { profile: {}, database: true } })).toEqual({ scope: "database", keepLocalDesign: true, replacements: { custom: [{ find: "a", replace: "b", regex: false, caseSensitive: true }] } });
     expect(copyInputForDownload(settings, true, { options: { profile: { themes: true, plugins: true, media: true }, database: false } })).toEqual({ scope: "files", removeStale: true });
-    expect(copyInputForDownload(fresh(), false, { options: { profile: { themes: true, plugins: true, media: true }, database: true } })).toEqual({});
+    expect(copyInputForDownload(fresh(), false, { options: { profile: { themes: true, plugins: true, media: true }, database: true } })).toEqual({ activePlugins: "source" });
   });
 });
 
@@ -58,7 +60,7 @@ describe("saved presets", () => {
     expect(record).toMatchObject({ id: "refresh-preset:abc", kind: "refresh-preset", title: "Code refresh" });
     expect(parseCopyPreset(record)).toEqual({ id: "refresh-preset:abc", name: "Code refresh", updatedAt: "2026-10-18T12:00:00.000Z", settings });
     const tampered = parseCopyPreset({ id: "refresh-preset:x", kind: "refresh-preset", data: { name: "X", settings: { media: "everything", activePlugins: "all", themes: { mode: "bogus" }, pace: 3, database: "yes" } } })!;
-    expect(tampered.settings).toMatchObject({ media: "all", activePlugins: "none", themes: { mode: "all", items: [] }, pace: "normal", database: true, users: "local" });
+    expect(tampered.settings).toMatchObject({ media: "all", activePlugins: "source", themes: { mode: "all", items: [] }, pace: "normal", database: true, users: "local" });
     // The account choice is saved; older presets and unknown values keep only the local administrator.
     expect(record.data.settings.users).toBe("exact");
     expect(parseCopyPreset({ id: "refresh-preset:s", kind: "refresh-preset", data: { name: "S", settings: { users: "source" } } })!.settings.users).toBe("source");

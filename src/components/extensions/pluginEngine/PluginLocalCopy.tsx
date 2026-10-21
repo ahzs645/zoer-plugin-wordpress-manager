@@ -159,7 +159,9 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
         <Btn disabled={starting} onClick={() => void savePreset()}>{presetId ? "Save changes" : "Save settings"}</Btn>
         {presetId && <Btn variant="ghost" disabled={starting} onClick={() => void deletePreset()}>Delete</Btn>}
       </div>
-      {!refresh && <CheckboxField label="Dry run" description={refresh ? "Not available when refreshing an existing copy." : "Builds a scratch site named zoer-dryrun-…, verifies the import and archives the scratch site. Your sites are unchanged."} checked={dryRun && !refresh} onChange={setDryRun} disabled={refresh || starting} />}
+      {/* An existing download is already on the server, so pace only applies to a fresh pull. */}
+      {!pull?.setId && <CheckboxField label="Gentle pace" description="Downloads in smaller requests with pauses, for shared hosts that throttle or time out busy sites. Slower." checked={settings.pace === "gentle"} onChange={value => setSettings({ ...settings, pace: value ? "gentle" : "normal" })} disabled={starting || !available} />}
+      {!refresh && <CheckboxField label="Dry run" description="Builds a scratch site named zoer-dryrun-…, verifies the import and archives the scratch site. Your sites are unchanged." checked={dryRun} onChange={setDryRun} disabled={starting} />}
       {running && <p className="text-xs text-text-secondary">Wait for the current copy of this site to finish before starting another.</p>}
       <Btn type="submit" variant="primary" className="w-full sm:w-auto" disabled={!canStart} loading={starting}>{dryRun && !refresh ? "Start dry run" : refresh ? "Refresh local copy" : "Create local copy"}</Btn>
     </form>

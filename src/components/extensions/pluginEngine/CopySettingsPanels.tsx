@@ -47,7 +47,9 @@ export default function CopySettingsPanels({ id, refresh, settings, onSettings, 
   const tables = tableItems(diagnostics).map(item => item.value === "users" || item.value === "usermeta" ? { ...item, detail: "Follows the account choice" } : item);
   const themes: PickerItem[] = (diagnostics?.themes ?? []).map(t => ({ value: t.slug, label: t.name ? `${t.name} (${t.slug})` : t.slug, detail: [t.active ? "active" : "", t.version ?? ""].filter(Boolean).join(" · ") || undefined }));
   const plugins: PickerItem[] = (diagnostics?.plugins ?? []).map(p => ({ value: p.slug, label: p.name ? `${p.name} (${p.slug})` : p.slug, detail: [p.active ? "active" : "", p.version ?? ""].filter(Boolean).join(" · ") || undefined }));
-  const customCount = settings.custom.filter(row => row.find).length;
+  // A new copy has no activation of its own to keep (a refresh preset may still say "local").
+  const active = settings.activePlugins === "local" && !refresh ? "none" : settings.activePlugins;
+  const customCount =settings.custom.filter(row => row.find).length;
   const filesSummary = !settings.files ? "Local files kept — no files copied"
     : [settings.media === "none" ? "Themes and plugins · existing media kept" : settings.media === "since-last" && refresh ? "Themes, plugins and new media" : "Themes, plugins and media",
       settings.themes.mode !== "all" ? `${settings.themes.mode} themes` : "", settings.plugins.mode !== "all" ? `${settings.plugins.mode} plugins` : "", settings.languages ? "translations" : "", refresh && settings.removeStale ? "deleted files removed" : ""].filter(Boolean).join(" · ");
@@ -104,20 +106,19 @@ export default function CopySettingsPanels({ id, refresh, settings, onSettings, 
       {refresh && <OptionToggle label="Remove files deleted on the live site" description="In each theme and plugin folder copied, local files the live site does not have are deleted, as WP Migrate replaces those folders whole. That includes local work in progress inside those folders; only hidden files (such as .git), node_modules and logs are kept. Plugins the live site does not have are untouched. A recovery backup is taken first." checked={settings.removeStale} onChange={value => set({ removeStale: value })} disabled={disabled} />}
       <p className="text-xs text-text-secondary"><span className="font-medium text-text-primary">Left out:</span> WordPress core, wp-config.php, must-use plugins and drop-ins stay the local site's own. Executable files in uploads are refused.</p>
     </TransferPanel>}
-    <TransferPanel title="After the import" summary={scope === "complete" ? (settings.activePlugins === "source" ? "Live site's plugins active" : settings.activePlugins === "local" && refresh ? "Local plugin activation kept" : "Plugins inactive") + " · mail and outgoing HTTP blocked" : "Active plugins and settings kept · local outbound guard retained"}>
+    <TransferPanel title="After the import" summary={scope === "complete" ? `${active === "source" ? "Live site's plugins active" : active === "local" ? "Copy's active plugins kept" : "All plugins inactive"} · mail, HTTP and cron off` : "Active plugins and settings kept · mail, HTTP and cron off"}>
       {scope === "complete" && <fieldset className="min-w-0 space-y-2" disabled={disabled}>
         <legend className="mb-1 text-xs font-medium text-text-secondary">Active plugins</legend>
-        <Radio name={`active-${id}`} value="none" current={settings.activePlugins === "local" && !refresh ? "none" : settings.activePlugins} onChange={value => set({ activePlugins: value })} title="All inactive" description="Payment, mail and integration jobs cannot run on their own. Activate what you need." />
-        {refresh && <Radio name={`active-${id}`} value="local" current={settings.activePlugins} onChange={value => set({ activePlugins: value })} title="Keep the copy's active plugins" description="Plugins active on the local copy now stay active after the refresh." />}
-        <Radio name={`active-${id}`} value="source" current={settings.activePlugins === "local" && !refresh ? "none" : settings.activePlugins} onChange={value => set({ activePlugins: value })} title="Activate the live site's plugins" description="Same plugins active as on live. Outgoing mail and HTTP stay blocked and cron stays off, so their jobs still cannot reach the outside." />
+        <Radio name={`active-${id}`} value="source" current={active} onChange={value => set({ activePlugins: value })} title="Activate the live site's plugins" description="The copy works like the live site. Their mail, HTTP calls and scheduled jobs are still blocked." />
+        {refresh && <Radio name={`active-${id}`} value="local" current={active} onChange={value => set({ activePlugins: value })} title="Keep the copy's active plugins" description="Plugins active on the local copy now stay active after the refresh." />}
+        <Radio name={`active-${id}`} value="none" current={active} onChange={value => set({ activePlugins: value })} title="All inactive" description="For troubleshooting a plugin that breaks the copy. Activate what you need afterwards." />
       </fieldset>}
       <ul className="list-disc space-y-1 pl-5 text-xs text-text-secondary">
-        {scope !== "complete" && <li>Current plugin activation and theme selection are retained.</li>}
-        <li>Outgoing e-mail and HTTP requests stay blocked and WordPress cron is disabled on the local site.</li>
-        <li>{scope === "complete" ? "“Discourage search engines” is turned on, because the local site has its own reachable address." : "The local search-engine setting and permalink rules are retained."}</li>
-        <li>{scope === "complete" ? "Permalinks are rebuilt with the copied theme loaded, then the site must answer over HTTPS before the copy is marked ready." : "The site must answer over HTTPS before the refresh is marked ready."}</li>
+        {scope !== "complete" && <li>Plugin activation, theme, search-engine setting and permalink rules stay as they are locally.</li>}
+        <li>Outgoing e-mail and HTTP requests are blocked and WordPress cron is off on the local site.</li>
+        {scope === "complete" && <li>“Discourage search engines” is turned on and permalinks are rebuilt with the copied theme.</li>}
+        <li>The site must answer over HTTPS before the {refresh ? "refresh" : "copy"} is marked ready.</li>
       </ul>
-      <OptionToggle label="Gentle pace" description="Downloads in smaller requests with pauses, for shared hosts that throttle or time out busy sites. Slower." checked={settings.pace === "gentle"} onChange={value => set({ pace: value ? "gentle" : "normal" })} disabled={disabled} />
     </TransferPanel>
   </div>;
 }

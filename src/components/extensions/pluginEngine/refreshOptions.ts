@@ -18,6 +18,7 @@ export interface CopySettings {
   postTypes: "all" | string[];
   /** Refresh only; must include posts and options. */ tables: "all" | string[];
   /** Database-only refresh: keep matching local pages, templates and blocks. */ keepLocalDesign: boolean;
+  /** Complete copies: which plugins are active afterwards. Defaults to the live site's; the outbound guard stays on either way. */
   activePlugins: "none" | "local" | "source";
   replacePaths: boolean;
   custom: ReplacementRow[];
@@ -34,7 +35,7 @@ export const ALL: ResourceMode = { mode: "all", items: [] };
 
 export function defaultCopySettings(refresh: boolean): CopySettings {
   return { database: true, files: !refresh, media: "all", themes: ALL, plugins: ALL, removeStale: false, languages: false, excludeRevisions: false, excludeSpam: false, postTypes: "all", tables: "all",
-    keepLocalDesign: true, activePlugins: "none", replacePaths: false, custom: [], pace: "normal", users: "local" };
+    keepLocalDesign: true, activePlugins: "source", replacePaths: false, custom: [], pace: "normal", users: "local" };
 }
 
 export type CopyScope = "complete" | "database" | "files";
@@ -163,7 +164,7 @@ export function parseCopyPreset(record: { id: string; kind: string; data: Record
   return { id: record.id, name: d.name.trim(), updatedAt: typeof d.updatedAt === "string" ? d.updatedAt : "",
     settings: { ...base, database: bool("database"), files: bool("files"), removeStale: bool("removeStale"), languages: bool("languages"), excludeRevisions: bool("excludeRevisions"), excludeSpam: bool("excludeSpam"), keepLocalDesign: bool("keepLocalDesign"), replacePaths: bool("replacePaths"),
       media: ["all", "since-last", "none"].includes(s.media as string) ? s.media as CopySettings["media"] : "all",
-      activePlugins: ["none", "local", "source"].includes(s.activePlugins as string) ? s.activePlugins as CopySettings["activePlugins"] : "none",
+      activePlugins: ["none", "local", "source"].includes(s.activePlugins as string) ? s.activePlugins as CopySettings["activePlugins"] : base.activePlugins,
       pace: s.pace === "gentle" ? "gentle" : "normal",
       // Presets saved before the account choice was stored keep the local administrator only.
       users: s.users === "source" || s.users === "exact" ? s.users : "local", themes: modeOf(s.themes), plugins: modeOf(s.plugins), postTypes: listOf(s.postTypes, 100), tables: listOf(s.tables, 500), custom } };
