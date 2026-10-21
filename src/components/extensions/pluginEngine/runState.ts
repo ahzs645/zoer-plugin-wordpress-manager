@@ -62,6 +62,13 @@ export type RunButton = "pause" | "resume" | "reapprove" | "cancel" | "approve" 
 export type NeedsUserKind = "review" | "verify" | "reapprove" | "connection" | "upload" | "other";
 export type RunTone = "success" | "running" | "warning" | "error" | "info" | "neutral";
 
+/**
+ * Zoer waiting for a worker to start (the previous one is still being removed, or no worker slot is
+ * free yet). Zoer retries this by itself within seconds; it is not a problem with the transfer.
+ */
+export const isWorkerStartWait = (message: string) => /worker failed to start|prior plugin worker cleanup|sandbox[- ]unavailable/i.test(message);
+export const WORKER_START_NOTICE = "Waiting for Zoer to start a worker for this step. It retries by itself within a few seconds.";
+
 /** Which decision a `needs-user` run is waiting for, from its reason. */
 export function needsUserKind(reason: string | null | undefined): NeedsUserKind {
   const text = (reason ?? "").trim();
@@ -161,7 +168,8 @@ export function describeRun(run: Pick<EngineRun<unknown>, "status" | "error" | "
   const lastError = resumable.lastError?.message ?? null;
   switch (resumable.state) {
     case "running": return { ...base, label: "Running", tone: "running", terminal: false, working: true, reason: null, buttons: ["pause", "cancel"] };
-    case "waiting": return { ...base, label: lastError ? `Retrying${resumable.consecutiveFailures > 1 ? ` (attempt ${resumable.consecutiveFailures + 1})` : ""}` : "Waiting", tone: lastError ? "warning" : "running", terminal: false, working: true, reason: lastError ?? run.statusReason ?? null, buttons: ["pause", "cancel"] };
+    case "waiting": if (lastError && isWorkerStartWait(lastError)) return { ...base, label: "Starting", tone: "running", terminal: false, working: true, reason: WORKER_START_NOTICE, buttons: ["pause", "cancel"] };
+      return { ...base, label: lastError ? `Retrying${resumable.consecutiveFailures > 1 ? ` (attempt ${resumable.consecutiveFailures + 1})` : ""}` : "Waiting", tone: lastError ? "warning" : "running", terminal: false, working: true, reason: lastError ?? run.statusReason ?? null, buttons: ["pause", "cancel"] };
     case "paused": return { ...base, label: "Paused", tone: "neutral", terminal: false, working: false, reason: null, buttons: ["resume", "cancel"] };
     case "paused-for-update": return { ...base, label: "Paused for a Zoer update", tone: "info", terminal: false, working: false, reason: "Continues automatically after the update.", buttons: ["cancel"] };
     case "resume-needed": return { ...base, label: "Resume needed", tone: "warning", terminal: false, working: false, reason: run.statusReason || "Zoer restarted during this step. Resume to continue from the last saved point.", buttons: ["resume", "cancel"] };
@@ -170,7 +178,11 @@ export function describeRun(run: Pick<EngineRun<unknown>, "status" | "error" | "
       const need = needsUserKind(reason);
       if (need === "review" && remote) return { ...base, needsUser: need, label: kind === "replace" ? "Review the replacements" : "Review the import", tone: "warning", terminal: false, working: false, reason, buttons: ["approve", "rollback"] };
       if (need === "verify" && remote) return { ...base, needsUser: need, label: "Verify the destination", tone: "warning", terminal: false, working: false, reason, buttons: ["finish", "rollback"] };
-      if (need === "reapprove") return { ...base, needsUser: need, label: "Approval needed to continue", tone: "warning", terminal: false, working: false, reason, buttons: ["reapprove", "cancel"] };
+      if (need === "reapprove") {
+        // Zoer binds an approval to the plugin code: an update during the run asks once more.
+        const updated = /plugin changed/i.test(reason ?? "");
+        return { ...base, needsUser: need, label: updated ? "Approve again after the update" : "Approval needed to continue", tone: "warning", terminal: false, working: false, reason: updated ? "WordPress Manager was updated while this ran, and Zoer asks you to approve it once more for the new version. It then continues from where it stopped." : reason, buttons: ["reapprove", "cancel"] };
+      }
       return { ...base, needsUser: need, label: need === "connection" ? "Connection changed" : need === "upload" ? "Upload paused" : "Needs your attention", tone: "warning", terminal: false, working: false, reason, buttons: ["resume", "cancel"] };
     }
     default: return { ...base, label: "Running", tone: "running", terminal: false, working: true, reason: null, buttons: ["cancel"] };

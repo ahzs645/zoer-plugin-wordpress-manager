@@ -20,7 +20,7 @@ test("one exact installation combines presentation while preserving both operati
   expect(wordPressSiteSource(inventory, copy)).toBe(hosted);
   expect(wordPressSiteCopies(inventory, hosted)).toEqual([copy]);
   const groups = groupWordPressSites(inventory, new Set());
-  expect(groups).toEqual([{ kind: "pair", id: hosted.id, source: hosted, copies: [copy] }]);
+  expect(groups).toEqual([{ kind: "pair", id: hosted.id, source: hosted, lives: [], copies: [copy] }]);
   expect(filterWordPressSiteGroups(groups, "external", identity.aliases)).toEqual(groups);
 });
 
@@ -54,7 +54,7 @@ test("copies made through either connection share one live card without changing
   const second = { ...copy, id: "copy2", sourceSiteId: hosted.id };
   const inventory = [external, copy, hosted, second];
   expect(wordPressSiteCopies(inventory, hosted)).toEqual([copy, second]);
-  expect(groupWordPressSites(inventory, new Set())).toEqual([{ kind: "pair", id: hosted.id, source: hosted, copies: [copy, second] }]);
+  expect(groupWordPressSites(inventory, new Set())).toEqual([{ kind: "pair", id: hosted.id, source: hosted, lives: [], copies: [copy, second] }]);
   expect(consolidateWordPressSites(inventory).canonicalId("deleted-site")).toBe("deleted-site");
 });
 

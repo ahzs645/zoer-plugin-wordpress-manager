@@ -56,6 +56,11 @@ describe("manager sections", () => {
     expect(managerSections("ddev").map(section => section.id)).toContain("security");
     expect(managerSections("hostinger").map(section => section.id)).not.toContain("security");
     expect(managerSections("ddev")).toHaveLength(7);
+    // Caching (public website check and hosting cache) is for live sites only.
+    expect(managerSections("hostinger").map(section => section.id)).toContain("caching");
+    expect(managerSections("zoer-connect").map(section => section.id)).toContain("caching");
+    expect(managerSections("ddev").map(section => section.id)).not.toContain("caching");
+    expect(detailSectionFor("caching")).toBeNull();
   });
   test("asks for site details only where a section shows them", () => {
     expect(detailSectionFor("themes")).toBe("themes");

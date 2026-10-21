@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { goLiveStage, parseGoLivePlan } from "./GoLive";
+import { goLiveStage, parseGoLivePlan, pushApproval } from "./GoLive";
 import type { HostingerTestSite } from "./hostingerTestSites";
 
 const plan = { sourceSiteId: "ddev-shop", deploymentId: "dep-1", connectionId: "conn-1", domain: "blue-fox-1.hostingersite.com", pullId: "a".repeat(32), exportRunId: "run-export", startedAt: "2026-10-20T12:00:00Z" };
@@ -20,4 +20,20 @@ describe("Create a live site plans", () => {
     expect(goLiveStage({ ...plan, pushRunId: "run-push" }, site({ running: false, ready: true })).text).toBe("Publishing to blue-fox-1.hostingersite.com…");
     expect(goLiveStage({ ...plan, error: "Could not start the push: declined" }, undefined)).toEqual({ text: "Could not start the push: declined", tone: "error" });
   });
+});
+
+test("a plan approved up front follows its own push run", async () => {
+  const { planPush } = await import("./GoLive");
+  const run = (runId: string, siteId: string, createdAt: string) => ({ runId, actionId: "transfer.push", status: "running", createdAt, input: { siteId, exportPullId: plan.pullId, sourceSiteId: plan.sourceSiteId } });
+  const runs = [run("mine", "await:blue-fox-1.hostingersite.com", "2026-10-20T12:00:01Z"), run("newer", "external:other", "2026-10-20T13:00:00Z")];
+  expect(planPush({ ...plan, pushRunId: "mine" }, runs as any)?.push.runId).toBe("mine");
+});
+
+test("a push counts as approved only once its worker started", () => {
+  for (const status of ["pending", "claimed", "running", "queued", "waiting_for_approval"]) expect(pushApproval({ status, resumable: { slices: 0 } })).toBe("pending");
+  expect(pushApproval({ status: "pending" })).toBe("pending");
+  expect(pushApproval({ status: "running", resumable: { slices: 0, startedAt: "2026-10-21T21:15:28Z" } })).toBe("approved");
+  expect(pushApproval({ status: "retry_scheduled", resumable: { slices: 2 } })).toBe("approved");
+  expect(pushApproval({ status: "cancelled", resumable: { slices: 0 } })).toBe("declined");
+  expect(pushApproval({ status: "failed" })).toBe("declined");
 });

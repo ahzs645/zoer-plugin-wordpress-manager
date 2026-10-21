@@ -18,14 +18,18 @@ const SIDE_TAG = "shrink-0 rounded border border-border-muted px-1.5 py-px text-
  * site), its readiness, then one form. Pressing Push starts the export, the comparison and the
  * push together; the dialog then follows them (also after it is closed and opened again).
  */
-export default function PushToLiveDialog({ source, sites, onClose, onHosting, onStartSource }: {
-  source: WordPressManagedSite; sites: WordPressManagedSite[]; onClose: () => void; /** Starts the local site (its inventory and export need it running). */ onStartSource?: () => void;
+export default function PushToLiveDialog({ source, sites, onClose, onHosting, onStartSource, destinationId: chosenId = null, stack = [], accountOf = () => null }: {
+  source: WordPressManagedSite; sites: WordPressManagedSite[]; onClose: () => void; /** Opens on this live site (another live site of the local site's card) instead of its main one. */ destinationId?: string | null; /** Starts the local site (its inventory and export need it running). */ onStartSource?: () => void;
   /** Hostinger account publication, for local sites that have it. */ onHosting?: () => void;
+  /** The live sites on the local site's card, main first; offered before every other live site. */ stack?: readonly string[];
+  /** The Hostinger account name a live site is on. */ accountOf?: (siteId: string) => string | null;
 }) {
   const endpoints = useQuery(wordpressQueries.endpoints());
   const { destinations, preferredId } = localPublishDestinations(endpoints.data?.endpoints ?? [], sites, source);
+  const onCard = stack.flatMap(id => destinations.filter(site => site.id === id));
+  const others = destinations.filter(site => !onCard.includes(site));
   const [destinationId, setDestinationId] = useState<string | null>(null);
-  useEffect(() => { if (endpoints.isSuccess && destinationId === null) setDestinationId(preferredId || (destinations.length === 1 ? destinations[0].id : "")); }, [endpoints.isSuccess, destinationId, preferredId, destinations]);
+  useEffect(() => { if (endpoints.isSuccess && destinationId === null) setDestinationId((chosenId && destinations.some(site => site.id === chosenId) ? chosenId : null) ?? onCard[0]?.id ?? (preferredId || (destinations.length === 1 ? destinations[0].id : ""))); }, [endpoints.isSuccess, destinationId, preferredId, destinations, chosenId, onCard]);
   const destination = destinations.find(site => site.id === destinationId) ?? null;
   const conn = useZoerConnection(destination?.id ?? "", !!destination);
   const connection = conn.connection;
@@ -33,20 +37,35 @@ export default function PushToLiveDialog({ source, sites, onClose, onHosting, on
   const readiness = connection ? pushReadiness(connection) : [];
   const ready = !!connection && connection.status.push && connection.status.publish;
   const loadError = conn.error instanceof Error ? conn.error.message : "";
-  const linked = !!preferredId && destination?.id === preferredId;
+  const label = (site: { name: string; url: string }) => site.name && site.name !== host(site.url) ? site.name : host(site.url);
 
   return <Modal mobileSheet size="wide" title="Push to live" onClose={onClose}>
     <div className="min-w-0 space-y-4 text-sm">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-surface-secondary px-3 py-2" aria-label="Push direction">
         <span className="inline-flex min-w-0 items-center gap-1.5 font-medium"><Server className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" /><span className="truncate">{source.name}</span><span className={SIDE_TAG}>Local</span></span>
         <ArrowRight className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" /><span className="sr-only">to</span>
-        {destination && (linked || destinations.length === 1)
-          ? <span className="inline-flex min-w-0 items-center gap-1.5 font-medium"><Globe2 className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" /><span className="truncate">{host(destination.url)}</span><span className={SIDE_TAG}>Live</span>{destinations.length > 1 && <button type="button" className="text-xs font-normal text-text-secondary underline" onClick={() => setDestinationId("")}>Change</button>}</span>
-          : <Select searchable aria-label="Live site" className={selectClass("compact", "min-w-48 flex-1")} value={destinationId ?? ""} onChange={event => setDestinationId(event.target.value)}>
-            <option value="">Choose live site</option>
-            {destinations.map(site => <option key={site.id} value={site.id}>{site.name} · {host(site.url)}</option>)}
-          </Select>}
+        {destination
+          ? <span className="inline-flex min-w-0 items-center gap-1.5 font-medium"><Globe2 className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" /><span className="truncate">{host(destination.url)}</span>{accountOf(destination.id) && <span className={SIDE_TAG}>{accountOf(destination.id)}</span>}<span className={SIDE_TAG}>Live</span></span>
+          : <span className="text-text-secondary">Choose a live site</span>}
       </div>
+
+      {destinations.length > 1 && <div className="min-w-0 space-y-2">
+        {onCard.length > 0 && <div role="radiogroup" aria-label={`Live sites of ${source.name}`} className="divide-y divide-border-muted overflow-hidden rounded-md border border-border-muted">
+          {onCard.map(site => <button key={site.id} type="button" role="radio" aria-checked={site.id === destinationId} onClick={() => setDestinationId(site.id)}
+            className={`flex w-full min-w-0 items-center gap-2 p-2 text-left transition ${site.id === destinationId ? "bg-accent-subtle shadow-[inset_2px_0_0_var(--accent)]" : "hover:bg-surface-hover"}`}>
+            <Globe2 className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" />
+            <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium">{host(site.url)}{stack[0] === site.id && <span className="font-normal text-text-secondary"> · main</span>}</span>
+              {label(site) !== host(site.url) && <span className="block truncate text-[12px] text-text-secondary">{label(site)}</span>}</span>
+            {accountOf(site.id) && <span title={`Hostinger account ${accountOf(site.id)}`} className="max-w-[40%] shrink-0 truncate rounded border border-border-default bg-surface-secondary px-1.5 text-[11px] leading-4 text-text-secondary">{accountOf(site.id)}</span>}
+            {site.id === destinationId && <Check className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />}
+          </button>)}
+        </div>}
+        {others.length > 0 && <Select searchable aria-label={onCard.length ? "Another live site" : "Live site"} className={selectClass("compact", "w-full")} value={others.some(site => site.id === destinationId) ? destinationId ?? "" : ""} onChange={event => setDestinationId(event.target.value)}
+          optionDetails={Object.fromEntries(others.map(site => { const account = accountOf(site.id); return [site.id, { description: `${account ? `${account} · ` : ""}${host(site.url)}`, keywords: `${account ?? ""} ${host(site.url)}` }]; }))}>
+          <option value="">{onCard.length ? "Another live site…" : "Choose live site"}</option>
+          {others.map(site => { const account = accountOf(site.id); return <option key={site.id} value={site.id}>{label(site)}{account ? ` · ${account}` : ""}</option>; })}
+        </Select>}
+      </div>}
 
       {endpoints.isLoading && <p role="status" className="text-text-secondary">Loading live sites…</p>}
       {endpoints.error && <p role="alert" className="text-status-error">Could not load live sites. <Btn size="sm" onClick={() => void endpoints.refetch()}>Retry</Btn></p>}

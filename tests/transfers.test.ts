@@ -332,6 +332,24 @@ describe("export preparation pacing", () => {
     expect(w.calls.filter(c => c.method === "runtime.invoke").map(c => c.input.operation)).toEqual(["runtime.inspect.v1", "export.create.v1", ...Array(4).fill("export.step.v1")]);
   });
 
+  test("a push's local export makes the site's own address in theme and plugin files site-relative first", async () => {
+    const w = new FakeWorld();
+    const content = sampleSite("https://shop.ddev.site");
+    w.ddev.add("ddev-shop", "shop", content);
+    const result = await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL, portableUrls: true }, { clock: timed(content) });
+    expect(result.status).toBe("succeeded");
+    const operations = w.calls.filter(c => c.method === "runtime.invoke").map(c => c.input.operation);
+    expect(operations.indexOf("runtime.exec.v1")).toBeLessThan(operations.indexOf("export.create.v1"));
+    expect(w.ddev.commands).toEqual([{ command: "wordpress.portable-urls", resourceId: "ddev-shop", plan: { id: PULL, sourceUrl: expect.stringContaining("shop"), themes: "all", plugins: "all" } }]);
+    expect(result.output).toMatchObject({ portable: { files: 1, urls: 2, changed: ["wp-content/themes/shop/patterns/home.php"] } });
+    expect(result.output.summary).toContain("Made 2 local addresses in 1 theme and plugin file site-relative first.");
+
+    const plain = new FakeWorld();
+    plain.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    await plain.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { clock: timed(content) });
+    expect(plain.ddev.commands).toEqual([]);
+  });
+
   test("copy.local prepares its embedded pull in one slice and labels the progress", async () => {
     const w = new FakeWorld();
     const source = w.addSite("hostinger-1", sampleSite("https://source.example", { exportSteps: 6 }));
@@ -511,6 +529,26 @@ describe("transfer.preview and transfer.push", () => {
     expect(routes).toContain("POST /imports");
     expect(routes).toContain(`GET /imports/${IMPORT}?view=upload`);
     expect(routes.filter(r => r === `POST /imports/${IMPORT}/batch`).length).toBeGreaterThan(0);
+  });
+
+  test("a theme file embedding the source address stops the push before anything is sent", async () => {
+    const { w, source, destination } = world();
+    // Zoer Connect rewrites addresses in the database only; a theme file would reach the destination unchanged.
+    source.options.files["wp-content/themes/twentyone/front-page.php"] = `<img src="https://SOURCE.example/wp-content/uploads/2024/01/photo.jpg">`;
+    await pulled(w);
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
+    expect((result as any).output).toMatchObject({ status: "failed", phase: "creating" });
+    expect((result as any).output.error.message).toBe("Push stopped at wp-content/themes/twentyone/front-page.php: A source-site hostname is embedded in this file; make the URL portable before exporting. Nothing was sent.");
+    expect(destination.log.some(l => l.method === "POST" && l.route.startsWith("/imports"))).toBe(false);
+  });
+
+  test("outside code updates, credential literals and the destination's own address do not stop a push", async () => {
+    const { w, source, destination } = world();
+    source.options.files["wp-content/plugins/akismet/keys.php"] = `<?php // sk_live_${"a".repeat(30)} https://dest.example/`;
+    await pulled(w);
+    const result = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, ...confirm });
+    expect((result as any).output.status).toBe("complete");
+    expect(destination.site.has("wp-content/plugins/akismet/keys.php")).toBe(true);
   });
 
   test("a selection with more files than the destination accepts stops before the import is created", async () => {
@@ -838,6 +876,72 @@ describe("one-click push (export, compare and push started together)", () => {
     await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { runId: "export" });
     const other = await w.run("transfer.push", pushInput({ sourceSiteId: "ddev-other", autoSelect: undefined, previewId: undefined }), { runId: "push" });
     expect((other as any).output.error.message).toBe("The local export does not belong to the site being pushed.");
+  });
+
+  test("a push approved before its new website exists waits for it, binds to its exact address and sends everything", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    const input = { siteId: "await:new.example", exportPullId: PULL, sourceSiteId: "ddev-shop", finishAutomatically: true, importId: IMPORT, importOptions: staged, confirmTarget: "https://new.example", replacementAccepted: true };
+    const early = await w.run("transfer.push", input, { runId: "push", maxSlices: 2 });
+    expect(early.status).toBe("running");
+    expect(early.envelopes.at(-1)).toMatchObject({ resumable: "continue", waitMs: 30_000, progress: { phase: "waiting for site" } });
+    // Another site appearing does not count; only the confirmed address.
+    w.addSite("external:other", new FakeZoerConnect({ origin: "https://other.example", files: {} }));
+    const still = await w.run("transfer.push", input, { runId: "push", checkpoint: early.checkpoint, step: 3, maxSlices: 3 });
+    expect(still.envelopes.at(-1)).toMatchObject({ progress: { phase: "waiting for site" } });
+    const destination = w.addSite("external:new", new FakeZoerConnect({ origin: "https://new.example", files: {} }));
+    await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { runId: "export" });
+    const pushed = await w.run("transfer.push", input, { runId: "push", checkpoint: still.checkpoint, step: 4 });
+    expect(pushed.status).toBe("succeeded");
+    expect((pushed as any).output).toMatchObject({ status: "complete", importId: IMPORT });
+    const manifest = destination.imports.get(IMPORT)!.manifest;
+    expect(manifest.database).not.toBeNull();
+    expect(manifest.files.length).toBeGreaterThan(0);
+  });
+
+  const failure = (result: any) => result.error?.message ?? result.output?.error?.message;
+  test("a comparison waits for the new website too, so only what its fresh WordPress lacks is sent", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    const input = { siteId: "await:new.example", exportPullId: PULL, sourceSiteId: "ddev-shop", previewId: PREVIEW, autoSelect: { database: true }, finishAutomatically: true, importId: IMPORT, importOptions: staged, confirmTarget: "https://new.example", replacementAccepted: true };
+    const comparing = await w.run("transfer.preview", { siteId: "await:new.example", previewId: PREVIEW, exportPullId: PULL }, { runId: "preview", maxSlices: 1 });
+    expect(comparing.envelopes.at(-1)).toMatchObject({ resumable: "continue", progress: { phase: "waiting for site" } });
+    const waiting = await w.run("transfer.push", input, { runId: "push", maxSlices: 1 });
+    expect(waiting.envelopes.at(-1)).toMatchObject({ progress: { phase: "waiting for site" } });
+    // The fresh WordPress already has the theme stylesheet the export carries.
+    const destination = w.addSite("external:new", new FakeZoerConnect({ origin: "https://new.example", files: {}, existing: { "wp-content/themes/twentyone/style.css": "body{color:red}" } }));
+    await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { runId: "export" });
+    const compared = await w.run("transfer.preview", { siteId: "await:new.example", previewId: PREVIEW, exportPullId: PULL }, { runId: "preview", checkpoint: comparing.checkpoint, step: 2 });
+    expect(compared.status).toBe("succeeded");
+    expect((compared as any).output).toMatchObject({ siteId: "external:new", complete: true });
+    const pushed = await w.run("transfer.push", input, { runId: "push", checkpoint: waiting.checkpoint, step: 2 });
+    expect((pushed as any).output).toMatchObject({ status: "complete" });
+    expect(destination.imports.get(IMPORT)!.manifest.files.map((f: any) => f.path)).not.toContain("wp-content/themes/twentyone/style.css");
+    // A comparison of a new website names it by address and waits for a local export.
+    expect(failure(await w.run("transfer.preview", { siteId: "await:Not a host", previewId: PULL2, exportPullId: PULL }, { runId: "p2" }))).toBe("Name the new website by its address.");
+    expect(failure(await w.run("transfer.preview", { siteId: "await:new.example", previewId: PULL2, setId: `fs_${PULL}` }, { runId: "p3" }))).toBe("A new website is compared with the local export being made.");
+  });
+
+  test("an awaited website must be named exactly and gets only a whole-site push", async () => {
+    const w = new FakeWorld();
+    w.ddev.add("ddev-shop", "shop", sampleSite("https://shop.ddev.site"));
+    const base = { siteId: "await:new.example", exportPullId: PULL, sourceSiteId: "ddev-shop", importId: IMPORT, importOptions: staged, confirmTarget: "https://new.example", replacementAccepted: true };
+    for (const [extra, message] of [
+      [{ confirmTarget: "https://new.example/" }, "Confirm the exact address of the new website."],
+      [{ confirmTarget: "http://new.example" }, "Confirm the exact address of the new website."],
+      [{ siteId: "await:other.example" }, "Confirm the exact address of the new website."],
+      [{ previewId: PREVIEW }, "A new website gets the whole local export."],
+      [{ dryRun: true }, "A new website gets the whole local export."],
+    ] as const) {
+      const result = await w.run("transfer.push", { ...base, ...extra }, { runId: `bad-${message.length}-${JSON.stringify(extra).length}` });
+      expect((result as any).output.error.message).toBe(message);
+    }
+    // Nobody pairs it within three hours: the push gives up without sending anything.
+    let now = Date.parse("2026-10-21T12:00:00Z");
+    const waiting = await w.run("transfer.push", base, { runId: "late", maxSlices: 1, clock: () => now });
+    now += 3 * 3_600_000 + 1;
+    const late = await w.run("transfer.push", base, { runId: "late", checkpoint: waiting.checkpoint, step: 2, clock: () => now });
+    expect((late as any).output.error.message).toBe("https://new.example was not ready within 3 hours. Nothing was sent.");
   });
 });
 

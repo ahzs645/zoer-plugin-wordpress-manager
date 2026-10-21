@@ -16,9 +16,11 @@ const radioClass = "flex cursor-pointer items-start gap-2 rounded-md border bord
  * WordPress, install and pair Zoer Connect, so the site appears in Push to live; "Empty website" is
  * the earlier target for publishing through Hostinger's import.
  */
-export default function HostingerWebsiteSetup({connections,onCreated,newSite=false,intro,createLabel,onStarted,confirmText}:{connections:HostingerConnectionPublic[];onCreated:()=>void;/** In New site: always WordPress with Zoer Connect, a temporary domain ready, no destination tools. */newSite?:boolean;
+export default function HostingerWebsiteSetup({connections,onCreated,newSite=false,intro,createLabel,onStarted,confirmText,onConfirmed,confirmedInFlow=false}:{connections:HostingerConnectionPublic[];onCreated:()=>void;/** In New site: always WordPress with Zoer Connect, a temporary domain ready, no destination tools. */newSite?:boolean;
   /** newSite: replaces the explanation above the form. */intro?:React.ReactNode;/** newSite: the create button's label. */createLabel?:string;
-  /** Called with the receipt once Hostinger accepted the website (Create a live site continues from it). */onStarted?:(deployment:WordPressDeployment)=>void|Promise<void>;/** The confirmation dialog's text. */confirmText?:string}) {
+  /** Called with the receipt once Hostinger accepted the website (Create a live site continues from it). */onStarted?:(deployment:WordPressDeployment)=>void|Promise<void>;/** The confirmation dialog's text. */confirmText?:string;
+  /** Runs after the user confirmed and before the website is created (Create a live site starts its export and push); throwing creates nothing, and `undo` runs when the creation fails. */onConfirmed?:(domain:string)=>Promise<{undo:()=>Promise<void>}|void>;
+  /** onConfirmed is the confirmation (Create a live site: Zoer's approval of the push to this exact domain), so no phrase is typed here. */confirmedInFlow?:boolean}) {
   const dialogs=useDialogs();
   const queryClient=useQueryClient();
   const [plan,setPlan]=useState("");
@@ -64,11 +66,14 @@ export default function HostingerWebsiteSetup({connections,onCreated,newSite=fal
   async function create() {
     if(busy||!chosen||!domain)return;
     const name=domain.trim().toLowerCase();const phrase=`CREATE ${name}`;
-    const typed=await dialogs.prompt({title:`Create ${name}?`,description:confirmText??(kind==="wordpress"?"Hostinger creates the website and installs WordPress, then Zoer installs and pairs Zoer Connect. This takes about 5 to 15 minutes. The site then appears in Push to live.":"Creates an empty website on the selected hosting plan. You can then publish a local WordPress site to it."),label:`Type ${phrase}`,submitLabel:"Create website"});
+    const typed=confirmedInFlow&&kind==="wordpress"&&onConfirmed?phrase:await dialogs.prompt({title:`Create ${name}?`,description:confirmText??(kind==="wordpress"?"Hostinger creates the website and installs WordPress, then Zoer installs and pairs Zoer Connect. This takes about 5 to 15 minutes. The site then appears in Push to live.":"Creates an empty website on the selected hosting plan. You can then publish a local WordPress site to it."),label:`Type ${phrase}`,submitLabel:"Create website"});
     if(typed!==phrase)return;
     setBusy("create");setError("");setNotice("");
     try{
-      if(kind==="wordpress"){const {deployment}=await api.startHostingerTestSite(chosen.connectionId,{domain:name,orderId:chosen.orderId,adminEmail:adminEmail.trim()||undefined,datacenterCode:datacenter||undefined,confirmation:typed});setNotice(`Setting up ${name}. You can leave this page; progress is shown below.`);await onStarted?.(deployment);}
+      if(kind==="wordpress"){const prepared=await onConfirmed?.(name);
+        let deployment:WordPressDeployment;
+        try{({deployment}=await api.startHostingerTestSite(chosen.connectionId,{domain:name,orderId:chosen.orderId,adminEmail:adminEmail.trim()||undefined,datacenterCode:datacenter||undefined,confirmation:typed}));}
+        catch(e){await prepared?.undo().catch(()=>undefined);throw e;}setNotice(`Setting up ${name}. You can leave this page; progress is shown below.`);await onStarted?.(deployment);}
       else{await api.createHostingerWebsite({connectionId:chosen.connectionId,domain:name,orderId:chosen.orderId,datacenterCode:datacenter||undefined,confirmation:typed});setNotice("Website creation queued. Refresh destinations after Hostinger finishes setup.");}
       setDomain("");await deployments.refetch();void inventories.find((_,index)=>connections[index]?.id===chosen.connectionId)?.refetch();onCreated();
     }

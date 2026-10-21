@@ -172,6 +172,7 @@ const HELP = `bun tools/live-gate/zoer.ts <command>
   wait <runId> [seconds=1800]        poll until done, parked or waiting for approval
   pause|cancel <runId>               pause / cancel a run
   resume <runId> [reapprove]         resume a parked run
+  idle                               runs still in progress (exit 3 if any; run before a dev push)
   approvals                          open approvals (leave none open when you finish)
   approve <approvalId> [reason]      approve after the guard checked the reviewed site(s)
   decline <approvalId> [reason]      decline
@@ -202,6 +203,14 @@ if (import.meta.main) {
       case "pause": out((await pause(need(args[0], "runId"))).json); break;
       case "cancel": out((await cancel(need(args[0], "runId"))).json); break;
       case "resume": out((await resume(need(args[0], "runId"), args[1] === "reapprove")).json); break;
+      case "idle": {
+        // A new build parks every running push or restore for approval again (Zoer pins an approval to the plugin code): check this before a dev push.
+        const runs = ((await apiOk(`${ext()}/runs?limit=50`)).runs ?? []) as { runId: string; actionId: string; status: string; createdAt: string }[];
+        const active = runs.filter(run => !["succeeded", "failed", "cancelled", "canceled", "rejected", "declined", "expired", "outcome_unknown"].includes(run.status));
+        out(active.map(run => ({ run: run.runId, action: run.actionId, status: run.status, createdAt: run.createdAt })));
+        if (active.length) process.exitCode = 3;
+        break;
+      }
       case "approvals": out((await openApprovals()).map(a => ({ id: a.id, run: a.payload?.workflowRunId, action: a.payload?.actionId ?? a.payload?.structuredReview?.actionId, input: a.payload?.structuredReview?.input, createdAt: a.createdAt }))); break;
       case "approve": out(await resolveApproval(need(args[0], "approvalId"), "approved", args[1] ?? "live gate: test site")); break;
       case "decline": out(await resolveApproval(need(args[0], "approvalId"), "declined", args[1] ?? "live gate: declined")); break;

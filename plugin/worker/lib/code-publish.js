@@ -36,9 +36,13 @@ export function codePathReason(path, profile) {
   return null;
 }
 
-/** Report the kind of problem, never the matching credential or source content. */
-export function codeContentIssue(text, source, target) {
-  if (/\b(?:sk_(?:test|live)_[A-Za-z0-9]{20,}|whsec_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{20,})/.test(text)) return "A credential literal was found; keep credentials in destination settings";
+/**
+ * Report the kind of problem, never the matching credential or source content. Pushes copy files
+ * byte for byte (only the database gets URL replacement), so every push checks source addresses;
+ * `credentials: false` skips the credential check outside code updates.
+ */
+export function codeContentIssue(text, source, target, { credentials = true } = {}) {
+  if (credentials && /\b(?:sk_(?:test|live)_[A-Za-z0-9]{20,}|whsec_[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{20,})/.test(text)) return "A credential literal was found; keep credentials in destination settings";
   let targetHost;
   try { targetHost = new URL(target).hostname.toLowerCase(); } catch { return "The destination address is invalid"; }
   for (const value of [source?.url, ...(source?.originalUrls ?? [])]) {

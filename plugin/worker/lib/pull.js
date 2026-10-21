@@ -161,6 +161,8 @@ export async function startPull(kind, input, ctx) {
     state.sourceUrl = await localSiteAddress(host, input.siteId, resource);
     state.paged = false;
     if (input.recover !== true && (await earlierStagings(host, state, ctx.now())).length) state.releaseEarlier = true;
+    // A push's export first makes the local address in theme and plugin files site-relative.
+    if (input.portableUrls === true && input.recover !== true && input.dryRun !== true && (options.profile.themes || options.profile.plugins)) state.portable = "pending";
   }
   if (input.recover === true) {
     const record = await readRecord(host, `pull:${pullId}`);
@@ -473,6 +475,12 @@ export async function stepPull(state, input, ctx) {
     delete state.releaseEarlier;
     return ctx.continue(state, progressOf(state), 0);
   }
+  if (state.portable === "pending") {
+    // Its own slice, before the export copies anything (a replay rewrites nothing twice).
+    state.portableResult = await makeUrlsPortable(host, state);
+    delete state.portable;
+    return ctx.continue(state, progressOf(state), 0);
+  }
   const source = sourceOf(host, ctx.request, state);
   if (state.phase === "preparing") {
     // The slice ran out of time: continue at once (the host engine polls without a pause too).
@@ -524,8 +532,41 @@ export async function stepPull(state, input, ctx) {
   ]);
   return ctx.done({ pullId: state.pullId, kind: state.kind, status: state.result, setId: state.result === "ready" ? state.setId : null, fileCount: state.total, totalBytes: state.bytes,
     skippedCount: kept.skippedCount ?? 0, source: kept.source ? { url: kept.source.url, prefix: kept.source.prefix } : null,
+    ...(state.portableResult?.files ? { portable: state.portableResult } : {}),
     ...(state.options.profile?.mediaSince ? { mediaSince: state.options.profile.mediaSince } : {}),
-    summary: (state.result === "dry-run" ? `Dry run verified ${state.total} files; nothing was kept.` : `${state.total} files verified and kept.`) + (state.options.profile?.mediaSince ? ` Media since ${state.options.profile.mediaSince}.` : "") }, { phase: "done", done: state.bytes, total: state.bytes, unit: "bytes" });
+    summary: (state.result === "dry-run" ? `Dry run verified ${state.total} files; nothing was kept.` : `${state.total} files verified and kept.`) + (state.portableResult?.files ? ` Made ${state.portableResult.urls} local ${state.portableResult.urls === 1 ? "address" : "addresses"} in ${state.portableResult.files} theme and plugin ${state.portableResult.files === 1 ? "file" : "files"} site-relative first.` : "") + (state.options.profile?.mediaSince ? ` Media since ${state.options.profile.mediaSince}.` : "") }, { phase: "done", done: state.bytes, total: state.bytes, unit: "bytes" });
+}
+
+/**
+ * Before a push's export: theme and plugin text files that spell out this local site's address
+ * (Site Editor patterns keep image and link URLs in full) get site-relative URLs, which work here
+ * and on every live site. Files travel byte for byte and Zoer Connect replaces addresses only in
+ * the database, so this is done on the source (`wordpress.portable-urls`; originals are kept).
+ */
+async function makeUrlsPortable(host, state) {
+  const folders = (kind) => !state.options.profile[kind] ? false : state.options.profile[kind + "Mode"] === "selected" ? state.options.profile[kind + "Items"] ?? [] : "all";
+  const plan = { id: state.pullId, sourceUrl: state.sourceUrl, themes: folders("themes"), plugins: folders("plugins") };
+  let result;
+  try {
+    result = await host.call("runtime.invoke", { alias: RUNTIME_ALIAS, operation: "runtime.exec.v1", resourceId: state.siteId,
+      args: { command: "wordpress.portable-urls", files: [{ name: "plan.json", text: JSON.stringify(plan) }], outputs: [{ name: "result.json", maxBytes: 4096, optional: true }] } });
+  } catch (error) {
+    if (error?.name !== "HostCallError" || error.code === "ZOER_PAUSED") throw error;
+    const reported = /ZOER_ERROR: ([^\n]{1,300})/.exec(error.message ?? "")?.[1]?.trim();
+    throw new TransferError(reported ?? "Could not make the theme and plugin addresses portable. Nothing was exported.", { code: error.code || "execution_failed", needsUser: !["capability_denied", "runtime_permission", "invalid_request"].includes(error.code) });
+  }
+  return portableSummary(String(result?.stdoutTail ?? "").trim().split("\n").filter(Boolean).at(-1));
+}
+
+/** The command's last line, bounded: how many files and URLs changed, and up to 20 of the paths. */
+export function portableSummary(line) {
+  let value;
+  try { value = JSON.parse(line ?? ""); } catch { return null; }
+  const count = (v) => Number.isSafeInteger(v) && v >= 0 ? v : 0;
+  if (!value || value.ok !== true) return null;
+  // eslint-disable-next-line no-control-regex -- rejects control characters in untrusted input
+  const changed = (Array.isArray(value.changed) ? value.changed : []).filter(p => typeof p === "string" && /^wp-content\/(?:themes|plugins)\/[^\x00-\x1f]{1,400}$/.test(p)).slice(0, 20);
+  return { files: count(value.files), urls: count(value.urls), changed };
 }
 
 /** Cleanup slice after a cancel: the remote export and the local partial set go, like the host engine's cancel. */

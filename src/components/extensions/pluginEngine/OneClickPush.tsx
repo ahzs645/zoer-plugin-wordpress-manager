@@ -14,7 +14,7 @@ import PluginRunCard from "./PluginRunCard";
 import PluginSiteRuns from "./PluginSiteRuns";
 import ThemeOverrideWarnings from "./ThemeOverrideWarnings";
 import { abandonedPush, activeRunsOf, findOneClickPush, oneClickStages, type OneClickRuns, type PushStage } from "./oneClickRuns";
-import { ENGINE_ACTIONS, engineErrorMessage, isBusyError, isTerminalStatus, newHexId, progressView, runInput, runsOfSite, SITE_RUN_ACTIONS } from "./runState";
+import { ENGINE_ACTIONS, engineErrorMessage, isBusyError, isTerminalStatus, isWorkerStartWait, newHexId, progressView, runInput, runsOfSite, SITE_RUN_ACTIONS } from "./runState";
 
 export type PushMode = "code" | "everything";
 type Mode = PushMode;
@@ -85,7 +85,7 @@ export async function requestOneClickPush({ source, destinationId, connection, p
 /** Starts exporting a local site for a push; returns the pull ID the push waits for. */
 export async function startPushExport(source: WordPressManagedSite, exportOptions: ReturnType<typeof pushExportOptions>) {
   const pullId = newHexId();
-  const runId = await startEngineAction(ENGINE_ACTIONS.localExport, { siteId: source.id, pullId, exportOptions });
+  const runId = await startEngineAction(ENGINE_ACTIONS.localExport, { siteId: source.id, pullId, exportOptions, portableUrls: true });
   return { pullId, runId };
 }
 
@@ -116,7 +116,6 @@ export function PushForm({ source, sourceBusy = false, onStartSource, onStarted,
   // source's plugin tables) are created; Code only never sends the database.
   const [importOptions, setImportOptions] = useState(() => ({ ...defaultImportOptions(), createTables: caps?.createTables === true }));
   const [reviewFirst, setReviewFirst] = useState(false);
-  const [confirmText, setConfirmText] = useState("");
   const [busy, setBusy] = useState<"push" | "test" | null>(null);
   const [error, setError] = useState("");
 
@@ -142,7 +141,6 @@ export function PushForm({ source, sourceBusy = false, onStartSource, onStarted,
     : exportOptionsErrors(exportOptions)[0] ?? null;
   const extraExcludes = excludes.split("\n").filter(line => line.trim()).length;
   const gated = pushImportOptions(mode, importOptions, caps);
-  const typed = mode === "code" || host(confirmText.trim()).toLowerCase() === host(target).toLowerCase();
 
   async function start(dryRun: boolean) {
     setBusy(dryRun ? "test" : "push"); setError("");
@@ -152,7 +150,6 @@ export function PushForm({ source, sourceBusy = false, onStartSource, onStarted,
       // and the push waits for the export and the comparison.
       started = await startPushExport(source, exportOptions);
       const runs = await requestOneClickPush({ source, destinationId, connection, pullId: started.pullId, mode, importOptions, reviewFirst, dryRun });
-      setConfirmText("");
       onStarted({ push: runs.push, export: started.runId, preview: runs.preview });
     } catch (caught) {
       // An export without its push is work for nothing: stop it.
@@ -191,16 +188,14 @@ export function PushForm({ source, sourceBusy = false, onStartSource, onStarted,
       </div>
     </details>
 
-    {mode === "everything" && <label className="block"><span className={fieldLabelClass}>Type {host(target)} to confirm</span><input aria-label="Confirm live address" className={controlClass("default", "text-base sm:text-[14px]")} placeholder={host(target)} value={confirmText} onChange={event => setConfirmText(event.target.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} inputMode="url" /></label>}
-
     <div className="space-y-2">
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-        <Btn variant="primary" disabled={!!busy || !!blocker || (mode === "code" && !inventory.data) || !typed} loading={busy === "push"} onClick={() => void start(false)}>{label}</Btn>
+        <Btn variant="primary" disabled={!!busy || !!blocker || (mode === "code" && !inventory.data)} loading={busy === "push"} onClick={() => void start(false)}>{label}</Btn>
         <Btn variant="secondary" disabled={!!busy || !!blocker || (mode === "code" && !inventory.data)} loading={busy === "test"} onClick={() => void start(true)}>Test run</Btn>
         {!running && onStartSource && <Btn variant="ghost" icon={<Play className="h-3.5 w-3.5" />} onClick={onStartSource}>Start {source.name}</Btn>}
       </div>
       {blocker && <p role="status" className={`text-xs ${waiting || !running ? "text-status-warning" : "text-text-secondary"}`}>{blocker}</p>}
-      {!blocker && <p className="text-xs text-text-secondary">Zoer asks you to approve once. Export, comparison{canCompare ? " (only changed files are sent)" : ""} and upload then run on the Zoer server, and {reviewFirst ? "you approve the staged changes before the live site switches" : "the live site switches over when the upload is done"}. Roll back stays available.</p>}
+      {!blocker && <p className="text-xs text-text-secondary">Zoer asks you to approve once; its approval names {host(target)} and is the only confirmation. Export, comparison{canCompare ? " (only changed files are sent)" : ""} and upload then run on the Zoer server, and {reviewFirst ? "you approve the staged changes before the live site switches" : "the live site switches over when the upload is done"}. Roll back stays available.</p>}
       {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
     </div>
   </div>;
@@ -227,7 +222,7 @@ export function PushProgress({ runs, destinationHost, onAgain }: { runs: OneClic
   const input = runInput(runs.push);
   const stages = oneClickStages({ push, input, exportRun: runs.exportRun, previewRun: runs.previewRun, host: destinationHost });
   const ended = isTerminalStatus(push.status);
-  const needsCard = ended || push.status === "waiting_for_approval" || push.resumable?.state === "needs-user" || !!push.resumable?.lastError;
+  const needsCard = ended || push.status === "waiting_for_approval" || push.resumable?.state === "needs-user" || (!!push.resumable?.lastError && !isWorkerStartWait(push.resumable.lastError.message));
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState("");
 

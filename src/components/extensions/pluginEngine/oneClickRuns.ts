@@ -61,6 +61,8 @@ export function oneClickStages({ push, input, exportRun, previewRun, host }: {
 }): PushStage[] {
   const output = (push.output && typeof push.output === "object" ? push.output : {}) as { status?: string; summary?: string };
   const compare = typeof input.previewId === "string";
+  // A website still being created (siteId `await:<host>`) gets everything; there is nothing to compare.
+  const newWebsite = typeof input.siteId === "string" && input.siteId.startsWith("await:");
   const dryRun = input.dryRun === true;
   const phase = push.resumable?.progress?.phase ?? "";
   const pushEnded = isTerminalStatus(push.status);
@@ -77,9 +79,9 @@ export function oneClickStages({ push, input, exportRun, previewRun, host }: {
     { id: "export", label: "Export the local site", state: runDone(exportRun) ? "done" : runFailed(exportRun) ? "failed" : runActive(exportRun) ? "active" : "pending", progress: exportRun?.resumable?.progress ?? null, detail: runFailed(exportRun) ? runError(exportRun) : undefined },
     compare
       ? { id: "compare", label: `Compare with ${host}`, state: runDone(previewRun) ? "done" : runFailed(previewRun) ? "failed" : runActive(previewRun) && runDone(exportRun) ? "active" : "pending", progress: previewRun?.resumable?.progress ?? null, detail: runFailed(previewRun) ? runError(previewRun) : undefined }
-      : { id: "compare", label: `Compare with ${host}`, state: "skipped", detail: "This Zoer Connect version can't compare files, so everything in the export is sent." },
+      : { id: "compare", label: `Compare with ${host}`, state: "skipped", detail: newWebsite ? "A new website: everything in the export is sent." : "This Zoer Connect version can't compare files, so everything in the export is sent." },
     { id: "upload", label: dryRun ? "Plan the push (test run)" : "Upload the changes", state: unchanged ? "skipped" : finished || applying ? "done" : "pending", progress: UPLOAD_PHASES.includes(phase) ? push.resumable?.progress ?? null : null,
-      detail: unchanged ? `${host} already has these changes.` : undefined },
+      detail: unchanged ? `${host} already has these changes.` : phase === "waiting for site" ? `Waiting for ${host} to be ready.` : undefined },
     { id: "apply", label: `Update ${host}`, state: unchanged || dryRun ? "skipped" : finished ? "done" : "pending", progress: APPLY_PHASES.includes(phase) && !finished ? push.resumable?.progress ?? null : null,
       detail: dryRun && finished ? "Test run: nothing was changed." : unchanged ? "Nothing to send." : undefined },
   ];

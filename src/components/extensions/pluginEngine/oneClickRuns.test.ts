@@ -89,3 +89,15 @@ describe("push summary line", () => {
     expect(summary({ status: "succeeded", finishedAt: "2026-10-18T12:00:00Z", resumable: progress("failed") })).toEqual({ text: "Last push to live.example failed 2 days ago", tone: "error" });
   });
 });
+
+describe("a push into a website still being created", () => {
+  test("skips the comparison and says it waits for the website", () => {
+    const input = { siteId: "await:new.example", exportPullId: PULL, sourceSiteId: "ddev-local" };
+    const stages = oneClickStages({ push: { status: "running", resumable: { state: "running", progress: { phase: "waiting for site" } } as any }, input, exportRun: { status: "succeeded" }, previewRun: null, host: "new.example" });
+    expect(states(stages)).toMatchObject({ approve: "done", export: "done", compare: "skipped", upload: "active" });
+    expect(stages.find(stage => stage.id === "compare")!.detail).toBe("A new website: everything in the export is sent.");
+    expect(stages.find(stage => stage.id === "upload")!.detail).toBe("Waiting for new.example to be ready.");
+    const runs = [run("push", "transfer.push", input), run("export", "transfer.local-export", { siteId: "ddev-local", pullId: PULL }, "succeeded")];
+    expect(findOneClickPush(runs, "ddev-local", ["external:new", "await:new.example"])?.exportRun?.runId).toBe("export");
+  });
+});

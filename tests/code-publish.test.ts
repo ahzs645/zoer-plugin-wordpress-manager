@@ -70,6 +70,9 @@ describe("portable code publication", () => {
     const issue = codeContentIssue(secret, source, "https://live.example");
     expect(issue).toContain("credential literal");
     expect(issue).not.toContain(secret);
+    // Other pushes check portability only.
+    expect(codeContentIssue(secret, source, "https://live.example", { credentials: false })).toBeNull();
+    expect(codeContentIssue("https://local.example/a.jpg", source, "https://live.example", { credentials: false })).toContain("source-site hostname");
   });
 
   test("dry run scans sealed source and never creates an import", async () => {

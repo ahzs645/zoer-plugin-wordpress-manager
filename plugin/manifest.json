@@ -1999,13 +1999,14 @@
         "requiredRuntimes": [
           {
             "alias": "wordpress_site",
-            "purpose": "Export a local DDEV or Kubernetes WordPress site into a file set.",
+            "purpose": "Export a local DDEV or Kubernetes WordPress site into a file set; for a push, first make the site's own address in theme and plugin files site-relative.",
             "connectorIds": [
               "ddev",
               "wordpress-kubernetes"
             ],
             "operations": [
               "runtime.inspect.v1",
+              "runtime.exec.v1",
               "export.create.v1",
               "export.step.v1",
               "export.chunk.v1",
@@ -2041,6 +2042,9 @@
               "type": "boolean"
             },
             "recover": {
+              "type": "boolean"
+            },
+            "portableUrls": {
               "type": "boolean"
             }
           }
@@ -3367,6 +3371,19 @@
           "prepare-hostinger.php"
         ],
         "timeoutMs": 840000,
+        "targets": [
+          "runtime"
+        ],
+        "effect": "local_write"
+      },
+      {
+        "id": "wordpress.portable-urls",
+        "bundle": "computer/wordpress",
+        "argv": [
+          "php",
+          "portable-urls.php"
+        ],
+        "timeoutMs": 120000,
         "targets": [
           "runtime"
         ],

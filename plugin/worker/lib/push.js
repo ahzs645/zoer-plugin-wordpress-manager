@@ -89,14 +89,20 @@ function beginCompare(state, set, pull, now) {
     createdAt: new Date(created).toISOString(), expiresAt: new Date(created + PREVIEW_TTL_MS).toISOString() });
 }
 
+function checkComparable(status) {
+  if (!status.permissions?.push || !status.capabilities?.selectivePush) fail("Update the destination Zoer Connect plugin for selective Push and enable Push permission.");
+}
+
 export const previewSpec = {
   async start(input, { host, request, now }) {
     if (!HEX32.test(input.previewId ?? "")) fail("A valid preview ID is required.");
-    const endpoint = endpointOf(request, input.siteId);
-    const status = await connectClient(host, endpoint).request("/status");
-    if (!status.permissions?.push || !status.capabilities?.selectivePush) fail("Update the destination Zoer Connect plugin for selective Push and enable Push permission.");
-    const state = { v: 1, previewId: input.previewId, siteId: input.siteId, setId: input.setId ?? null, pullId: null, generation: endpoint.generation, cursor: 0, page: 0, total: 0,
-      counts: { new: 0, changed: 0, unchanged: 0, blocked: 0, database: 0 }, createdAt: null, expiresAt: null };
+    // A website still being created (`await:<host>`): compared once it is listed, like its push.
+    const awaitTarget = awaitedOrigin(input.siteId);
+    if (awaitTarget && input.exportPullId === undefined) fail("A new website is compared with the local export being made.");
+    const endpoint = awaitTarget ? null : endpointOf(request, input.siteId);
+    if (endpoint) checkComparable(await connectClient(host, endpoint).request("/status"));
+    const state = { v: 1, previewId: input.previewId, siteId: awaitTarget ? null : input.siteId, setId: input.setId ?? null, pullId: null, generation: endpoint?.generation ?? null, cursor: 0, page: 0, total: 0,
+      counts: { new: 0, changed: 0, unchanged: 0, blocked: 0, database: 0 }, createdAt: null, expiresAt: null, ...(awaitTarget ? { awaitTarget, awaitSince: new Date(now()).toISOString() } : {}) };
     // One-click push: compare the local export started with it as soon as that export is ready.
     if (input.exportPullId !== undefined) {
       if (input.setId !== undefined || !HEX32.test(input.exportPullId)) fail("Compare either a verified download or the local export being made, not both.");
@@ -109,6 +115,11 @@ export const previewSpec = {
   },
   async step(state, input, ctx) {
     const { host, request } = ctx;
+    if (!state.siteId) {
+      const waiting = bindAwaitedSite(state, ctx, state.awaitSince);
+      if (waiting) return waiting;
+      checkComparable(await connectClient(host, endpointOf(request, state.siteId), state.generation).request("/status"));
+    }
     if (state.waiting) {
       const ready = await awaitedExport(host, state.exportPullId, Date.parse(state.waitingSince), ctx.now(), "compared");
       if (!ready) return ctx.continue(state, { phase: "waiting for export", message: "Waiting for the local export to finish." }, waitMs(state));
@@ -198,6 +209,43 @@ async function loadPreview(host, previewId) {
 // Push and replace
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * A push to a website still being created (Create a live site): `siteId` is `await:<host>` and
+ * `confirmTarget` that exact HTTPS address, so it can be approved as soon as the user confirms.
+ * The push waits until a Zoer Connect site with that address is listed, then pushes into it.
+ */
+export const AWAIT_PREFIX = "await:";
+const SITE_WAIT_MS = 3 * 3_600_000;
+function awaitedTarget(input) {
+  if (typeof input.siteId !== "string" || !input.siteId.startsWith(AWAIT_PREFIX)) return null;
+  let url;
+  try { url = new URL(input.confirmTarget); } catch { fail("Confirm the exact address of the new website."); }
+  if (url.protocol !== "https:" || url.port || url.username || url.password || url.search || url.hash || url.pathname !== "/" || input.confirmTarget !== url.origin || input.siteId !== `${AWAIT_PREFIX}${url.hostname}`) fail("Confirm the exact address of the new website.");
+  return url.origin;
+}
+
+/** `https://<host>` of a comparison's `await:<host>` site, or null. */
+function awaitedOrigin(siteId) {
+  if (typeof siteId !== "string" || !siteId.startsWith(AWAIT_PREFIX)) return null;
+  const name = siteId.slice(AWAIT_PREFIX.length);
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(name)) fail("Name the new website by its address.");
+  return `https://${name}`;
+}
+
+/** The Zoer Connect site the awaited website became, once listed; one slice of waiting otherwise. */
+function bindAwaitedSite(state, ctx, since = state.startedAt) {
+  const matches = (ctx.request.grants?.network?.endpoints ?? []).flatMap((entry) => entry.alias === "site" ? entry.endpoints : [])
+    .filter((endpoint) => { try { return normalizeConnectUrl(endpoint.origin) === state.awaitTarget; } catch { return false; } });
+  if (matches.length > 1) fail(`More than one Zoer Connect site has the address ${state.awaitTarget}. Nothing was sent.`);
+  if (!matches.length) {
+    if (ctx.now() - Date.parse(since) > SITE_WAIT_MS) fail(`${state.awaitTarget} was not ready within 3 hours. Nothing was sent.`);
+    return ctx.continue(state, { phase: "waiting for site", message: `Waiting for ${new URL(state.awaitTarget).hostname} to be ready.` }, 30_000);
+  }
+  state.siteId = matches[0].id;
+  state.generation = matches[0].generation;
+  return null;
+}
+
 function checkTarget(input, endpoint) {
   let target;
   try { target = normalizeConnectUrl(endpoint.origin); } catch { target = endpoint.origin; }
@@ -208,10 +256,13 @@ export async function startPush(kind, input, ctx) {
   const { host, request, now } = ctx;
   const importId = input.importId ?? runHex(request);
   if (!HEX32.test(importId)) fail("A valid transfer request ID is required.");
-  const endpoint = endpointOf(request, input.siteId);
+  const awaitTarget = awaitedTarget(input);
+  // A new website gets the whole local export: compared (only what the new WordPress lacks is sent) or not.
+  if (awaitTarget && (kind !== "push" || input.exportPullId === undefined || (input.previewId !== undefined && input.autoSelect === undefined) || input.selectedPaths !== undefined || input.codeOnly === true || input.dryRun === true)) fail("A new website gets the whole local export.");
+  const endpoint = awaitTarget ? null : endpointOf(request, input.siteId);
   if (input.wordpressOnlyWriters !== true && input.replacementAccepted !== true) fail(kind === "replace" ? "Confirm the destination replacement policy." : "Choose a different source and confirm the destination replacement policy.");
-  checkTarget(input, endpoint);
-  const state = { v: 1, kind, siteId: input.siteId, importId, generation: endpoint.generation, phase: "creating", dryRun: input.dryRun === true, startedAt: new Date(now()).toISOString() };
+  if (endpoint) checkTarget(input, endpoint);
+  const state = { v: 1, kind, siteId: awaitTarget ? null : input.siteId, importId, generation: endpoint?.generation ?? null, phase: "creating", dryRun: input.dryRun === true, startedAt: new Date(now()).toISOString(), ...(awaitTarget ? { awaitTarget } : {}) };
   if (input.codeOnly !== undefined && typeof input.codeOnly !== "boolean") fail("Choose a valid publishing mode.");
   if (input.codeOnly === true) {
     if (kind !== "push" || !input.previewId) fail("Code updates require a completed file comparison.");
@@ -255,8 +306,8 @@ export async function startPush(kind, input, ctx) {
 }
 
 /** Source checks shared by a chosen download and a waited-for local export. */
-function checkSource(input, pull) {
-  if (pull.siteId === input.siteId) fail("Choose a different source and confirm the destination replacement policy.");
+function checkSource(input, pull, state = null) {
+  if (pull.siteId === input.siteId || pull.siteId === state?.siteId) fail("Choose a different source and confirm the destination replacement policy.");
   if (pull.options?.profile?.muplugins || pull.options?.profile?.core) fail("Import supports database, themes, plugins and media. Exclude core and must-use plugins.");
   if (input.exportPullId !== undefined && (pull.kind !== "local-export" || pull.siteId !== input.sourceSiteId)) fail("The local export does not belong to the site being pushed.");
 }
@@ -270,7 +321,7 @@ async function waitForSource(state, input, ctx) {
   if (!state.setId) {
     const ready = await awaitedExport(host, state.exportPullId, Date.parse(state.waitingSince), ctx.now(), "sent");
     if (!ready) return ctx.continue(state, { phase: "exporting", message: "Exporting the local site." }, waitMs(state));
-    checkSource(input, ready.pull);
+    checkSource(input, ready.pull, state);
     state.setId = ready.pull.setId;
     state.waitingSince = new Date(ctx.now()).toISOString();
     state.waits = 0;
@@ -374,15 +425,21 @@ function autoPaths(state, entries, reviewed, pull) {
   }).map(entry => entry.path);
 }
 
-/** Bounded, resumable reads of sealed source bytes before any destination import is created. */
+const EXTENSION_FILE = /^wp-content\/(?:themes|plugins)\//;
+
+/**
+ * Bounded, resumable reads of sealed source bytes before any destination import is created. A
+ * code update checks every file it sends; any other push checks its theme and plugin files for
+ * source addresses and paths, which Zoer Connect copies unchanged (it rewrites only the database).
+ */
 async function checkCodeContent(state, built, digest, ctx) {
-  if (state.codeCheckDigest && state.codeCheckDigest !== digest) fail("The reviewed code plan changed during preflight. Compare again.");
+  if (state.codeCheckDigest && state.codeCheckDigest !== digest) fail(state.codeOnly ? "The reviewed code plan changed during preflight. Compare again." : "The push plan changed during preflight. Start the push again.");
   state.codeCheckDigest = digest;
   const files = built.manifest.files;
   let reads = 0;
   for (; (state.codeCursor ?? 0) < files.length; state.codeCursor = (state.codeCursor ?? 0) + 1, state.codeOffset = 0) {
     const file = files[state.codeCursor ?? 0];
-    if (!/\.(?:php|js|mjs|cjs|css|html?|json|svg|twig|ya?ml|ini)$/i.test(file.path) || !file.bytes) continue;
+    if (!/\.(?:php|js|mjs|cjs|css|html?|json|svg|twig|ya?ml|ini)$/i.test(file.path) || !file.bytes || (!state.codeOnly && !EXTENSION_FILE.test(file.path))) continue;
     while ((state.codeOffset ?? 0) < file.bytes) {
       if (reads >= 40 || ctx.timeLeft() < 5_000) return false;
       stopIfPaused(ctx);
@@ -391,8 +448,8 @@ async function checkCodeContent(state, built, digest, ctx) {
       const { dataBase64 } = await ctx.host.call("fileset.read", { setId: state.setId, path: file.path, offset, maxBytes: 65536 });
       const bytes = Buffer.from(dataBase64, "base64");
       if (offset + bytes.length <= (state.codeOffset ?? 0)) fail(`The code preflight could not read ${file.path}.`);
-      const issue = codeContentIssue(bytes.toString("utf8"), built.source, built.manifest.target);
-      if (issue) fail(`Code preflight stopped at ${file.path}: ${issue}.`);
+      const issue = codeContentIssue(bytes.toString("utf8"), built.source, built.manifest.target, { credentials: state.codeOnly === true });
+      if (issue) fail(state.codeOnly ? `Code preflight stopped at ${file.path}: ${issue}.` : `Push stopped at ${file.path}: ${issue}. Nothing was sent.`);
       state.codeOffset = offset + bytes.length;
       reads++;
     }
@@ -543,6 +600,10 @@ async function uploadSlice(state, input, ctx, client, until) {
 
 export async function stepPush(state, input, ctx) {
   const { host, request } = ctx;
+  if (!state.siteId) {
+    const waiting = bindAwaitedSite(state, ctx);
+    if (waiting) return waiting;
+  }
   const client = connectClient(host, endpointOf(request, state.siteId), state.generation);
   if (state.phase === "waiting") {
     const waiting = await waitForSource(state, input, ctx);
@@ -567,8 +628,8 @@ export async function stepPush(state, input, ctx) {
     const manifestOutput = Buffer.byteLength(body) * 4 / 3 + 4096;
     if (manifestOutput > ctx.outputLimit - OUTPUT_RESERVE - 64 * 1024) fail("The import manifest is too large for one request from this worker. Compare first and push a smaller selection.");
     const digest = createHash("sha256").update(body).digest("hex");
-    if (state.codeOnly && state.phase === "creating" && !(await checkCodeContent(state, built, digest, ctx))) {
-      return ctx.continue(state, { phase: "checking code", message: `Checking code files ${state.codeCursor ?? 0} of ${built.manifest.files.length} before publication.` });
+    if (state.kind === "push" && state.phase === "creating" && built.manifest.files?.length && !(await checkCodeContent(state, built, digest, ctx))) {
+      return ctx.continue(state, { phase: "checking code", message: state.codeOnly ? `Checking code files ${state.codeCursor ?? 0} of ${built.manifest.files.length} before publication.` : `Checking theme and plugin files for development addresses (${state.codeCursor ?? 0} of ${built.manifest.files.length} files).` });
     }
     if (state.phase === "creating") {
       state.totalBytes = built.totalBytes ?? 0;
@@ -651,7 +712,7 @@ export async function stepPush(state, input, ctx) {
 export async function cancelPush(state, input, ctx) {
   // "submitting": the import may exist if the creating slice was lost; a rollback of a missing
   // import is a harmless 404.
-  if (!state || state.phase === "creating" || state.phase === "waiting" || TERMINAL.includes(state.phase)) return;
+  if (!state || !state.siteId || state.phase === "creating" || state.phase === "waiting" || TERMINAL.includes(state.phase)) return;
   const client = connectClient(ctx.host, endpointOf(ctx.request, state.siteId), state.generation);
   // One rollback tick per request: keep going for the whole cleanup slice. What is left (a large
   // import) continues with the Roll back control, which picks up the current phase.
@@ -669,7 +730,7 @@ const PRE_FENCE = ["uploading", "reusing_artifacts", "checking_artifacts", "scan
  * staged on the site; one past the fence is left for the user to roll back or finish.
  */
 async function cancelRefusedImport(state, input, ctx) {
-  if (!state?.importId || !["uploading", "importing"].includes(state.phase)) return;
+  if (!state?.importId || !state.siteId || !["uploading", "importing"].includes(state.phase)) return;
   const client = connectClient(ctx.host, endpointOf(ctx.request, state.siteId), state.generation);
   const current = await client.request(`/imports/${state.importId}`);
   if (!PRE_FENCE.includes(current?.phase ?? current?.status)) return;

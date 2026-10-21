@@ -31,6 +31,8 @@ test("other needs-user reasons resume or re-approve", () => {
   expect(describeRun(run("waiting_for_user", { statusReason: "Upload paused after repeated failures with every transfer method.", resumable: resumable({ state: "needs-user" }) }), "push")).toMatchObject({ label: "Upload paused", buttons: ["resume", "cancel"] });
   expect(describeRun(run("waiting_for_user", { statusReason: "This connection changed. Cancel the old pull and start a new one.", resumable: resumable({ state: "needs-user" }) }))).toMatchObject({ label: "Connection changed", buttons: ["resume", "cancel"] });
   expect(describeRun(run("waiting_for_user", { statusReason: "The plugin changed. Review and approve to continue.", resumable: resumable({ state: "needs-user" }) }), "push").buttons).toEqual(["reapprove", "cancel"]);
+  expect(describeRun(run("waiting_for_user", { statusReason: "The plugin changed. Review and approve to continue.", resumable: resumable({ state: "needs-user" }) }), "push")).toMatchObject({ label: "Approve again after the update", reason: expect.stringContaining("was updated while this ran") });
+  expect(describeRun(run("waiting_for_user", { statusReason: "The plugin's settings, resources or readiness changed. Review and approve to continue.", resumable: resumable({ state: "needs-user" }) }), "push")).toMatchObject({ label: "Approval needed to continue", reason: expect.stringContaining("readiness changed") });
 });
 
 test("resumable states map to labels and buttons", () => {
@@ -141,4 +143,10 @@ test("download recovery only replays timed-out inbound transfers with their orig
   const original = { runId: "failed", actionId: "transfer.pull", status: "failed", createdAt: "2026-10-15", error: "Integration action exceeded its timeout.", input: { siteId: "site", pullId: "a".repeat(32) } };
   expect(recoverableDownload(original)).toMatchObject({ actionId: "transfer.pull", input: { ...original.input, recover: true } });
   for (const patch of [{ actionId: "transfer.push" }, { status: "running" }, { error: "Permission denied" }, { input: { ...original.input, remove: true } }, { input: { ...original.input, dryRun: true } }, { input: { ...original.input, snapshotMode: "maintenance" } }]) expect(recoverableDownload({ ...original, ...patch })).toBeNull();
+});
+
+test("a worker that is still starting reads as Starting, not as an error", () => {
+  const view = describeRun(run("retry_scheduled", { resumable: resumable({ state: "waiting", consecutiveFailures: 1, lastError: { code: "sandbox-unavailable", message: "Integration kubernetes worker failed to start: Waiting for prior plugin worker cleanup. Its run has ended but its worker is still present; retry resume after workflow recovery removes it." } }) }), "push");
+  expect(view).toMatchObject({ label: "Starting", tone: "running", working: true });
+  expect(view.reason).not.toContain("cleanup");
 });

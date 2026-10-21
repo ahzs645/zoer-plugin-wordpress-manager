@@ -497,3 +497,16 @@ describe("database-only development refresh", () => {
     const after = new Database(path); expect(after.query("SELECT ID FROM wp_posts WHERE ID=8").get()).toEqual({ ID: 8 }); after.close();
   });
 });
+
+describe("portable-urls.php rules", () => {
+  const portable = (body: string) => JSON.parse(php(`require ${JSON.stringify(`${BUNDLE}/PortableUrls.php`)};use ZoerConnect\\PortableUrls;echo json_encode((function(){${body}})(), JSON_UNESCAPED_SLASHES);`));
+  test("the local site's own URLs become site-relative and nothing else changes", () => {
+    const text = `<img src="https://dev.example.ca/wp-content/uploads/a.jpg"><a href="https://dev.example.ca">Home</a>{"u":"https:\\/\\/dev.example.ca\\/x"} http://dev.ddev.site:8080/y //dev.example.ca/q https://dev.example.ca.other.org/z https://example.ca/keep`;
+    expect(portable(`return PortableUrls::text(${JSON.stringify(text).replaceAll("$", "\\$")}, ["dev.example.ca", "dev.ddev.site"]);`))
+      .toEqual([`<img src="/wp-content/uploads/a.jpg"><a href="/">Home</a>{"u":"\\/x"} /y /q https://dev.example.ca.other.org/z https://example.ca/keep`, 5]);
+  });
+  test("only the exported theme and plugin folders are visited", () => {
+    expect(portable(`return PortableUrls::roots(["themes" => "all", "plugins" => ["shop-tools", "../x", 5]]);`)).toEqual(["wp-content/themes", "wp-content/plugins/shop-tools"]);
+    expect(portable(`return PortableUrls::roots(["themes" => false, "plugins" => false]);`)).toEqual([]);
+  });
+});

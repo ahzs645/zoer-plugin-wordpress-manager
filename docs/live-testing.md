@@ -62,8 +62,10 @@ If the computer can't reach the address at all, stop and tell the user. Network 
 
 ```sh
 bun run build
-ZOER_URL=$ZOER_URL bun tools/zoer-plugin.mjs dev dist/package --enable
+ZOER_URL=$ZOER_URL bun tools/live-gate/zoer.ts idle && ZOER_URL=$ZOER_URL bun tools/zoer-plugin.mjs dev dist/package --enable
 ```
+
+Check `idle` first, also when someone else is using the plugin. Zoer pins an approval to the plugin code it was given for: a new build parks every running push, restore or other external write with *Review and approve again*, so the person has to approve it a second time. Wait until `idle` prints `[]`.
 
 From a Zoer checkout the equivalent is `bun packages/plugin-cli/src/cli.ts dev dist/package --enable`. That needs `bun install` in Zoer's `backend/`, `packages/plugin-sdk` and `packages/plugin-cli`, because the CLI validates with the backend's manifest validator. The exported file avoids all that. Re-export it (`bun run plugin export-cli <path>` in Zoer) only when Zoer's CLI changes.
 

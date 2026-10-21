@@ -220,6 +220,7 @@ export class FakeDdev {
         stage!.set("prepared.json", Buffer.from(JSON.stringify({ files })));
         return tail({ metadata: { prefix: "wp_", sourceUrl: "http://backup.local", wordpressVersion: "6.9.4", tables: 4, activePlugins: true }, warnings: ["Restored plugins start inactive. Review and activate the required plugins before publication."], fileCount: files.length, databaseSha256: sha(db) });
       }
+      case "wordpress.portable-urls": return tail({ ok: true, files: 1, urls: 2, changed: ["wp-content/themes/shop/patterns/home.php"] });
       default: return fail("Unknown command.");
     }
   }
