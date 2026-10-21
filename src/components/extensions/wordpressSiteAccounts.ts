@@ -14,6 +14,19 @@ const hostOf = (value: string | null | undefined) => {
  * The Hostinger account (connection ID) a live site is on: its Hostinger record's, or, for a Zoer
  * Connect site without one, the account Zoer created the website on. Local sites have none.
  */
+/**
+ * The website WordPress Manager created for a live site (its "WordPress with Zoer Connect" receipt,
+ * matched by address and, when the site has a Hostinger record, by account), which it may delete.
+ * Websites it did not create, and receipts already deleted or still being set up, give null.
+ */
+export function createdWebsiteOf(site: WordPressManagedSite, aliases: readonly WordPressManagedSite[], created: readonly HostingerTestSite[]): HostingerTestSite | null {
+  if (isLocalWordPress(site)) return null;
+  const members = [site, ...aliases];
+  const account = members.find(member => member.provider === "hostinger" && member.connectionId)?.connectionId ?? null;
+  const hosts = new Set(members.flatMap(member => [hostOf(member.url), hostOf(member.domain), hostOf(member.managedUrl)]).filter((host): host is string => !!host));
+  return created.find(item => !item.deleted && !item.running && hosts.has(item.domain.toLowerCase()) && (!account || item.connectionId === account)) ?? null;
+}
+
 export function siteAccountId(site: WordPressManagedSite, aliases: readonly WordPressManagedSite[], created: readonly HostingerTestSite[]): string | null {
   if (isLocalWordPress(site)) return null;
   const members = [site, ...aliases];

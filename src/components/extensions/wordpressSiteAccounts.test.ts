@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { WordPressManagedSite } from "../../lib/api";
 import type { HostingerTestSite } from "./hostingerTestSites";
-import { siteAccountId, siteInScope } from "./wordpressSiteAccounts";
+import { createdWebsiteOf, siteAccountId, siteInScope } from "./wordpressSiteAccounts";
 
 const capabilities = { preview: true, admin: true, extensions: true, backups: true, deploySource: false, deployTarget: false, siteHealth: false, rollback: false };
 function site(id: string, provider: WordPressManagedSite["provider"], extra: Partial<WordPressManagedSite> = {}): WordPressManagedSite {
@@ -34,4 +34,16 @@ test("an account scope keeps its live sites with their local copies", () => {
   expect(shown("account:sparklab")).toEqual(["external:fox"]);
   expect(shown("local")).toEqual(["ddev-shop", "ddev-loose"]);
   expect(shown("all")).toHaveLength(6);
+});
+
+test("only a website WordPress Manager created, on the same account and finished, can be deleted from its page", () => {
+  const leopard = site("hostinger:spark:1", "hostinger", { domain: "gold-leopard-1.hostingersite.com", connectionId: "sparklab" });
+  const receipt = created("gold-leopard-1.hostingersite.com", "sparklab");
+  expect(createdWebsiteOf(leopard, [], [receipt])?.id).toBe(receipt.id);
+  expect(createdWebsiteOf(fresh, [], [created("gold-fox-1.hostingersite.com", "sparklab")])?.domain).toBe("gold-fox-1.hostingersite.com");
+  expect(createdWebsiteOf(leopard, [], [created("gold-leopard-1.hostingersite.com", "ote")])).toBeNull();
+  expect(createdWebsiteOf(leopard, [], [created("gold-leopard-1.hostingersite.com", "sparklab", { deleted: true })])).toBeNull();
+  expect(createdWebsiteOf(leopard, [], [created("gold-leopard-1.hostingersite.com", "sparklab", { running: true })])).toBeNull();
+  expect(createdWebsiteOf(hosted, [], [receipt])).toBeNull();
+  expect(createdWebsiteOf(local, [], [receipt])).toBeNull();
 });

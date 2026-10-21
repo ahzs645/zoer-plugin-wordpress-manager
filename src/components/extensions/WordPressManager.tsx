@@ -69,7 +69,7 @@ import { wordpressExtensionActions, wordpressExtensionActionLabel, wordpressExte
 import WordPressConnect from "./WordPressConnect";
 import PushToLiveDialog from "./PushToLiveDialog";
 import { GoLiveDialog, goLiveStage, useGoLiveOrchestrator, useGoLivePlans } from "./GoLive";
-import { hostingerTestSites } from "./hostingerTestSites";
+import { hostingerTestSites, type HostingerTestSite } from "./hostingerTestSites";
 import SiteSyncCard from "./SiteSyncCard";
 import SiteCompareDialog from "./SiteCompareDialog";
 import PluginLocalCopy from "./pluginEngine/PluginLocalCopy";
@@ -101,7 +101,7 @@ import { isLocalWordPress, wordpressLifecycleAction } from "./wordpressLifecycle
 import { consolidateWordPressSites, readSeparatedSiteConnections, writeSeparatedSiteConnections } from "./wordpressSiteIdentity";
 import { filterWordPressSiteGroups, groupWordPressSites, readSeparatedSitePairs, wordPressSiteCopies, wordPressSiteSource, writeSeparatedSitePairs } from "./wordpressSiteGroups";
 import { databaseKeys } from "../../lib/queries/databases";
-import { siteAccountId, siteInScope, type SiteScope } from "./wordpressSiteAccounts";
+import { createdWebsiteOf, siteAccountId, siteInScope, type SiteScope } from "./wordpressSiteAccounts";
 import { DEPLOY_KIND, GROUP_NAME_KIND, makeMainLive, parseGroupName, parseSiteDeploy, removeStackLive, renameGroup, type SiteDeployLink } from "./siteStack";
 import { rememberConnectedWordPressSite } from "../../lib/queries/connected-wordpress-site";
 
@@ -542,6 +542,30 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   };
 
   // A local DDEV site being deleted: the dialog offers the trash or deleting everything.
+  // A Hostinger website WordPress Manager created can be deleted from its own page (Hostinger deletes
+  // it with its files and database; the same typed phrase as Websites created here).
+  const selectedWebsite = selected ? createdWebsiteOf(selected, identity.aliases(selected.id), createdWebsites) : null;
+  const deleteWebsite = async (site: WordPressManagedSite, website: HostingerTestSite) => {
+    const phrase = `DELETE ${website.domain}`;
+    const mainOf = sites.filter(local => isLocalWordPress(local) && local.sourceSiteId && identity.canonicalId(local.sourceSiteId) === identity.canonicalId(site.id));
+    const warning = mainOf.length ? ` It is the main live site of ${mainOf.map(local => local.name).join(" and ")}; make another live site main first if the card should keep one.` : "";
+    const typed = await dialogs.prompt({ title: `Delete ${website.domain}?`, description: `Hostinger permanently deletes the website with its files and database, and Zoer removes its connection. This cannot be undone.${warning}`, label: `Type ${phrase}`, submitLabel: "Delete website" });
+    if (typed !== phrase) return;
+    setBusy(`delete:${website.id}`); setError(null); setNotice(null);
+    try {
+      await api.deleteHostingerTestSite(website.connectionId, website.id, typed);
+      // Off any card it was another live site on; the website itself is going.
+      const deploy = deploys.find(item => identity.canonicalId(item.liveSiteId) === identity.canonicalId(site.id));
+      if (deploy) await removeStackLive(deploy.liveSiteId).catch(() => undefined);
+      setSelectedId(null);
+      setNotice(`Hostinger is deleting ${website.domain}. It can take a few minutes to disappear from hPanel and this list.`);
+      await Promise.all([deploymentsQuery.refetch(), load(true, true)]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not delete the website.");
+    } finally {
+      setBusy(null);
+    }
+  };
   const [deleteTarget, setDeleteTarget] = useState<WordPressManagedSite | null>(null);
   const removeSite = async (site: WordPressManagedSite) => {
     if (site.provider === "hostinger") {
@@ -921,6 +945,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     ...(isLocalWordPress(selected) && !lifecycle ? [{ label: "Refresh site status", icon: <RefreshCw className="h-4 w-4" />, disabled: busy !== null, onClick: () => void refreshAll() }] : []),
     { label: "Site name & URL", icon: <Pencil className="h-4 w-4" />, onClick: () => { setEditSite(selected); setEditName(selected.name); setEditError(null); } },
     ...(lifecycle === "stop" ? [{ label: "Stop site", icon: <Square className="h-4 w-4" />, disabled: busy !== null || transferWriting, onClick: () => void changeLifecycle(selected) }] : []),
+    ...(selectedWebsite ? [{ label: "Delete this website", icon: <Trash2 className="h-4 w-4" />, tone: "danger" as const, loading: busy === `delete:${selectedWebsite.id}`, disabled: busy !== null || transferWriting, onClick: () => void deleteWebsite(selected, selectedWebsite) }] : []),
     ...(isLocalWordPress(selected) ? [{ label: "Move to trash", icon: <Trash2 className="h-4 w-4" />, tone: "danger" as const, loading: busy === `delete:${selected.id}`, disabled: busy !== null || transferWriting, onClick: () => void removeSite(selected) }] : []),
   ] : [];
   // A connected external site opens the same dialog to run transfers; only an unconnected one needs connecting.
