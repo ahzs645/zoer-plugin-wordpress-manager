@@ -18,10 +18,11 @@ import { useDialogs } from "@zoer/plugin-ui/controls";
 type DevKind = "plugin" | "theme";
 /** `id` and `live` come from Zoer builds that support several links and live updates. */
 interface Link {id?:string; siteId:string; folder:string; slug:string; kind?:DevKind; live?:boolean}
-interface LiveStatus {state:string; message?:string; appliedAt?:string; updatedAt:string}
+/** site-changed: files were edited in the site since Zoer last wrote them; live updates hold. */
+interface LiveStatus {state:string; message?:string; appliedAt?:string; updatedAt:string; changedFiles?:string[]}
 interface Job {id:string; operation:string; status:string; error?:string; createdAt:string; version?:string; sourceCommit?:string; siteId?:string; slug?:string; rollbackOf?:string; paths?:string[]; recoveryAvailable?:boolean; linkId?:string; live?:boolean}
 interface State {link:Link|null; links?:Link[]; live?:Record<string,LiveStatus>; sites:{id:string; name:string; status:string; url:string; provider?:string}[]; jobs:Job[]; busy:boolean}
-const LIVE_LABELS:Record<string,string>={starting:"Starting…",building:"Building your latest save…",applying:"Updating the site…","up-to-date":"Site has your latest successful build","build-failed":"Build failed","apply-failed":"Update failed","waiting-for-site":"Waiting for the site","waiting-for-computer":"Waiting for the development computer","waiting-for-tools":"Builds are off",paused:"Off"};
+const LIVE_LABELS:Record<string,string>={starting:"Starting…",building:"Building your latest save…",applying:"Updating the site…","up-to-date":"Site has your latest successful build","build-failed":"Build failed","apply-failed":"Update failed","site-changed":"Held: files were edited in the site","waiting-for-site":"Waiting for the site","waiting-for-computer":"Waiting for the development computer","waiting-for-tools":"Builds are off",paused:"Off"};
 interface Review {id:string; fingerprint:string; siteId:string; slug:string; kind?:DevKind; source:{name:string;version:string;mainFile:string;commit:string|null;digest:string;files:number;bytes:number}; changes:{path:string;kind:string}[]}
 interface Activation {fingerprintSha256:string;steps:string[];warnings:string[];confirmationPhrase:string|null}
 
@@ -117,8 +118,15 @@ export default function WordPressDevelopmentPanel({repo, unsaved=false, requeste
       <p className="text-xs text-text-muted">Updates replace this {kind} folder after a review; PHP is syntax-checked. Activation is a separate step.</p>
       {link.id&&<div className="min-w-0 space-y-2 rounded-lg border border-border-default p-3">
         <div className="flex flex-wrap items-center justify-between gap-2"><p role="status" className="text-sm"><span className="font-medium text-text-heading">Live updates:</span> {link.live?liveText:"Off"}</p><Btn disabled={locked&&busy!=="live"} loading={busy==="live"} variant={link.live?"secondary":"primary"} onClick={()=>void action("live","/live",{linkId:link.id,enabled:!link.live})}>{link.live?"Stop live updates":"Start live updates"}</Btn></div>
-        {live?.message&&(link.live||live.state==="paused")&&<p className={`break-words text-xs ${/failed/.test(live.state)?"text-status-error":"text-text-muted"}`}>{live.message}</p>}
-        <p className="text-xs text-text-muted">Applies each successful build of your saved files to this {kind} folder, without a review. Needs builds turned on (build jobs, or build-on-save on a running development computer) and a running site; the site is never started for you. A failed build or PHP error keeps the site's previous code, and each update can be rolled back from history. Reload the preview to see a change.</p>
+        {live?.message&&(link.live||live.state==="paused")&&<p className={`break-words text-xs ${/failed|changed/.test(live.state)?"text-status-error":"text-text-muted"}`}>{live.message}</p>}
+        {link.live&&live?.state==="site-changed"&&<div className="space-y-2">
+          {!!live.changedFiles?.length&&<ul aria-label="Files edited in the site" className="max-h-32 overflow-y-auto rounded-md bg-surface-secondary p-2 font-mono text-[12px]">{live.changedFiles.map(path=><li key={path} className="break-all">{path}</li>)}</ul>}
+          <div className="flex flex-wrap gap-2">
+            <Btn disabled={locked} loading={busy==="copy-site"} onClick={async()=>{const result=await action<{copied:string[]}>("copy-site","/live/copy-site-changes",{linkId:link.id});if(result)setNotice(result.copied.length?`Copied ${result.copied.length} file${result.copied.length===1?"":"s"} into the repository. Live updates continue.`:"The repository already had these files. Live updates continue.");}}>Copy site edits into the repository</Btn>
+            <Btn variant="danger" disabled={locked} onClick={async()=>{if(await dialogs.confirm({title:"Overwrite the site's edits?",description:`Replaces ${live.changedFiles?.length??"the"} edited file${live.changedFiles?.length===1?"":"s"} with your latest successful build. The site's version is kept in the update's recovery receipt, so you can roll back.`,confirmLabel:"Overwrite site edits"}))await action("live","/live",{linkId:link.id,enabled:true,overwriteSiteChanges:true});}}>Overwrite site edits</Btn>
+          </div>
+        </div>}
+        <p className="text-xs text-text-muted">Applies each successful build of your saved files to this {kind} folder, without a review. Needs builds turned on (build jobs, or build-on-save on a running development computer) and a running site; the site is never started for you. A failed build or PHP error keeps the site's previous code, and each update can be rolled back from history. If files in the site's folder are edited outside Zoer, live updates hold instead of overwriting them. Reload the preview to see a change.</p>
       </div>}
       <Btn disabled={locked||site?.status!=="running"} onClick={()=>void reviewActivation()}>Review {kind} activation</Btn>
     </div>}
