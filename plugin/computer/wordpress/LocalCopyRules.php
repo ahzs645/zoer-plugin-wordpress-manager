@@ -144,6 +144,16 @@ final class LocalCopyRules {
         return $value;
     }
 
+    /**
+     * The active plugin list without entries whose plugin file the copy does not have: Zoer Connect is
+     * never copied, and the Files choice can leave others out. WordPress would otherwise deactivate
+     * each one with "Plugin file does not exist" on the first admin page load.
+     */
+    public static function installedActivePlugins(mixed $active, callable $exists): array {
+        if(!is_array($active))return [];
+        return array_values(array_filter($active,fn($plugin)=>is_string($plugin)&&preg_match('#^[^/\x00-\x1f]+(?:/[^/\x00-\x1f]+)?\.php$#D',$plugin)&&!str_contains($plugin,'..')&&$exists($plugin)));
+    }
+
     /** A login (or e-mail) that does not collide with the copied users. */
     public static function freeLogin(string $wanted,callable $taken): string {
         if(!$taken($wanted))return $wanted;

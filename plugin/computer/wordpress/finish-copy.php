@@ -60,7 +60,14 @@ zoer_main(function (): void {
     // plugin routes. Flushing with plugins skipped would erase their rewrite rules.
     // A files-only refresh keeps the database too, so the same applies.
     $pruned = ($plan['prune'] ?? false) === true ? zoer_prune_placed($stage) : null;
-    if (!in_array($plan['scope'] ?? 'complete', ['database', 'files'], true)) zoer_wp(['rewrite', 'flush', '--hard'], $fail, 300, ['--skip-plugins', '--skip-packages']);
+    if (!in_array($plan['scope'] ?? 'complete', ['database', 'files'], true)) {
+        // The live site's active list can name plugins the copy has no files for (Zoer Connect, or
+        // plugins left out of the transfer); drop them so WordPress shows no deactivation notices.
+        $active = json_decode(zoer_wp(['option', 'get', 'active_plugins', '--format=json'], $fail, 120), true);
+        $installed = \ZoerConnect\LocalCopyRules::installedActivePlugins($active, fn(string $plugin): bool => is_file(ZOER_WEB_ROOT . '/wp-content/plugins/' . $plugin));
+        if (is_array($active) && count($installed) !== count($active)) zoer_wp(['option', 'update', 'active_plugins', json_encode($installed), '--format=json'], $fail, 120);
+        zoer_wp(['rewrite', 'flush', '--hard'], $fail, 300, ['--skip-plugins', '--skip-packages']);
+    }
     @unlink($stage . '/pending');
     $path = ($url['path'] ?? '') === '' ? '/' : $url['path'];
     // The native runtime terminates public HTTPS at Zoer; its private Apache listens on 8080.

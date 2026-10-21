@@ -45,6 +45,11 @@ describe("local copy rules", () => {
       LocalCopyRules::freeLogin('admin',fn($v)=>in_array($v,['admin','zoer-local-admin'],true))];`);
     expect(out).toEqual(["wp_capabilities", "nickname", "wp_capabilities", true, true, false, true, false, "zoer-local-admin-2"]);
   });
+  test("active plugins the copy has no files for (Zoer Connect, plugins left out) are dropped", () => {
+    expect(rules(`return LocalCopyRules::installedActivePlugins(['akismet/akismet.php','zoer-connect/zoer-connect.php','hello.php','../x/y.php',3,'skipped/skipped.php'],fn($p)=>in_array($p,['akismet/akismet.php','hello.php','../x/y.php'],true));`))
+      .toEqual(["akismet/akismet.php", "hello.php"]);
+    expect(rules(`return LocalCopyRules::installedActivePlugins('a:0:{}',fn()=>true);`)).toEqual([]);
+  });
   test("collations the local server lacks take their closest supported one; quoted text and identifiers are left alone", () => {
     const out = rules(`$mariadb=fn($c)=>in_array(strtolower($c),['utf8mb4_bin','utf8mb4_unicode_ci','utf8mb4_unicode_520_ci','utf8mb4_general_ci'],true);
       return [array_map([LocalCopyRules::class,'collationFallbacks'],['utf8mb4_0900_ai_ci','utf8mb4_0900_as_ci','utf8mb4_de_pb_0900_ai_ci','utf8mb4_0900_as_cs','utf8mb4_ja_0900_as_cs_ks','utf8mb4_0900_bin','utf8mb4_unicode_520_ci','utf8mb4_general_ci','latin1_0900_ai_ci']),
