@@ -11,6 +11,11 @@ export function unloadedHostingerAccounts(accounts: readonly HostConnectionAccou
   return accounts.filter(account => account.status === "connected" && !loaded.has(account.id));
 }
 
+/** The Hostinger account behind another saved connection, from WordPress Manager's "already connected as “…”" refusal. */
+export function alreadyConnectedAs(message: string): string | null {
+  return /already connected as “([^”]+)”/.exec(message)?.[1] ?? null;
+}
+
 /**
  * Hostinger sign-in through Zoer (S7a, `connections.connect { alias: "hostinger" }`): Zoer opens
  * one host sign-in form, runs the sign-in in its own browser and keeps the tokens. The account is then

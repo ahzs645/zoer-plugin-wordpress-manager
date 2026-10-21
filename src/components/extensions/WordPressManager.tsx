@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { wordpressKeys, wordpressQueries, activeWordPressDeployment } from "../../lib/queries/wordpress";
 import { resourceQueries } from "../../lib/queries/resources";
 import { Select as Select } from "@zoer/plugin-ui/controls";
-import HostingerBrowserLogin, { unloadedHostingerAccounts } from "./HostingerBrowserLogin";
+import HostingerBrowserLogin, { alreadyConnectedAs, unloadedHostingerAccounts } from "./HostingerBrowserLogin";
 import HostingerReconnect from "./HostingerReconnect";
 import SiteStackPanel from "./SiteStackPanel";
 import WordPressResources from "./WordPressResources";
@@ -97,7 +97,7 @@ import DeleteSiteDialog from "./DeleteSiteDialog";
 import HostingerAccountRow from "./HostingerAccountRow";
 import { ApiError } from "../../lib/api/_http";
 import { hostingerRecordFor, recoveryGateFrom, recoveryPointValidUntil, type RecoveryGate } from "./recoveryGate";
-import { hostConnections, runAction } from "../../host/actions";
+import { hostConnections, runAction, type HostConnectionAccount } from "../../host/actions";
 import { isLocalWordPress, wordpressLifecycleAction } from "./wordpressLifecycle";
 import { consolidateWordPressSites, readSeparatedSiteConnections, writeSeparatedSiteConnections } from "./wordpressSiteIdentity";
 import { filterWordPressSiteGroups, groupWordPressSites, readSeparatedSitePairs, wordPressSiteCopies, wordPressSiteSource, writeSeparatedSitePairs } from "./wordpressSiteGroups";
@@ -129,6 +129,33 @@ function readDismissedAccounts(): Set<string> {
 }
 function writeDismissedAccounts(ids: ReadonlySet<string>) {
   try { localStorage.setItem(DISMISSED_ACCOUNTS, JSON.stringify([...ids])); } catch { /* Display preference only. */ }
+}
+/**
+ * A Hostinger account signed in to Zoer whose websites WordPress Manager does not load. When it turns out to be the
+ * same Hostinger account as a loaded connection (an earlier or repeated sign-in), the notice says so and points to
+ * where Zoer removes sign-ins; hiding it is remembered.
+ */
+function PendingHostingerAccount({ account, busy, onLoad, onDismiss }: { account: HostConnectionAccount; busy: string | null; onLoad: () => Promise<void>; onDismiss: () => void }) {
+  const [duplicateOf, setDuplicateOf] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const loadWebsites = async () => {
+    setError(null);
+    try { await onLoad(); }
+    catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Could not load this Hostinger account.";
+      const other = alreadyConnectedAs(message);
+      if (other) setDuplicateOf(other); else setError(message);
+    }
+  };
+  return <div role="status" className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-default bg-surface-secondary px-3 py-2 text-[13px]">
+    <span className="min-w-0 break-words">{duplicateOf
+      ? <>“{account.label}” is another sign-in to the same Hostinger account as “{duplicateOf}”, whose websites are already here. Nothing more to load. To remove the extra sign-in, disconnect “{account.label}” in Zoer Settings → Adapters.</>
+      : <>Hostinger account “{account.label}” is signed in, but its websites aren't loaded here yet.</>}
+      {error && <span className="block text-status-error">{error}</span>}</span>
+    {duplicateOf
+      ? <Btn size="sm" variant="ghost" onClick={onDismiss}>Hide</Btn>
+      : <><Btn size="sm" variant="primary" loading={busy === `adopt:${account.id}`} disabled={busy !== null} onClick={() => void loadWebsites()}>Load websites</Btn><Btn size="sm" variant="ghost" disabled={busy !== null} onClick={onDismiss}>Not now</Btn></>}
+  </div>;
 }
 /** The connection check's verdict for a site, for its status dot and badge. */
 const ProblemContext = createContext<(site: WordPressManagedSite) => ConnectionProblem | null>(() => null);
@@ -990,7 +1017,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
           <div className="hidden shrink-0 @2xl:block"><PageTabs id="wordpress-sections" label="WordPress manager sections" tabs={siteSections} value={section} onChange={setTab} /></div>
           <div ref={panelScroll} className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
           <PageTabPanel id="wordpress-sections" value={section} className="p-3 sm:p-4">
-            {pendingAccounts.map(account => <div key={account.id} role="status" className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-default bg-surface-secondary px-3 py-2 text-[13px]"><span className="min-w-0 break-words">Hostinger account “{account.label}” is signed in, but its websites aren't loaded here yet.</span><Btn size="sm" variant="primary" loading={busy === `adopt:${account.id}`} disabled={busy !== null} onClick={() => void (async () => { setBusy(`adopt:${account.id}`); setError(null); try { await api.adoptHostingerOAuthConnection(account.id); setNotice("Hostinger websites loaded."); await load(true, true); void connectionsQuery.refetch(); void hostAccounts.refetch(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not load this Hostinger account."); } finally { setBusy(null); } })()}>Load websites</Btn><Btn size="sm" variant="ghost" disabled={busy !== null} onClick={() => setDismissedAccounts(current => { const next = new Set(current).add(account.id); writeDismissedAccounts(next); return next; })}>Not now</Btn></div>)}
+            {pendingAccounts.map(account => <PendingHostingerAccount key={account.id} account={account} busy={busy} onLoad={async () => { setBusy(`adopt:${account.id}`); setError(null); try { await api.adoptHostingerOAuthConnection(account.id); setNotice("Hostinger websites loaded."); await load(true, true); void connectionsQuery.refetch(); void hostAccounts.refetch(); } finally { setBusy(null); } }} onDismiss={() => setDismissedAccounts(current => { const next = new Set(current).add(account.id); writeDismissedAccounts(next); return next; })} />)}
             {hostingConnections.filter(connection => !connectionHealth(connection).ok).map(connection => <div key={connection.id} role="alert" className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-warning/30 bg-status-warning/10 px-3 py-2 text-[13px] text-status-warning"><span className="min-w-0 break-words">Hostinger account “{connection.name}” needs reconnecting. Zoer cannot clear its cache or manage this site until then.{connection.lastError ? ` Last error: ${connection.lastError}` : ""}</span><HostingerReconnect connection={connection} onDone={message => { setNotice(message); void connectionsQuery.refetch(); }} /></div>)}
             {detailError && (isTransferFence(detailError)
               ? <div role="status" className="mb-3 text-sm text-status-warning">{TRANSFER_FENCE_NOTICE} <Btn size="sm" onClick={() => selected && void loadDetails(selected.id)}>Retry section</Btn></div>
