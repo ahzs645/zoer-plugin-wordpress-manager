@@ -35,7 +35,7 @@ export const ALL: ResourceMode = { mode: "all", items: [] };
 
 export function defaultCopySettings(refresh: boolean): CopySettings {
   return { database: true, files: !refresh, media: "all", themes: ALL, plugins: ALL, removeStale: false, languages: false, excludeRevisions: false, excludeSpam: false, postTypes: "all", tables: "all",
-    keepLocalDesign: true, activePlugins: "source", replacePaths: false, custom: [], pace: "normal", users: "local" };
+    keepLocalDesign: true, activePlugins: "source", replacePaths: false, custom: [], pace: "normal", users: "source" };
 }
 
 export type CopyScope = "complete" | "database" | "files";

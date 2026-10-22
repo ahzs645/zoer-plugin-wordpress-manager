@@ -36,9 +36,10 @@ describe("copy settings → copy.local input", () => {
   });
   test("summary names what the run takes", () => {
     expect(copySettingsSummary(refresh({ files: true, media: "since-last", removeStale: true, activePlugins: "local", pace: "gentle" }), true))
-      .toBe("Database and files · new media only · deleted files removed · local plugins stay active · gentle pace");
-    expect(copySettingsSummary(refresh(), true)).toBe("Database only");
-    expect(copySettingsSummary(fresh(), false)).toBe("Database and files · all media · live plugins active");
+      .toBe("Database and files · new media only · deleted files removed · local plugins stay active · live site's users copied · gentle pace");
+    expect(copySettingsSummary(refresh(), true)).toBe("Database only · live site's users copied");
+    expect(copySettingsSummary(refresh({ users: "local" }), true)).toBe("Database only");
+    expect(copySettingsSummary(fresh(), false)).toBe("Database and files · all media · live plugins active · live site's users copied");
   });
 });
 
