@@ -13,6 +13,9 @@ import type {
   WordPressCoreCheck,
   WordPressCoreUpdateState,
   HostingerSetupInventory,
+  WordPressStaticExportOptions,
+  WordPressStaticExportPreflight,
+  WordPressStaticExportJob,
 } from "./types";
 
 export interface WordPressSiteDeletePreview {
@@ -32,6 +35,13 @@ export interface ExtensionChangeInput {
 }
 
 export const wordpressManagerClient = {
+  listWordPressStaticExports: (siteId: string) => json<{ exports: WordPressStaticExportJob[] }>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/static-exports`),
+  inspectWordPressStaticExport: (siteId: string, options: WordPressStaticExportOptions) => json<{ preflight: WordPressStaticExportPreflight }>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/static-exports/inspect`, { method: "POST", body: JSON.stringify(options) }),
+  startWordPressStaticExport: (siteId: string, options: WordPressStaticExportOptions) => json<{ export: WordPressStaticExportJob }>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/static-exports`, { method: "POST", body: JSON.stringify(options) }),
+  getWordPressStaticExport: (siteId: string, exportId: string) => json<{ export: WordPressStaticExportJob }>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/static-exports/${encodeURIComponent(exportId)}`),
+  cancelWordPressStaticExport: (siteId: string, exportId: string) => json<{ export: WordPressStaticExportJob }>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/static-exports/${encodeURIComponent(exportId)}/cancel`, { method: "POST", body: "{}" }),
+  deleteWordPressStaticExport: (siteId: string, exportId: string) => json<{ deleted: true }>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/static-exports/${encodeURIComponent(exportId)}`, { method: "DELETE" }),
+  downloadWordPressStaticExport: (siteId: string, exportId: string, sha256: string) => blob(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/static-exports/${encodeURIComponent(exportId)}/download?sha256=${encodeURIComponent(sha256)}`),
   runHostingerSiteTool: (id: string, action: "clear-cache" | "enable-cacheless" | "disable-cacheless" | "detect-installations") => json<{state:"accepted";action:string;siteId:string;requestedAt:string}>(`/wordpress-manager/sites/${encodeURIComponent(id)}/hostinger-tools`, {method:"POST",body:JSON.stringify({action})}),
   getHostingerSetupInventory: (id: string) => json<HostingerSetupInventory>(`/wordpress-manager/connections/${encodeURIComponent(id)}/setup-inventory`),
   /** Whether Zoer Connect is installed and active on Hostinger websites (checked without a key; cached for 10 minutes). */

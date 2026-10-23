@@ -72,6 +72,7 @@ import { GoLiveDialog, goLiveStage, useGoLiveOrchestrator, useGoLivePlans } from
 import { hostingerTestSites, type HostingerTestSite } from "./hostingerTestSites";
 import SiteSyncCard from "./SiteSyncCard";
 import SiteCompareDialog from "./SiteCompareDialog";
+import StaticWebsiteExport from "./StaticWebsiteExport";
 import PluginLocalCopy from "./pluginEngine/PluginLocalCopy";
 import { connectionHealth } from "./pluginEngine/publicationCheck";
 import HostingerWebsiteSetup from "./HostingerWebsiteSetup";
@@ -1129,6 +1130,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
                 {section === "backups" && <BackupsTab site={selected} details={selectedDetails} recoveryPoints={selected ? recoveryPointsFor([...(selectedDetails?.recoveryPoints ?? []), ...recoveryPoints], selected) : []} busy={busy} paused={transferWriting} retainPortableBackup={retainPortableBackup} onRetainPortableBackup={setRetainPortableBackup} onCreatePortableBackup={createPortableBackup} onRecordRecovery={recordRecovery} onImportBackup={openBackupImport} />}
                 {section === "deployments" && selected && !["ddev", "kubernetes"].includes(selected.provider) && <LiveTransferTab site={selected} connectSite={connectSite?.provider === "zoer-connect" ? connectSite : null} sync={syncCard} hostingerPublish={selected.provider === "hostinger" || connectionsCombined ? <DeploymentsTab sites={sites} fixedSource={null} connections={connections} source={publishSource} setSource={setPublishSource} connection={publishConnection} setConnection={setPublishConnection} domain={publishDomain} setDomain={setPublishDomain} mode={publishMode} setMode={setPublishMode} busy={busy} onPlan={planPublish} onImport={() => setTab("backups")} compact /> : null} onActivity={() => setTab("history")} />}
                 {section === "deployments" && selected && ["ddev", "kubernetes"].includes(selected.provider) && <DeploymentsTab sync={syncCard} paused={transferWriting} sites={sites} fixedSource={selected.capabilities.deploySource ? selected : null} connections={connections} source={publishSource} setSource={setPublishSource} connection={publishConnection} setConnection={setPublishConnection} domain={publishDomain} setDomain={setPublishDomain} mode={publishMode} setMode={setPublishMode} busy={busy} onPlan={planPublish} onImport={() => setTab("backups")} onActivity={() => setTab("history")} />}
+                {section === "deployments" && selected?.provider === "ddev" && <StaticWebsiteExport key={selected.id} site={selected} paused={transferWriting} />}
               </>
             )}
           </PageTabPanel>

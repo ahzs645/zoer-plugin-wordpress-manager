@@ -30,3 +30,4 @@ export * from "./plugin-versions";
 export * from "./repository-access";
 
 export * from "./wordpress";
+export * from "./wordpress-static-export";

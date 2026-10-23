@@ -16,3 +16,9 @@ export type {
   WordPressCoreUpdateState,
   HostingerSetupInventory
 } from "@zoer/api-types";
+export type {
+  WordPressStaticExportOptions,
+  WordPressStaticExportFinding,
+  WordPressStaticExportPreflight,
+  WordPressStaticExportJob,
+} from "@zoer/api-types";

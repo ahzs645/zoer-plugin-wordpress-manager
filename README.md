@@ -2,6 +2,12 @@
 
 Independent source and releases for the `wordpress-manager` native plugin. This repository owns its interface and isolated workers. Zoer provides reviewed host services, shared controls and provider credential storage. The first extracted release is **0.5.0**; **0.5.1** adds the shared public type snapshot and reliable source resolution, preserving the existing plugin ID and site/account/backup/transfer state.
 
+## Static website export (unreleased)
+
+**Partial.** On a managed DDEV site, **Push & pull → Export static website** now provides a native public-site export workflow: choose the whole website or selected page paths, check sampled pages and compatibility findings, build, preview and download a static ZIP. **Portable relative links** supports reuse under different website folders; **Links under a destination path** uses an explicit path. Options bound pages, assets and output size. Saved exports show progress and findings, can be cancelled or retried, and can be deleted through their menu. Completed downloads remain available when the source site is stopped.
+
+The exporter saves rendered query results and gives discovered core pagination states separate static paths. It does not install a WordPress export plugin or modify the source. Forms are disabled in the snapshot; search, AJAX, accounts, checkout and external services need explicit alternatives. JavaScript-only routes and undiscovered dependencies are not automatically converted. Direct remote-site export, structured JSON/Markdown output and automatic hosting deployment are not included. The matching Zoer host is required. A development build is deployed and qualified on the real platform for selected DDEV exports, including query pagination and downloaded artifacts served independently of WordPress. Whole-site exports stop explicitly on broken required source pages. See [static export behavior, reuse options and qualification](docs/proposals/wordpress-static-export.md).
+
 ## Hostinger websites with Zoer Connect (unreleased)
 
 **Create Hostinger website → WordPress with Zoer Connect** (Hostinger connections, and Publish → More Hostinger options) creates a site ready for Push to live, on any connected Hostinger account: choose the account's hosting plan (plans of every connected account are in one list), a free temporary domain, an unassigned account domain or another owned domain, and confirm `CREATE <domain>`. Zoer then, on the host:
