@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { Btn, Modal } from "@zoer/plugin-ui/controls";
 import { getApiBase, json } from "../../lib/api/_http";
+import { formatWhen } from "../../lib/formatWhen";
 
 /**
  * Block themes: templates, template parts and styles edited in the Site Editor are saved in the
@@ -84,7 +85,7 @@ export function toggleGroupSelection(group: readonly ThemeOverride[], selected: 
 }
 
 function editedAt(item: ThemeOverride) {
-  return item.modified ? new Date(`${item.modified.replace(" ", "T")}Z`).toLocaleString() : "unknown";
+  return item.modified ? formatWhen(`${item.modified.replace(" ", "T")}Z`) : "unknown";
 }
 
 export default function ThemeSiteEditorChanges({ base, theme, siteRunning, locked, onChanged, onReviewLocalUpdate, reviewing = false }: {

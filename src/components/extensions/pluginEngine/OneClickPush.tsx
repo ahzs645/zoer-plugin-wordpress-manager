@@ -261,7 +261,7 @@ export function PushProgress({ runs, destinationHost, onAgain }: { runs: OneClic
             {view?.percent !== null && view?.percent !== undefined && <span className="shrink-0 text-xs tabular-nums text-text-secondary">{view.percent}%</span>}
           </div>
           {view && <div className="ml-6 mt-1 space-y-1">
-            {view.percent !== null && <progress aria-label={`${stage.label} progress`} className="h-1.5 w-full accent-indigo-500" value={view.percent} max={100} />}
+            {view.percent !== null && <progress aria-label={`${stage.label} progress`} className="h-1.5 w-full accent-accent" value={view.percent} max={100} />}
             {(view.detail || view.message) && <p className="break-words text-xs tabular-nums text-text-secondary">{[view.detail, view.message].filter(Boolean).join(" · ")}</p>}
           </div>}
           {stage.detail && <p className={`ml-6 break-words text-xs ${stage.state === "failed" ? "text-status-error" : "text-text-secondary"}`}>{stage.detail}</p>}

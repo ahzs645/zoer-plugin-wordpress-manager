@@ -10,6 +10,7 @@ import {
   cacheHint, cacheLinkRecord, connectionHealth, hostingerCandidates, humanSeconds, isProblem, LAYER_LABELS, LAYER_STATE_LABELS, manualCachePath,
   parseCacheLink, parsePublicationCheck, parsePurgeReceipt, publicationView, purgeReceiptRecord, RESULT_LABELS, type PurgeLayer, type PurgeReceipt,
 } from "./publicationCheck";
+import { formatWhen } from "../../../lib/formatWhen";
 
 const VERIFY_ACTIONS = [ENGINE_ACTIONS.verify] as const;
 const autoStarted = new Set<string>();
@@ -91,7 +92,7 @@ export default function PublicationStatus({ siteId, siteUrl, importId = null, se
         <span className={isProblem(result.status) ? "text-status-warning" : "text-status-success"}>{RESULT_LABELS[result.status] ?? result.status}</span> · {result.variant} · {result.url.replace(/^https?:\/\/[^/]+/, "") || "/"}{result.httpStatus ? ` · HTTP ${result.httpStatus}` : ""}{cacheHint(result.headers) ? ` · ${cacheHint(result.headers)}` : ""}{result.redirects?.length ? ` · ${result.redirects.length} redirect${result.redirects.length === 1 ? "" : "s"}` : ""}
         {result.detail && <span className="block text-text-secondary">{result.detail}</span>}
       </li>)}</ul>
-      {check.wordpressCache && <p className="mt-2 text-text-secondary">Last WordPress cache purge on the site: {check.wordpressCache.state === "queued" ? "queued, waiting for the next page load" : check.wordpressCache.ranAt ? new Date(Number(check.wordpressCache.ranAt) * 1000).toLocaleString() : "not recorded"}.</p>}
+      {check.wordpressCache && <p className="mt-2 text-text-secondary">Last WordPress cache purge on the site: {check.wordpressCache.state === "queued" ? "queued, waiting for the next page load" : check.wordpressCache.ranAt ? formatWhen(Number(check.wordpressCache.ranAt) * 1000) : "not recorded"}.</p>}
     </details>}
     {error && <p role="alert" className="break-words text-sm text-status-error">{error}</p>}
     {clearing && <ClearCachesDialog siteId={siteId} siteUrl={siteUrl} onClose={() => setClearing(false)} onReconnect={onReconnect} onDone={purgeId => { setClearing(false); void verify("after-purge", purgeId); }} />}
@@ -100,7 +101,7 @@ export default function PublicationStatus({ siteId, siteUrl, importId = null, se
 
 function PurgeSummary({ receipt }: { receipt: PurgeReceipt }) {
   return <details className="text-xs">
-    <summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Last cache clearing · {receipt.requestedAt ? new Date(receipt.requestedAt).toLocaleString() : ""}</summary>
+    <summary data-zoer-disclosure="" className="flex min-h-11 cursor-pointer items-center text-text-secondary sm:min-h-0">Last cache clearing · {receipt.requestedAt ? formatWhen(receipt.requestedAt) : ""}</summary>
     <ul className="mt-2 space-y-1">{receipt.layers.map(layer => <li key={layer.layer} className="min-w-0 break-words"><span className="font-medium text-text-primary">{LAYER_LABELS[layer.layer]}</span>: {LAYER_STATE_LABELS[layer.state]} · {layer.detail}</li>)}</ul>
   </details>;
 }

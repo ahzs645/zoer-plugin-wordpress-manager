@@ -5,6 +5,7 @@ import { useOperationSession } from "@zoer/plugin-ui/workspace";
 import { ApiError, getApiBase } from "../../lib/api/_http";
 import type { WordPressManagedSite } from "../../lib/api";
 import { securityClient, securityNavigationLink, type SecurityCapabilities, type SecurityTool, type PerformanceOptions, type PerformanceProfile } from "./wordpressSecurityClient";
+import { formatWhen } from "../../lib/formatWhen";
 
 export function SecurityCoverage({ value }: { value: unknown }) {
   if (value == null) return <span>Not reported</span>;
@@ -70,6 +71,6 @@ export function WordPressPerformance({ site, capabilities, disabled, onChanged, 
     </div>}
     {capabilities.profileQueriesReason && <p className="mt-3 text-xs text-text-secondary">{capabilities.profileQueriesReason}</p>}
     {(error || query.error) && <p role="alert" className="mt-3 text-sm text-status-warning">{error || (query.error instanceof Error ? query.error.message : "Profile history unavailable.")}</p>}
-    <div className="mt-4 space-y-2">{(query.data?.profiles ?? []).map(profile => <details key={profile.id} className="rounded border border-border-muted p-3"><summary data-zoer-disclosure="" className="cursor-pointer py-1 text-sm">{profile.mode} · {profile.status} · {new Date(profile.createdAt).toLocaleString()}</summary><div className="mt-3 break-words text-xs text-text-secondary"><PerformanceSummary value={profile.summary} /><Btn className="mt-3" onClick={() => downloadProfile(profile)}>Download profile</Btn>{profile.warning && <p className="mt-2 text-status-warning">{profile.warning}</p>}{profile.error && <p className="mt-2 text-status-warning">{profile.error}</p>}<details className="mt-3"><summary data-zoer-disclosure="" className="cursor-pointer py-2">Profile rows ({profile.rows.length})</summary><SecurityCoverage value={profile.rows} /></details>{profile.tools != null && <details className="mt-3"><summary data-zoer-disclosure="" className="cursor-pointer py-2">Profile tooling</summary><SecurityCoverage value={profile.tools} /></details>}</div></details>)}</div>
+    <div className="mt-4 space-y-2">{(query.data?.profiles ?? []).map(profile => <details key={profile.id} className="rounded border border-border-muted p-3"><summary data-zoer-disclosure="" className="cursor-pointer py-1 text-sm">{profile.mode} · {profile.status} · {formatWhen(profile.createdAt)}</summary><div className="mt-3 break-words text-xs text-text-secondary"><PerformanceSummary value={profile.summary} /><Btn className="mt-3" onClick={() => downloadProfile(profile)}>Download profile</Btn>{profile.warning && <p className="mt-2 text-status-warning">{profile.warning}</p>}{profile.error && <p className="mt-2 text-status-warning">{profile.error}</p>}<details className="mt-3"><summary data-zoer-disclosure="" className="cursor-pointer py-2">Profile rows ({profile.rows.length})</summary><SecurityCoverage value={profile.rows} /></details>{profile.tools != null && <details className="mt-3"><summary data-zoer-disclosure="" className="cursor-pointer py-2">Profile tooling</summary><SecurityCoverage value={profile.tools} /></details>}</div></details>)}</div>
   </details>;
 }

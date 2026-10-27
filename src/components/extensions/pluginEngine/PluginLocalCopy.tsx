@@ -11,6 +11,7 @@ import { copyInput, copyInputForDownload, copyPresetRecord, copySettingsProblem,
 import PluginRunCard, { localCopyStages } from "./PluginRunCard";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
 import { parseLocalCopyRecord, refreshCandidates, type LocalCopyRecord, type PullRecord } from "./records";
+import { formatWhen } from "../../../lib/formatWhen";
 
 const COPY_ACTIONS = [ENGINE_ACTIONS.copy] as const;
 const INTO_OPTION = "flex min-h-11 cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 text-[13px]";
@@ -122,7 +123,7 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
 
   return <section className="min-w-0 space-y-3 rounded-lg border border-border-default p-3" aria-label="Local copies">
     {heading && <h3 className="font-medium">Local copy</h3>}
-    <p className="text-xs text-text-secondary">Copies {pull ? `the download of ${new Date(pull.createdAt).toLocaleString()}` : `a fresh pull of ${siteName || "this site"}`} into a new local site or refreshes one of its earlier copies. Runs on the Zoer server; you can close this dialog.</p>
+    <p className="text-xs text-text-secondary">Copies {pull ? `the download of ${formatWhen(pull.createdAt)}` : `a fresh pull of ${siteName || "this site"}`} into a new local site or refreshes one of its earlier copies. Runs on the Zoer server; you can close this dialog.</p>
     {pull && onClearPull && <Btn size="sm" variant="ghost" onClick={onClearPull}>Pull again instead</Btn>}
     {!available && <p role="status" className="text-sm text-status-warning">{connectors.isLoading ? "Checking local WordPress availability…" : selectedConnector?.unavailableReason || "This local runtime is unavailable."}</p>}
     <form onSubmit={start} className="min-w-0 space-y-3">

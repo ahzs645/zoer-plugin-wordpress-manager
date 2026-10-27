@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Pencil, Trash2, X, Zap } from "lucide-react";
-import { Btn, StatusBadge, controlClass } from "@zoer/plugin-ui/controls";
+import { ActionMenu, Btn, StatusBadge, controlClass } from "@zoer/plugin-ui/controls";
 import type { HostingerConnectionPublic } from "../../lib/api";
 import HostingerReconnect from "./HostingerReconnect";
 import { connectionHealth } from "./pluginEngine/publicationCheck";
+import { formatWhen } from "../../lib/formatWhen";
 
 export const ACCOUNT_NAME_MAX = 80;
 
@@ -47,7 +48,7 @@ export default function HostingerAccountRow({ connection, busy, renameUnavailabl
     finally { setSaving(false); }
   };
 
-  return <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-muted bg-surface-primary/50 p-3">
+  return <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 rounded-md border border-border-muted bg-surface-primary/50 p-3">
     <div className="min-w-0 flex-1">
       {editing
         ? <form className="flex min-w-0 items-center gap-1" onSubmit={event => { event.preventDefault(); void save(); }}>
@@ -57,17 +58,18 @@ export default function HostingerAccountRow({ connection, busy, renameUnavailabl
           </form>
         : <div className="flex min-w-0 flex-wrap items-center gap-2 text-[12px] font-medium text-text-primary">
             <span className="break-words">{connection.name}</span>
-            {!renameUnavailable && <Btn size="sm" variant="ghost" iconOnly icon={<Pencil className="h-3 w-3" />} tooltip="Rename account" aria-label={`Rename ${connection.name}`} onClick={() => setEditing(true)}>{null}</Btn>}
             <StatusBadge tone={!health.ok ? "error" : health.stale ? "neutral" : "success"}>{!health.ok ? "Needs reconnecting" : health.stale ? "Not checked recently" : "Working"}</StatusBadge>
           </div>}
-      <div className="mt-1 text-[12px] text-text-secondary">{connection.oauthConnectionId ? "Browser sign-in · Zoer connection" : connection.authMethod === "browser-login" ? "Browser sign-in" : "API token"} · Last tested {connection.lastTestedAt ? new Date(connection.lastTestedAt).toLocaleString() : "never"}</div>
+      <div className="mt-1 text-[12px] text-text-secondary">{connection.oauthConnectionId ? "Browser sign-in · Zoer connection" : connection.authMethod === "browser-login" ? "Browser sign-in" : "API token"} · Last tested {connection.lastTestedAt ? formatWhen(connection.lastTestedAt) : "never"}</div>
       {connection.lastError && <div className="mt-1 text-[12px] text-status-error">{connection.lastError}</div>}
       {error && <div role="alert" className="mt-1 text-[12px] text-status-error">{error}</div>}
     </div>
-    <div className="flex gap-1">
-      <Btn size="sm" variant="ghost" iconOnly icon={<Zap className="h-3.5 w-3.5" />} tooltip="Test connection" aria-label="Test connection" loading={busy === `test:${connection.id}`} disabled={busy !== null && busy !== `test:${connection.id}`} onClick={() => onTest(connection)}>{null}</Btn>
-      <Btn size="sm" variant="ghost" loading={busy === `remove:${connection.id}`} icon={<Trash2 className="h-3 w-3" />} onClick={() => onRemove(connection)}>Remove</Btn>
-    </div>
+    {/* Test, rename and remove are one menu, on phones as well (no permanently visible destructive button). */}
+    {!editing && <ActionMenu label={`Actions for ${connection.name}`} size="sm" items={[
+      { label: "Test connection", icon: <Zap className="h-4 w-4" />, loading: busy === `test:${connection.id}`, disabled: busy !== null && busy !== `test:${connection.id}`, onClick: () => onTest(connection) },
+      ...(!renameUnavailable ? [{ label: "Rename account", icon: <Pencil className="h-4 w-4" />, onClick: () => setEditing(true) }] : []),
+      { label: "Remove account", icon: <Trash2 className="h-4 w-4" />, tone: "danger" as const, loading: busy === `remove:${connection.id}`, disabled: busy !== null, onClick: () => onRemove(connection) },
+    ]} />}
     {!health.ok && <div className="w-full border-t border-border-muted pt-3"><p className="mb-2 text-[12px] text-text-secondary">Reconnect keeps this account's sites, recovery points and cache links. Zoer opens a fresh browser for the sign-in.</p><HostingerReconnect connection={connection} onDone={onReconnected} /></div>}
   </div>;
 }

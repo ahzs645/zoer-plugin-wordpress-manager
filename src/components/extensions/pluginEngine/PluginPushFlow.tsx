@@ -21,6 +21,7 @@ import PreviewSelection from "./PreviewSelection";
 import { defaultSelection, MAX_SELECTED_PATHS, parsePullRecord, previewExpired, previewFiles, pushSources, type PullRecord } from "./records";
 import { ENGINE_ACTIONS, engineErrorMessage, isTerminalStatus, newHexId, runInput } from "./runState";
 import { codeExportIssue, codeExportOptions, codePathReason } from "../../../../plugin/worker/lib/code-publish.js";
+import { formatWhen } from "../../../lib/formatWhen";
 
 const PREVIEW_TTL_MS = 60 * 60_000;
 const EXPORT_ACTIONS = [ENGINE_ACTIONS.localExport] as const;
@@ -237,7 +238,7 @@ export default function PluginPushFlow({ siteId, connection, destination, draft,
       <label className="block min-w-0 text-sm"><span className={fieldLabelClass}>Verified download or local export</span>
         <Select searchable aria-label="Push source" className={selectClass("default", "w-full")} value={chosen ? setId : ""} onChange={event => choose(event.target.value)}>
           <option value="">Choose source</option>
-          {sources.map(pull => <option key={pull.pullId} value={pull.setId!}>{siteName(pull.siteId)} · {pull.kind === "local-export" ? "Local export" : pullContents(pull.options).label} · {new Date(pull.createdAt).toLocaleString()} · {formatTransferBytes(pull.totalBytes)}</option>)}
+          {sources.map(pull => <option key={pull.pullId} value={pull.setId!}>{siteName(pull.siteId)} · {pull.kind === "local-export" ? "Local export" : pullContents(pull.options).label} · {formatWhen(pull.createdAt)} · {formatTransferBytes(pull.totalBytes)}</option>)}
         </Select>
       </label>
       {records.isLoading && <p className="text-xs text-text-secondary">Loading downloads…</p>}

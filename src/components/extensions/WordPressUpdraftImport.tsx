@@ -57,7 +57,7 @@ export default function WordPressUpdraftImport({ onRunningChange, ddevAvailable 
   };
 
   return (
-    <section className="rounded-lg border border-indigo-500/30 bg-indigo-500/[0.06] p-4">
+    <section>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
 
@@ -85,9 +85,9 @@ export default function WordPressUpdraftImport({ onRunningChange, ddevAvailable 
         onClick={() => inputRef.current?.click()}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => { event.preventDefault(); addFiles(event.dataTransfer.files); }}
-        className="mt-3 flex min-h-28 w-full flex-col items-center justify-center rounded-lg border border-dashed border-indigo-400/40 bg-surface-primary/40 px-4 py-5 text-center transition-colors hover:border-indigo-400/70 disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-3 flex min-h-28 w-full flex-col items-center justify-center rounded-lg border border-dashed border-border-strong bg-surface-primary/40 px-4 py-5 text-center transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-60"
       >
-        <UploadCloud className="h-6 w-6 text-indigo-300" />
+        <UploadCloud className="h-6 w-6 text-accent" />
         <span className="mt-2 text-sm font-medium text-text-primary">{format === "hostinger" ? "Drop the website archive and database dump here" : "Drop all five UpdraftPlus files here"}</span>
         <span className="mt-1 text-sm text-text-muted">{format === "hostinger" ? "or choose both files from your backup folder" : "or choose the five files from your backup folder"}</span>
       </button>
@@ -96,14 +96,14 @@ export default function WordPressUpdraftImport({ onRunningChange, ddevAvailable 
       <div className={`mt-3 grid gap-2 ${format === "hostinger" ? "sm:grid-cols-2" : "sm:grid-cols-5"}`}>
         {components.map((component) => {
           const file = files[component];
-          return <div key={component} className={`min-w-0 rounded border px-2.5 py-2 ${file ? "border-emerald-500/30 bg-emerald-500/[0.08]" : "border-border-muted bg-surface-primary/40"}`}>
-            <div className="flex items-center gap-1.5 text-[12px] font-medium capitalize text-text-primary">{file ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> : <FileArchive className="h-3.5 w-3.5 text-text-muted" />}{component}</div>
+          return <div key={component} className={`min-w-0 rounded border px-2.5 py-2 ${file ? "border-status-success/30 bg-status-success/10" : "border-border-muted bg-surface-primary/40"}`}>
+            <div className="flex items-center gap-1.5 text-[12px] font-medium capitalize text-text-primary">{file ? <CheckCircle2 className="h-3.5 w-3.5 text-status-success" /> : <FileArchive className="h-3.5 w-3.5 text-text-muted" />}{component}</div>
             <div className="mt-1 break-all text-[12px] text-text-muted">{file ? `${file.name} · ${readableBytes(file.size)}` : "Missing"}</div>
           </div>;
         })}
       </div>
 
-      {selectionError && <div role="alert" className="mt-3 flex gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[12px] text-status-error"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{selectionError}</div>}
+      {selectionError && <div role="alert" className="mt-3 flex gap-2 rounded border border-status-error/30 bg-status-error/10 px-3 py-2 text-[12px] text-status-error"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{selectionError}</div>}
       {available && <PluginUpdraftRestore runtimeProfile={runtimeProfile} format={format} files={files} complete={complete} name={sessionName} onBusyChange={setRunning} />}
     </section>
   );

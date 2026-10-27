@@ -5,6 +5,7 @@ import { useCatalogKind } from "../../lib/queries/plugin-engine";
 import HostingerSiteTools from "./HostingerSiteTools";
 import PublicationStatus from "./pluginEngine/PublicationStatus";
 import { parsePublicationCheck, publicationView } from "./pluginEngine/publicationCheck";
+import { formatWhen } from "../../lib/formatWhen";
 
 const TONE: Record<string, string> = { success: "text-status-success", warning: "text-status-warning", error: "text-status-error", running: "text-text-primary", info: "text-text-primary", neutral: "text-text-secondary" };
 
@@ -35,6 +36,6 @@ export function PublicWebsiteSummary({ siteId, onOpen }: { siteId: string; onOpe
   const view = check ? publicationView(check) : null;
   return <button type="button" onClick={onOpen} className="min-w-0 text-left text-[13px] hover:underline">
     <span className={`font-medium ${view ? TONE[view.tone] ?? "text-text-secondary" : "text-text-secondary"}`}>{view ? view.label : "Not checked"}</span>
-    {check?.checkedAt && <span className="block truncate text-[12px] text-text-secondary">Checked {new Date(check.checkedAt).toLocaleString()}</span>}
+    {check?.checkedAt && <span className="block truncate text-[12px] text-text-secondary">Checked {formatWhen(check.checkedAt)}</span>}
   </button>;
 }

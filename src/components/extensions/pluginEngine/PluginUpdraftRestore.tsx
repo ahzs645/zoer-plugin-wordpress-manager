@@ -122,8 +122,8 @@ export default function PluginUpdraftRestore({ files, complete, name, onBusyChan
       {lastDry && !dryRun && <span className="self-center text-xs text-text-secondary">Uses the files already uploaded for the dry run.</span>}
     </div>
     {!complete && <p className="text-[12px] text-text-muted">Add each required component to enable the restore.</p>}
-    {(busy || progress > 0) && stage && <div><div className="flex justify-between gap-2 text-[12px] text-text-secondary"><span className="min-w-0 break-words">{stage}</span><span className="tabular-nums">{progress}%</span></div><progress aria-label="Backup upload progress" className="mt-1 h-1.5 w-full accent-indigo-500" value={progress} max={100} /></div>}
-    {error && <div role="alert" className="flex gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[12px] text-status-error"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{error}</div>}
+    {(busy || progress > 0) && stage && <div><div className="flex justify-between gap-2 text-[12px] text-text-secondary"><span className="min-w-0 break-words">{stage}</span><span className="tabular-nums">{progress}%</span></div><progress aria-label="Backup upload progress" className="mt-1 h-1.5 w-full accent-accent" value={progress} max={100} /></div>}
+    {error && <div role="alert" className="flex gap-2 rounded border border-status-error/30 bg-status-error/10 px-3 py-2 text-[12px] text-status-error"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{error}</div>}
     {runs.error && <p role="alert" className="text-sm text-status-error">Could not load restores: {engineErrorMessage(runs.error)}</p>}
     {related.map(run => <PluginRunCard key={run.runId} recent={run} title={runInput(run).dryRun === true ? "Restore dry run" : "Restore"} stages={runInput(run).dryRun === true ? undefined : restoreStages(runInput(run))} />)}
   </div>;

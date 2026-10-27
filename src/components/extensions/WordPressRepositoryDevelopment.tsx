@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Select } from "@zoer/plugin-ui/controls";
+import { Select, selectClass } from "@zoer/plugin-ui/controls";
 import { getApiBase, isDemoMode, useResourceSelection } from "@zoer/plugin-ui/workspace";
 import { json } from "../../lib/api/_http";
 import WordPressDevelopmentPanel from "./WordPressDevelopmentPanel";
@@ -10,7 +10,7 @@ const PATHWAY = [
  {title:"Repository",detail:"Create, clone or import the source in Repos."},
  {title:"Build and install locally",detail:"Inspect, build and install it on a local site or local copy."},
  {title:"Edit and update locally",detail:"Edit in Repos; builds run on save. Review, then Update local site."},
- {title:"Push code to live",detail:"Push to live from Overview or Publish, choosing code only; live content stays as it is."},
+ {title:"Push code to live",detail:"Push to live from Overview or Push & pull, choosing code only; live content stays."},
 ];
 
 /** The plugin development pathway, ending in the guided Push to live (code only). */
@@ -37,7 +37,7 @@ export default function WordPressRepositoryDevelopment({targetPlugin,onPushToLiv
  const repo=repositories.find(row=>row.id===currentId);
  return <section className="min-w-0 space-y-4" aria-label="Repository development">
   {!targetPlugin&&<Pathway current={repo?1:0} onPushToLive={onPushToLive}/>}
-  <div className="flex flex-wrap items-center gap-3"><Select className="min-w-0 flex-1" searchable aria-label="Source repository" disabled={bound} value={currentId??""} onChange={event=>setRepoId(event.target.value||null)}><option value="">Choose a repository</option>{repositories.map(row=><option value={row.id} key={row.id}>{row.name}</option>)}</Select><a className="inline-flex min-h-11 items-center text-sm text-accent underline" href="/#/repos">Clone or import in Repos</a></div>
+  <div className="flex flex-wrap items-center gap-3"><Select className={selectClass("compact", "min-w-0 flex-1")} searchable aria-label="Source repository" disabled={bound} value={currentId??""} onChange={event=>setRepoId(event.target.value||null)}><option value="">Choose a repository</option>{repositories.map(row=><option value={row.id} key={row.id}>{row.name}</option>)}</Select><a className="inline-flex min-h-11 items-center text-sm text-accent underline" href="/#/repos">Clone or import in Repos</a></div>
   {targetPlugin&&<p className="break-words text-sm text-text-secondary">Development source for wp-content/plugins/{targetPlugin.slug} on this local site.{bound?" Unlink the current development source before choosing another repository; installed site code is preserved.":" Choose an unlinked repository to develop this installed plugin."}</p>}
   {links.error&&<p role="alert" className="text-sm text-status-error">{String(links.error)}</p>}
   {query.error&&<p role="alert" className="text-sm text-status-error">{String(query.error)}</p>}

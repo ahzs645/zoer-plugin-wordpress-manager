@@ -3,10 +3,11 @@ import { RotateCcw, Trash2 } from "lucide-react";
 import DeleteSiteDialog from "./DeleteSiteDialog";
 import { Btn } from "@zoer/plugin-ui/controls";
 import { Modal } from "@zoer/plugin-ui/controls";
-import { controlClass } from "@zoer/plugin-ui/controls";
+import { ActionMenu, EmptyState, controlClass } from "@zoer/plugin-ui/controls";
 import { requestAction, runAction } from "../../host/actions";
 import { forgetErasedSiteRecords } from "../../lib/queries/plugin-engine";
 import { purgeLabel, removalRequest, sortTrashedSites, type SiteRemovalPlan, type TrashedSite } from "./wordpressTrashPolicy";
+import { formatWhen } from "../../lib/formatWhen";
 
 /**
  * Trashed DDEV sites on Zoer's S9 managed resources: `sites.trash` lists them
@@ -85,15 +86,17 @@ export default function WordPressTrash({ onClose, onChanged }: { onClose: () => 
 
   return <Modal mobileSheet title="Trash" onClose={() => { if (!busy) onClose(); }}>
     <div className="space-y-3 text-sm">
-      <p className="text-text-secondary">Local DDEV sites moved to the trash stay restorable until their scheduled purge. <strong className="font-medium text-text-primary">Remove from Zoer</strong> purges one now but leaves its DDEV project files; <strong className="font-medium text-text-primary">Delete everything</strong> removes those too. Playground sites are restored from the Zoer Computers trash.</p>
+      {!!sites?.length && <p className="text-text-secondary">Trashed local sites can be restored until their scheduled purge. <strong className="font-medium text-text-primary">Remove from Zoer</strong> purges one now and keeps its DDEV project files; <strong className="font-medium text-text-primary">Delete everything</strong> removes those too.</p>}
       {sites === null && <p className="text-text-secondary">Loading trashed sites…</p>}
-      {sites?.length === 0 && !error && <p className="text-text-secondary">The trash is empty.</p>}
+      {sites?.length === 0 && !error && <EmptyState icon={<Trash2 className="h-7 w-7" />} title="Trash is empty" description="Deleted local sites stay here until they're purged. Playground sites are in Computers trash." />}
       {sites?.map(site => <div key={site.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-muted p-3">
-        <div className="min-w-0"><div className="font-medium text-text-primary">{site.name}</div><div className="text-xs text-text-secondary">{purgeLabel(site.scheduledPurgeAt)}{site.archivedAt ? ` · trashed ${new Date(site.archivedAt).toLocaleString()}` : ""}{site.owned ? "" : " · created outside WordPress Manager"}</div></div>
-        <div className="flex gap-1">
+        <div className="min-w-0"><div className="font-medium text-text-primary">{site.name}</div><div className="text-xs text-text-secondary">{purgeLabel(site.scheduledPurgeAt)}{site.archivedAt ? ` · trashed ${formatWhen(site.archivedAt)}` : ""}{site.owned ? "" : " · created outside WordPress Manager"}</div></div>
+        <div className="flex items-center gap-1">
           <Btn size="sm" icon={<RotateCcw className="h-3.5 w-3.5" />} loading={busy === `restore:${site.id}`} disabled={busy !== null} onClick={() => void restore(site)}>Restore</Btn>
-          <Btn size="sm" variant="ghost" icon={<Trash2 className="h-3.5 w-3.5" />} loading={busy === `plan:${site.id}`} disabled={busy !== null} onClick={() => void review(site)}>Remove from Zoer…</Btn>
-          <Btn size="sm" variant="danger" disabled={busy !== null} onClick={() => setEraseTarget(site)}>Delete everything…</Btn>
+          <ActionMenu label={`More actions for ${site.name}`} size="sm" items={[
+            { label: "Remove from Zoer…", icon: <Trash2 className="h-4 w-4" />, loading: busy === `plan:${site.id}`, disabled: busy !== null, onClick: () => void review(site) },
+            { label: "Delete everything…", icon: <Trash2 className="h-4 w-4" />, tone: "danger", disabled: busy !== null, onClick: () => setEraseTarget(site) },
+          ]} />
         </div>
       </div>)}
       {notice && <p role="status" className="text-status-success">{notice}</p>}

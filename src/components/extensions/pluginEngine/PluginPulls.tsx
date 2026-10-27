@@ -7,6 +7,7 @@ import { pullContents } from "../../../lib/wordpress-transfer/options";
 import { formatTransferBytes } from "../wordpressPullProgress";
 import { engineErrorMessage } from "./runState";
 import { isReadyPull, parsePullRecord, pullHasDatabase, splitSupersededDownloads, type PullRecord } from "./records";
+import { formatWhen } from "../../../lib/formatWhen";
 
 const STATUS: Record<string, string> = { ready: "Verified", "dry-run": "Dry run · no files kept", downloading: "Downloading", cancelled: "Cancelled", failed: "Failed · nothing kept" };
 
@@ -60,8 +61,8 @@ export default function PluginPulls({ siteId, siteName, onLocalCopy, collapsed =
     return <li key={pull.pullId} className="min-w-0 space-y-2 rounded-md border border-border-muted bg-surface-primary/50 p-3">
       <div className="min-w-0">
         <p className="break-words text-[13px] font-medium text-text-primary">{pull.kind === "local-export" ? "Local export" : contents.label}</p>
-        <p className="text-[12px] tabular-nums text-text-secondary">{new Date(pull.createdAt).toLocaleString()} · {STATUS[pull.status] ?? pull.status}
-          {pull.totalBytes ? ` · ${formatTransferBytes(pull.totalBytes)}` : ""}{pull.fileCount ? ` · ${pull.fileCount.toLocaleString()} files` : ""}{pull.skippedCount ? ` · ${pull.skippedCount.toLocaleString()} skipped` : ""}</p>
+        <p className="text-[12px] tabular-nums text-text-secondary">{formatWhen(pull.createdAt)} · {STATUS[pull.status] ?? pull.status}
+          {pull.totalBytes ? ` · ${formatTransferBytes(pull.totalBytes)}` : ""}{pull.fileCount ? ` · ${pull.fileCount.toLocaleString()} ${pull.fileCount === 1 ? "file" : "files"}` : ""}{pull.skippedCount ? ` · ${pull.skippedCount.toLocaleString()} skipped` : ""}</p>
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         {ready && pullHasDatabase(pull) && <Btn size="sm" className="w-full sm:w-auto" icon={<Download className="h-4 w-4" />} loading={busy === `${pull.pullId}:database`} disabled={busy !== null} onClick={() => void download(pull, "database")}>Database (.sql)</Btn>}

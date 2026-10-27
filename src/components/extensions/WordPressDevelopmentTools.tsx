@@ -6,6 +6,7 @@ import { Btn } from "@zoer/plugin-ui/controls";
 import { Field } from "@zoer/plugin-ui/controls";
 import { ComputerSelect } from "@zoer/plugin-ui/controls";
 import { CodeBlock } from "@zoer/plugin-ui/controls";
+import { formatWhen } from "../../lib/formatWhen";
 type BuildMode = "build" | "check";
 /** "job": builds run in a short-lived build container, without a development computer. */
 type Runner = "computer" | "job";
@@ -60,7 +61,7 @@ export default function WordPressDevelopmentTools({repo,onRecipe}:{repo:RepoEntr
     </div>
     {data&&settings?.runner==='job'?<p role="status" className="text-sm">Build jobs: {settings.enabled?job?job.state==='running'?'building now':`queued${job.position&&job.position>1?` (${job.position} in line)`:''}`:saved?`build ${saved.sequence} ${saved.status}${saved.status==='succeeded'&&!saved.contentDigest?' but changed its own files; build again':''}`:'no build yet':'off'}</p>
       :data&&<p role="status" className="text-sm">Tools: {settings?.setupStatus??'not configured'}{data.computerStatus?` · Computer: ${data.computerStatus}`:''}{data.build?` · Build ${data.build.sequence}: ${data.build.status}${data.build.workerAlive?'':' · watcher stopped'}${data.build.workerAlive&&data.build.sourceDigest!==data.build.currentDigest?' · saved changes awaiting build':''}`:''}</p>}
-    {settings?.enabled&&settings.runner!=='job'&&!data?.build?.workerAlive&&saved&&<p className="text-sm text-text-secondary">{saved.status==='succeeded'?`Last successful build (${saved.sequence}, ${new Date(saved.finishedAt*1000).toLocaleString()}) is saved. You can still review and update the site from it while the saved files are unchanged; start the computer to build new edits.`:`The last build (${saved.sequence}) failed. Start the computer to build again.`}</p>}
+    {settings?.enabled&&settings.runner!=='job'&&!data?.build?.workerAlive&&saved&&<p className="text-sm text-text-secondary">{saved.status==='succeeded'?`Last successful build (${saved.sequence}, ${formatWhen(saved.finishedAt*1000)}) is saved. You can still review and update the site from it while the saved files are unchanged; start the computer to build new edits.`:`The last build (${saved.sequence}) failed. Start the computer to build again.`}</p>}
     {settings?.runner==='job'&&saved?.checks&&<CheckResults checks={saved.checks}/>}
     {(error||query.error||settings?.error)&&<p role="alert" className="break-words text-sm text-status-error">{error||settings?.error||String(query.error)}</p>}
     {settings?.versions&&settings.runner!=='job'&&<p className="whitespace-pre-line text-xs text-text-muted">{settings.versions}</p>}

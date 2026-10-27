@@ -1,5 +1,5 @@
-import { ArrowDown, ArrowLeftRight, ArrowUp, Globe2, Link2, Loader2, Server } from "lucide-react";
-import { Btn } from "@zoer/plugin-ui/controls";
+import { ArrowDown, ArrowLeftRight, ArrowUp, Globe2, Link2, Loader2, Server, Star, Unlink2 } from "lucide-react";
+import { ActionMenu, Btn } from "@zoer/plugin-ui/controls";
 import type { WordPressManagedSite } from "../../lib/api";
 import { useRecentRuns } from "../../lib/queries/plugin-engine";
 import { findOneClickPush, pushSummary, type PushSummary } from "./pluginEngine/oneClickRuns";
@@ -12,7 +12,7 @@ const TONE: Record<PushSummary["tone"], string> = { running: "text-text-primary"
 
 function Node({ icon, label, site, onClick }: { icon: React.ReactNode; label: string; site: WordPressManagedSite; onClick?: () => void }) {
   const body = <>
-    <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-text-muted">{icon}{label}</span>
+    <span className="flex items-center gap-1.5 text-[12px] text-text-secondary">{icon}{label}</span>
     <span className="mt-0.5 block truncate font-medium text-text-primary">{site.name}</span>
     <span className="block truncate text-[12px] text-text-secondary">{host(site)}</span>
   </>;
@@ -75,15 +75,17 @@ export default function SiteSyncCard({ site, live, copies, onPush, onRefresh, on
     </div> : <p className="text-sm text-text-secondary">No live site yet. Create one on Hostinger with a temporary domain, or link this site to a live site you already have.</p>}
     {otherLives.length > 0 && <div className="space-y-1.5">
       <h5 className="text-[12px] font-medium text-text-secondary">Also live at</h5>
-      <ul className="divide-y divide-border-muted rounded-md border border-border-muted">{otherLives.map(other => <li key={other.id} className="flex min-w-0 flex-col gap-2 p-2.5 sm:flex-row sm:items-center">
+      <ul className="divide-y divide-border-muted rounded-md border border-border-muted">{otherLives.map(other => <li key={other.id} className="flex min-w-0 items-center gap-2 p-2.5">
         <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onSelect(other)}>
           <span className="flex min-w-0 items-center gap-1.5 font-medium"><Globe2 className="h-3.5 w-3.5 shrink-0 text-text-secondary" aria-hidden="true" /><span className="truncate">{host(other)}</span></span>
           <span className="block truncate text-[12px] text-text-secondary">{[accountOf(other), other.name].filter(Boolean).join(" · ")}</span>
         </button>
-        <div className="flex shrink-0 flex-wrap gap-2">
+        <div className="flex shrink-0 items-center gap-1">
           {onPushTo && <Btn size="sm" icon={<ArrowUp className="h-3.5 w-3.5" />} disabled={paused} onClick={() => onPushTo(site, other)}>Push</Btn>}
-          {onMakeMain && <Btn size="sm" variant="ghost" onClick={() => onMakeMain(other)}>Make main live site</Btn>}
-          {onRemoveLive && <Btn size="sm" variant="ghost" onClick={() => onRemoveLive(other)}>Remove from card</Btn>}
+          {(onMakeMain || onRemoveLive) && <ActionMenu label={`More actions for ${host(other)}`} size="sm" items={[
+            ...(onMakeMain ? [{ label: "Make main live site", icon: <Star className="h-4 w-4" />, onClick: () => onMakeMain(other) }] : []),
+            ...(onRemoveLive ? [{ label: "Remove from card", icon: <Unlink2 className="h-4 w-4" />, onClick: () => onRemoveLive(other) }] : []),
+          ]} />}
         </div>
       </li>)}</ul>
     </div>}

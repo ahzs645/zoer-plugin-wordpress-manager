@@ -6,7 +6,7 @@
    sizes). This stylesheet is @scope'd, so a utility it generates beats the host's unscoped one
    regardless of order. Generate the size/spacing classes those controls use (extracted from
    Zoer's frontend/src/components/ui) so both sides are scoped and the host's order applies. */
-@source inline("file:h-9 file:mr-3 file:px-3 file:text-[12px] gap-1 gap-1.5 gap-2 gap-2.5 gap-3 h-11 h-2 h-3 h-3.5 h-4 h-5 h-9 h-auto leading-4 leading-5 leading-6 left-2.5 max-w-72 max-w-full max-w-md mb-1 mb-2.5 min-h-0 min-h-11 min-h-24 min-w-0 min-w-11 mt-0.5 mt-1 mt-2.5 mt-4 p-1.5 pb-1 pb-1.5 pl-7 pr-6 pr-9 pt-1.5 pt-3 px-1.5 px-2 px-2.5 px-3 px-4 py-0.5 py-1.5 py-12 py-2 py-2.5 py-6 rounded-full rounded-lg rounded-md rounded-xl sm:h-8 sm:h-9 sm:min-h-9 sm:min-w-8 sm:min-w-9 sm:px-3 sm:px-4 sm:text-sm text-[12px] text-[13px] text-[14px] text-base text-sm text-xs top-1/2 w-2 w-3 w-3.5 w-4 w-full w-max");
+@source inline("-mr-1.5 -mt-1.5 -mx-1.5 -my-1 -top-1.5 file:h-9 file:mr-3 file:px-3 file:text-[12px] gap-1 gap-1.5 gap-2 gap-2.5 gap-3 h-11 h-2 h-3 h-3.5 h-4 h-5 h-9 h-auto leading-4 leading-5 leading-6 left-2.5 left-3 max-w-72 max-w-full max-w-md mb-1 mb-2.5 min-h-0 min-h-11 min-h-24 min-w-0 min-w-11 mt-0.5 mt-1 mt-2.5 mt-4 p-1.5 pb-1 pb-1.5 pl-7 pl-9 pr-6 pr-9 pt-1.5 pt-3 px-1.5 px-2 px-2.5 px-3 px-4 py-0.5 py-1.5 py-12 py-2 py-2.5 py-6 rounded-full rounded-lg rounded-md rounded-xl sm:h-3.5 sm:h-7 sm:h-8 sm:h-9 sm:left-2.5 sm:min-h-9 sm:min-w-8 sm:min-w-9 sm:pl-8 sm:px-3 sm:px-4 sm:text-sm sm:w-3.5 sm:w-7 sm:w-8 sm:w-9 text-[12px] text-[13px] text-[14px] text-base text-sm text-xs top-1/2 w-10 w-11 w-2 w-3 w-3.5 w-4 w-full w-max");
 @theme inline {
   --color-surface-base: var(--surface-base);
   --color-surface-primary: var(--surface-primary);

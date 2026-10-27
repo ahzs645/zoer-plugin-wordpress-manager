@@ -32,10 +32,10 @@ export default function WordPressResources({ siteId, running }: { siteId: string
     try { if (remove) { await json(path + "/cleanup", { method: "POST" }); setCleanup(false); } setStorage((await json<Resources>(path + "?storage=1")).storage ?? null); }
     catch (e) { setError(e); } finally { setBusy(false); }
   }
-  return <section aria-label="Site resources" className="rounded-lg border border-border-default p-4 space-y-3">
-    <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-semibold text-text-heading">Site resources</h4><Btn size="sm" disabled={!state} onClick={() => { setDraft(state!.policy); setError(null); }}>Resource settings</Btn></div>
+  return <section aria-label="Site resources" className="space-y-3">
+    <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="sr-only">Site resources</h4><Btn size="sm" disabled={!state} onClick={() => { setDraft(state!.policy); setError(null); }}>Resource settings</Btn></div>
     {query.error && <InlineAlert error={query.error} onRetry={() => void query.refetch()} />}
-    {!state && !query.error && <p role="status">Reading resource measurements…</p>}
+    {!state && !query.error && <p role="status" className="text-sm text-text-secondary">Reading resource measurements…</p>}
     {state && <>
       <p className="text-sm text-text-secondary">{state.policy.profile === "unmanaged" ? "Existing container settings" : `${state.policy.profile} profile`} · {state.policy.idleMinutes ? `Sleep after ${state.policy.idleMinutes} minutes idle` : "Keep running"} · {state.policy.wakeOnRequest ? "Wake when opened" : "Start manually"}</p>
       {!state.containers ? <p className="text-sm">Measurements unavailable.</p> : !state.containers.length ? <p className="text-sm">Site is stopped; its files and database remain saved.</p> : <div className="grid gap-2 sm:grid-cols-2">{state.containers.map(row => <div key={row.name} className="min-w-0 rounded-md border border-border-muted p-3 text-sm"><strong>{row.service || "Service"}</strong><p>Memory: {bytes(row.memoryBytes)} · limit {row.memoryLimitBytes ? bytes(row.memoryLimitBytes) : "not configured"}</p><p>CPU: {row.cpuPercent === null ? "Unknown" : `${row.cpuPercent.toFixed(2)}%`} · limit {row.cpuLimit === null ? "not configured" : `${row.cpuLimit} cores`}</p><p>Restarts: {row.restarts ?? "Unknown"}{row.oomKilled ? " · Out of memory" : ""}</p></div>)}</div>}

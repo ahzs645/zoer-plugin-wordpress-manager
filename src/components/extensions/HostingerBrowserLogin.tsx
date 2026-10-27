@@ -72,6 +72,6 @@ export default function HostingerBrowserLogin({ name, setName, onConnected, conn
       {pending.map(account => <div key={account.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-muted p-2 text-[13px]"><span>{account.label}</span><Btn size="sm" loading={busy === `load:${account.id}`} disabled={busy !== null} onClick={() => void load(account.id)}>Load websites</Btn></div>)}
     </div>}
     {status && <p role="status" className="text-[13px] text-text-secondary">{status}</p>}
-    {error && <p role="alert" className="text-[13px] text-rose-300">{error}</p>}
+    {error && <p role="alert" className="text-[13px] text-status-error">{error}</p>}
   </section>;
 }

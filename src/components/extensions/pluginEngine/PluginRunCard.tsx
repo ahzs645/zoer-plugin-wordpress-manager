@@ -8,6 +8,7 @@ import PublicationStatus from "./PublicationStatus";
 import { formatTransferBytes } from "../wordpressPullProgress";
 import { formatDuration } from "../wordpressTransfer/transferLabels";
 import { describeRun, ENGINE_ACTIONS, engineErrorMessage, importStateFromControls, runInput, recoverableDownload, type RecentRun, type RunButton } from "./runState";
+import { formatWhen } from "../../../lib/formatWhen";
 
 type Output = Record<string, unknown>;
 const num = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -228,14 +229,14 @@ export default function PluginRunCard({ recent, title, kind = "other", siteId, s
   const output = run.output && typeof run.output === "object" ? run.output as Output : null;
   // The completed run validated this exact address against its endpoint; do not link an old run to a later connection URL.
   const publishedUrl = view.terminal ? completedPushUrl({ kind, status: output?.status, dryRun: input.dryRun, rolledBack: later.rolledBack === true, url: input.confirmTarget }) : null;
-  return <article className="min-w-0 space-y-2 rounded-lg border border-border-muted bg-surface-primary/40 p-3" aria-label={`${title} started ${Number.isFinite(started) ? new Date(started).toLocaleString() : ""}`}>
+  return <article className="min-w-0 space-y-2 rounded-lg border border-border-muted bg-surface-primary/40 p-3" aria-label={`${title} started ${Number.isFinite(started) ? formatWhen(started) : ""}`}>
     <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-text-primary">
           <span className="break-words">{title}</span>
           {input.dryRun === true && <span className="rounded border border-border-muted px-1.5 py-0.5 text-[12px] font-normal text-text-secondary">Dry run</span>}
         </p>
-        <p className="mt-0.5 text-xs tabular-nums text-text-secondary">{Number.isFinite(started) ? `Started ${new Date(started).toLocaleString()}` : ""}{Number.isFinite(started) && Number.isFinite(ended) ? ` · ${formatDuration(ended - started)}` : ""}</p>
+        <p className="mt-0.5 text-xs tabular-nums text-text-secondary">{Number.isFinite(started) ? `Started ${formatWhen(started)}` : ""}{Number.isFinite(started) && Number.isFinite(ended) ? ` · ${formatDuration(ended - started)}` : ""}</p>
       </div>
       <span role="status"><StatusBadge tone={view.tone} icon={icon}>{pending ? `${view.label} · updating…` : view.label}</StatusBadge></span>
     </div>
@@ -243,7 +244,7 @@ export default function PluginRunCard({ recent, title, kind = "other", siteId, s
     {stages && !(view.terminal && run.status !== "succeeded") && !(run.status === "succeeded" && output?.status === "dry-run" && output?.plan) && <StageList stages={stages} current={stageIndex(stages, run.resumable?.progress?.phase)} succeeded={run.status === "succeeded"} />}
     {!view.terminal && view.progress && <div className="min-w-0 space-y-1">
       <p className="text-xs text-text-secondary">Stage: <span className="text-text-primary">{view.progress.label}</span></p>
-      {view.progress.percent !== null && <progress aria-label={`${title} progress`} className="h-2 w-full accent-indigo-500" value={view.progress.percent} max={100} />}
+      {view.progress.percent !== null && <progress aria-label={`${title} progress`} className="h-2 w-full accent-accent" value={view.progress.percent} max={100} />}
       {(view.progress.detail || view.progress.percent !== null) && <div className="flex flex-wrap justify-between gap-x-3 text-xs tabular-nums text-text-secondary">
         <span>{view.progress.detail}</span>{view.progress.percent !== null && <span>{view.progress.percent}%</span>}
       </div>}

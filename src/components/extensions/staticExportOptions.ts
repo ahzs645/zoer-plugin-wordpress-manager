@@ -1,3 +1,4 @@
+import { formatWhen } from "../../lib/formatWhen";
 import type { WordPressStaticExportJob, WordPressStaticExportOptions } from "@zoer/api-types";
 
 export interface StaticExportDraft {
@@ -75,8 +76,7 @@ export function staticExportFilename(siteName: string, exportId: string) {
   return `${name}-static-${exportId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 12) || "export"}.zip`;
 }
 
-/** The current native host does not export its calendar formatter; retain an explicit UTC label. */
-export function staticExportTimestamp(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Date unavailable" : `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+/** Zoer's calendar-relative time ("Today 6:58 PM"); the exact time stays in the element's dateTime. */
+export function staticExportTimestamp(value: string, now?: Date) {
+  return Number.isNaN(new Date(value).getTime()) ? "Date unavailable" : formatWhen(value, now);
 }

@@ -10,6 +10,7 @@ import { tidyTransferSummary } from "../wordpressNames";
 import { formatDuration } from "../wordpressTransfer/transferLabels";
 import { ENGINE_ACTIONS, engineErrorMessage } from "./runState";
 import { ENGINE_HISTORY_LABELS, filterEngineHistory, historyEmptyText, historySummaryHint, mergeEngineHistory, parseHistoryRecord, type EngineHistoryItem } from "./records";
+import { formatWhen } from "../../../lib/formatWhen";
 
 const HISTORY_ACTIONS = [ENGINE_ACTIONS.pull, ENGINE_ACTIONS.localExport, ENGINE_ACTIONS.push, ENGINE_ACTIONS.replace, ENGINE_ACTIONS.copy, ENGINE_ACTIONS.restore] as const;
 
@@ -80,7 +81,7 @@ export default function PluginTransferHistory({ siteId: fixedSiteId, sites: give
             <span className={`shrink-0 text-[12px] font-medium ${statusTone(item.status)}`}>{statusText(item.status)}</span>
           </div>
           <p className="mt-1 text-[12px] tabular-nums text-text-secondary">
-            {Number.isFinite(start) ? new Date(start).toLocaleString() : item.startedAt}
+            {Number.isFinite(start) ? formatWhen(start) : item.startedAt}
             {Number.isFinite(start) && Number.isFinite(end) ? ` · ${formatDuration(end - start)}` : ""}
             {typeof item.bytes === "number" && item.bytes > 0 ? ` · ${formatTransferBytes(item.bytes)}` : ""}
           </p>

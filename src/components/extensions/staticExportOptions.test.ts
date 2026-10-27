@@ -42,7 +42,8 @@ describe("static website export choices", () => {
     expect(staticExportActive({ status: "running" })).toBe(true);
     for (const status of ["ready", "failed", "cancelled"] as const) expect(staticExportActive({ status })).toBe(false);
     expect(staticExportFilename("../../A news site", "../../run")).toBe("A-news-site-static-run.zip");
-    expect(staticExportTimestamp("2026-10-22T09:30:00-07:00")).toBe("2026-10-22 16:30 UTC");
+    expect(staticExportTimestamp("2026-10-22T09:30:00", new Date("2026-10-22T18:00:00"))).toMatch(/^Today 9:30\sAM$/);
+    expect(staticExportTimestamp("2026-03-02T09:30:00", new Date("2026-10-22T18:00:00"))).toMatch(/^Mar 2, 9:30\sAM$/);
     expect(staticExportTimestamp("invalid")).toBe("Date unavailable");
   });
 });
