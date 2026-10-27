@@ -7,7 +7,8 @@
   "scripts": {
     "build": "bun scripts/build.ts",
     "test": "bun test --preload ./tests/host-modules.ts src tests",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit",
     "pack": "bun tools/zoer-plugin.mjs pack dist/package --output dist/wordpress-manager.zip",
     "release": "bun tools/zoer-plugin.mjs release dist/package --output dist/release"
   },
@@ -17,6 +18,7 @@
     "@types/bun": "latest",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "@vitejs/plugin-react": "^4.3.0",
     "es-module-lexer": "^2.3.1",
     "lucide-react": "^0.460.0",

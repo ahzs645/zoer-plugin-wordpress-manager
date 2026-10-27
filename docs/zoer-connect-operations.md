@@ -300,11 +300,11 @@ bun test --isolate src/__tests__/wordpress-transfer-options.test.ts src/__tests_
   src/__tests__/wordpress-pull.test.ts src/__tests__/wordpress-pull-runner.test.ts \
   src/__tests__/wordpress-pull-download.test.ts src/__tests__/wordpress-transfer-history.test.ts \
   src/__tests__/wordpress-local-copy.test.ts src/__tests__/wordpress-manager.test.ts
-bun x tsc --noEmit
+bun run typecheck
 
 cd ../frontend
 bun test src/components/extensions/wordpressTransfer src/lib/wordpress-transfer src/lib/queries/wordpress-transfer.test.ts
-bun x tsc --noEmit && bun run build
+bun run typecheck && bun run build
 
 cd ../ddev-bridge
 bun test            # connect-export.test.ts also runs the PHP filter fixtures; needs php on PATH

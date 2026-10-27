@@ -15,6 +15,7 @@
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
     "isolatedModules": true,
+    "noUncheckedSideEffectImports": false,
     "noEmit": true,
     "allowJs": true,
     "types": [
