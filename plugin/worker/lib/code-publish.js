@@ -12,6 +12,29 @@ export function codeExportOptions(options) {
     themes: selected(options.themes, options.resources.themes), plugins: selected(options.plugins, options.resources.plugins), excludes: [...new Set([...options.excludes, ...CODE_EXCLUDES])] };
 }
 
+/**
+ * Export options of a code-only local export named by its themes and plugins (`code` input of
+ * `transfer.local-export`), the same options Push to live's *Code only* sends.
+ */
+export function codeExportOptionsFor(code) {
+  const slugs = (value) => value === undefined ? [] : Array.isArray(value) && value.length <= 500 && value.every(item => typeof item === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(item)) ? [...new Set(value)] : null;
+  const themes = slugs(code?.themes), plugins = slugs(code?.plugins);
+  if (!code || typeof code !== "object" || Array.isArray(code) || Object.keys(code).some(key => key !== "themes" && key !== "plugins") || !themes || !plugins) return null;
+  if (!themes.length && !plugins.length) return null;
+  return codeExportOptions({ resources: { database: false, themes: themes.length > 0, plugins: plugins.length > 0, media: false, muplugins: false, core: false }, excludes: [],
+    themes: { mode: "selected", items: themes }, plugins: { mode: "selected", items: plugins }, media: { mode: "all" } });
+}
+
+/**
+ * Import options of a code-only push that names none, the same Push to live's *Code only*
+ * requests: staged with review and late activation, active plugins and theme kept, the
+ * database untouched.
+ */
+export function codeImportOptions() {
+  return { replacements: { automatic: false, variants: false, paths: false, custom: [] }, replaceGuids: false, keepActivePlugins: true, keepActiveTheme: true,
+    authorMapping: "match", createTables: false, fence: "activation", review: true, purgeCaches: true };
+}
+
 /** A code publication requires a source exported without data or environment resources. */
 export function codeExportIssue(options) {
   const p = options?.profile;

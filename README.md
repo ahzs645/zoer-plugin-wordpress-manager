@@ -40,6 +40,8 @@ The push waits for the export and the comparison, sends only the files the compa
 
 The live site's **Transfers → Push** uses the same form with a local-site picker; pushing a saved download of another site is under *Push a saved download instead*.
 
+**Push to live from a chat.** A named Full-access Zoer chat that references the local site and `@wordpress` can run the same three actions; `transfer.push`'s description gives the recipe. `transfer.local-export` takes `code: { themes, plugins }` (folder slugs) for a Code only export instead of `exportOptions`, and a push without `importOptions` uses the dialog's: Code only's (review, late activation, kept active plugins and theme, database untouched), or for Everything the dialog's defaults as far as the live site's Zoer Connect supports them. A push missing `confirmTarget` or the replacement policy names the field and the live address it expects. Zoer allows a chat three plugin runs per message, exactly the export, comparison and push. Approve a Test run (`dryRun: true`) before a real push. No manifest capability change.
+
 **Site page.** *Local and live* is the same card on Overview and on **Push & pull** (formerly *Publish*): the pair, Push to live, Pull from live, Compare, and the last push in one line; from a live site, its local copies. A live site's Push & pull adds its Zoer Connect tools (Download to Zoer, Find & replace, Back up database, Export), each opening Transfers on that tool. Hostinger-account publishing, new Hostinger websites and Hostinger backups are folded under *Other ways to publish*. Site Health is one summary line with only the checks that need attention; site details and resources are folded.
 
 ## Site page layout (unreleased)

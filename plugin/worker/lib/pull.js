@@ -10,6 +10,7 @@ import { assertExportCapabilities, pullOptionsFrom } from "./options.js";
 import { fail, runtimeError, stopIfPaused, TransferError } from "./slices.js";
 import { connectClient, parseStatus, sameSiteTarget, siteEndpoint } from "./zoer-connect.js";
 import { sitePort } from "./managed-site.js";
+import { codeExportOptionsFor } from "./code-publish.js";
 
 export const HEX32 = /^[a-f0-9]{32}$/;
 const PREPARATION_KEYS = ["table", "tables", "rows", "rowsPart", "bytes", "fileBytes", "fileOffset"];
@@ -134,8 +135,15 @@ export async function startPull(kind, input, ctx) {
   if (!HEX32.test(pullId)) fail("A valid transfer request ID is required.");
   if (input.snapshotMode !== undefined && input.snapshotMode !== "maintenance") fail("Choose a valid snapshot mode.");
   if (input.pace !== undefined && !["normal", "gentle"].includes(input.pace)) fail("Choose a normal or gentle transfer pace.");
-  const media = input.exportOptions?.media?.mode === "since-last" ? await lastMediaDate(host, input.siteId) : null;
-  const options = pullOptionsFrom(input.exportOptions, media);
+  let exportOptions = input.exportOptions;
+  if (input.code !== undefined) {
+    // Code only, named by slugs: what Push to live's Code only exports.
+    if (kind !== "local-export" || exportOptions !== undefined) fail("Name the themes and plugins in code, or give exportOptions, not both.");
+    exportOptions = codeExportOptionsFor(input.code);
+    if (!exportOptions) fail("Name at least one theme or plugin folder in code.themes or code.plugins.");
+  }
+  const media = exportOptions?.media?.mode === "since-last" ? await lastMediaDate(host, input.siteId) : null;
+  const options = pullOptionsFrom(exportOptions, media);
   const state = { v: 1, kind, siteId: input.siteId, pullId, options, phase: "preparing", remoteCreated: false, setId: setIdFor(pullId), declared: 0, total: null, hasDatabase: false, bytes: 0, cursor: { index: 0, offset: 0 }, dryRun: input.dryRun === true, startedAt: new Date(ctx.now()).toISOString(), ...(input.pace === "gentle" ? { pace: "gentle" } : {}) };
   if (kind === "pull") {
     const endpoint = siteEndpoint(request, input.siteId);

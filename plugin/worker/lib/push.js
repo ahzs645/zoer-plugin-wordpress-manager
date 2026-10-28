@@ -5,12 +5,12 @@
 import { createHash } from "node:crypto";
 import { commitRecords, readRecord, readRecordsSplitting } from "./catalog.js";
 import { listEntries } from "./filesets.js";
-import { capabilityFlags, importOptionsToPlugin, legacyImportOptions, replaceOptionsToPlugin, validateImportOptions, validateTableSuffixes } from "./options.js";
+import { capabilityFlags, importOptionsToPlugin, legacyImportOptions, onePressImportOptions, replaceOptionsToPlugin, validateImportOptions, validateTableSuffixes } from "./options.js";
 import { HEX32, pullOfSet, runHex } from "./pull.js";
 import { connectRefusal, normalizeConnectUrl, NOT_ACCEPTED } from "./files.js";
 import { fail, isTransient, OUTPUT_RESERVE, stopIfPaused, TransferError } from "./slices.js";
 import { connectClient, parseStatus, siteEndpoint } from "./zoer-connect.js";
-import { codeContentIssue, codeExportIssue, codePathReason } from "./code-publish.js";
+import { codeContentIssue, codeExportIssue, codeImportOptions, codePathReason } from "./code-publish.js";
 
 const PREVIEW_BATCH = 20;
 const PREVIEW_PAGE = 400;
@@ -249,7 +249,7 @@ function bindAwaitedSite(state, ctx, since = state.startedAt) {
 function checkTarget(input, endpoint) {
   let target;
   try { target = normalizeConnectUrl(endpoint.origin); } catch { target = endpoint.origin; }
-  if (input.confirmTarget !== target) fail("Confirm the exact destination address.");
+  if (input.confirmTarget !== target) fail(`Confirm the exact destination address: set confirmTarget to ${target}.`);
 }
 
 export async function startPush(kind, input, ctx) {
@@ -260,12 +260,12 @@ export async function startPush(kind, input, ctx) {
   // A new website gets the whole local export: compared (only what the new WordPress lacks is sent) or not.
   if (awaitTarget && (kind !== "push" || input.exportPullId === undefined || (input.previewId !== undefined && input.autoSelect === undefined) || input.selectedPaths !== undefined || input.codeOnly === true || input.dryRun === true)) fail("A new website gets the whole local export.");
   const endpoint = awaitTarget ? null : endpointOf(request, input.siteId);
-  if (input.wordpressOnlyWriters !== true && input.replacementAccepted !== true) fail(kind === "replace" ? "Confirm the destination replacement policy." : "Choose a different source and confirm the destination replacement policy.");
+  if (input.wordpressOnlyWriters !== true && input.replacementAccepted !== true) fail(`Confirm the destination replacement policy: set replacementAccepted: true for a live site in shared-hosting migration mode (Zoer Connect status migrationMode "shared-replacement"), otherwise wordpressOnlyWriters: true.`);
   if (endpoint) checkTarget(input, endpoint);
   const state = { v: 1, kind, siteId: awaitTarget ? null : input.siteId, importId, generation: endpoint?.generation ?? null, phase: "creating", dryRun: input.dryRun === true, startedAt: new Date(now()).toISOString(), ...(awaitTarget ? { awaitTarget } : {}) };
   if (input.codeOnly !== undefined && typeof input.codeOnly !== "boolean") fail("Choose a valid publishing mode.");
   if (input.codeOnly === true) {
-    if (kind !== "push" || !input.previewId) fail("Code updates require a completed file comparison.");
+    if (kind !== "push" || !input.previewId) fail("Code updates require a completed file comparison: name it with previewId (transfer.preview).");
     state.codeOnly = true;
   }
   if (input.finishAutomatically !== undefined) {
@@ -276,7 +276,9 @@ export async function startPush(kind, input, ctx) {
     state.options = validateImportOptions(input.importOptions, { requireCustom: true });
     state.tables = validateTableSuffixes(input.tables) ?? null;
   } else {
-    state.options = input.importOptions === undefined ? legacyImportOptions() : validateImportOptions(input.importOptions);
+    state.options = input.importOptions !== undefined ? validateImportOptions(input.importOptions) : state.codeOnly ? validateImportOptions(codeImportOptions()) : legacyImportOptions();
+    // A one-press push naming no options gets Push to live's, fitted to the destination once its status is read.
+    if (input.importOptions === undefined && !state.codeOnly && input.exportPullId !== undefined) state.onePressOptions = true;
     if (input.exportPullId !== undefined) {
       // One-click push: the local export (and its comparison) started with this push; it waits for them.
       if (input.setId !== undefined || !HEX32.test(input.exportPullId)) fail("Push either a verified download or the local export being made, not both.");
@@ -382,7 +384,8 @@ async function buildManifest(state, input, status, ctx) {
   const database = pull.options?.database;
   const partialDatabase = selected.some(f => f.path === "database.sql") && !!database && typeof database === "object" && Array.isArray(database.tables);
   const warnings = skipped.length ? [skippedWarning(skipped)] : [];
-  const pluginOptions = importOptionsToPlugin(state.options, caps, { partialDatabase });
+  const options = state.onePressOptions ? onePressImportOptions(caps) : state.options;
+  const pluginOptions = importOptionsToPlugin(options, caps, { partialDatabase });
   const recorded = pull.source?.abspath;
   // eslint-disable-next-line no-control-regex -- rejects control characters in untrusted input
   const abspath = typeof recorded === "string" && /^\/[^\x00-\x1f\x7f]{1,1023}$/.test(recorded) && recorded.replace(/\/+$/, "").length >= 2 ? recorded.replace(/\/+$/, "") : undefined;
@@ -398,8 +401,8 @@ async function buildManifest(state, input, status, ctx) {
   // receive; it then keeps the destination's active theme and plugins unless told otherwise. The pushed
   // database carries the source's, so "automatic" means the source's activation here.
   if (reviewed && db && pluginOptions && caps.keepActivePlugins === true) {
-    if (state.options.keepActivePlugins === null) pluginOptions.keepActivePlugins = false;
-    if (state.options.keepActiveTheme === null) pluginOptions.keepActiveTheme = false;
+    if (options.keepActivePlugins === null) pluginOptions.keepActivePlugins = false;
+    if (options.keepActiveTheme === null) pluginOptions.keepActiveTheme = false;
   }
   const manifest = {
     id: state.importId, target: status.target, sourceUrl: pull.source.url, originalUrls: pull.source.originalUrls ?? [], sourcePrefix: pull.source.prefix, ...policy(status, input),

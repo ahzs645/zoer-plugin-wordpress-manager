@@ -1985,7 +1985,7 @@
       {
         "id": "transfer.local-export",
         "title": "Export local site",
-        "description": "Export a local DDEV WordPress site through the DDEV bridge into a verified file set, for pushing it to another site.",
+        "description": "Export a local DDEV WordPress site through the DDEV bridge into a verified file set, for pushing it to another site. For a Code only push to live, name the themes and plugins with code (no exportOptions) and set portableUrls: true, as Push to live does.",
         "effect": "local_write",
         "approval": "when_configured",
         "execution": {
@@ -2045,7 +2045,31 @@
               "type": "boolean"
             },
             "portableUrls": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Rewrite the local site's own address in theme and plugin text files to site-relative URLs before exporting (originals are kept). Push to live always sets it."
+            },
+            "code": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "themes": {
+                  "type": "array",
+                  "maxItems": 500,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$"
+                  }
+                },
+                "plugins": {
+                  "type": "array",
+                  "maxItems": 500,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$"
+                  }
+                }
+              },
+              "description": "Code-only export of these theme and plugin folders (wp-content/themes/<slug>, wp-content/plugins/<slug>): no database, media, core or must-use plugins. Use instead of exportOptions."
             }
           }
         },
@@ -2132,7 +2156,7 @@
       {
         "id": "transfer.push",
         "title": "Push to site",
-        "description": "Push a verified pull or local export into a Zoer Connect site: create the remote import, upload verified blocks, then step the import through review and activation. A dry run builds and checks the import plan and sends nothing.",
+        "description": "Push a verified pull or local export into a Zoer Connect site: create the remote import, upload verified blocks, then step the import through review and activation. A dry run builds and checks the import plan and sends nothing. Push to live from a chat (one press): start transfer.local-export {siteId: <local site>, pullId: <new 32-hex>, portableUrls: true, and code: {themes, plugins} for Code only}, transfer.preview {siteId: <live site>, previewId: <new 32-hex>, exportPullId: <pullId>} and this action {siteId: <live site>, exportPullId, previewId, sourceSiteId: <local site>, autoSelect: {database: <true for Everything>}, confirmTarget: <live site address>, replacementAccepted or wordpressOnlyWriters, codeOnly: true for Code only, finishAutomatically: true, dryRun: true for a Test run}. The preview and the push wait for the export by themselves, so all three can start at once.",
         "effect": "external_write",
         "approval": "always",
         "execution": {
@@ -2164,10 +2188,12 @@
             },
             "confirmTarget": {
               "type": "string",
-              "maxLength": 2048
+              "maxLength": 2048,
+              "description": "The live site's exact address (its Zoer Connect origin, for example https://example.com). Required, except for an await:<domain> site."
             },
             "importOptions": {
-              "type": "object"
+              "type": "object",
+              "description": "Import options. Omitted: a codeOnly push stages with review, late activation and kept active plugins and theme, leaving the database untouched (Push to live's Code only); a one-press push (exportPullId) uses Push to live's Everything options (review, late activation, every replacement, missing tables, cache purge) as far as the destination supports them; other pushes use the 0.3 defaults."
             },
             "previewId": {
               "type": "string",
@@ -2183,21 +2209,24 @@
               }
             },
             "replacementAccepted": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Accept replacing the selected live resources. Set it when the live site's Zoer Connect status reports migrationMode \"shared-replacement\" (shared hosting such as Hostinger); one of replacementAccepted or wordpressOnlyWriters is required."
             },
             "wordpressOnlyWriters": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Confirm that only WordPress writes the destination's files (isolated WordPress writers). For destinations not in shared-replacement migration mode; one of replacementAccepted or wordpressOnlyWriters is required."
             },
             "sourceSiteId": {
               "type": "string",
-              "maxLength": 256
+              "maxLength": 256,
+              "description": "The local site being exported, with exportPullId."
             },
             "dryRun": {
               "type": "boolean"
             },
             "codeOnly": {
               "type": "boolean",
-              "description": "Require an explicit code-only source, completed comparison, and review before activation. Database, media and environment files are refused."
+              "description": "Code only: the source must be a code-only local export (transfer.local-export code) and previewId a completed comparison; database, media and environment files are refused, and the import is reviewed before activation."
             },
             "exportPullId": {
               "type": "string",

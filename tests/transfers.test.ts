@@ -766,9 +766,9 @@ describe("transfer.preview and transfer.push", () => {
     const { w } = world();
     await pulled(w);
     const wrong = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, confirmTarget: "https://other.example", replacementAccepted: true });
-    expect((wrong as any).output.error.message).toBe("Confirm the exact destination address.");
+    expect((wrong as any).output.error.message).toMatch(/^Confirm the exact destination address: set confirmTarget to https:\/\//);
     const noPolicy = await w.run("transfer.push", { siteId: "external:dest", setId: `fs_${PULL}`, importId: IMPORT, confirmTarget: "https://dest.example" });
-    expect((noPolicy as any).output.error.message).toContain("confirm the destination replacement policy");
+    expect((noPolicy as any).output.error.message).toContain("Confirm the destination replacement policy: set replacementAccepted: true");
     const same = await w.run("transfer.push", { siteId: "hostinger-1", setId: `fs_${PULL}`, importId: IMPORT, confirmTarget: "https://source.example", replacementAccepted: true });
     expect((same as any).output.error.message).toContain("Choose a different source");
   });
@@ -812,6 +812,15 @@ describe("one-click push (export, compare and push started together)", () => {
     // Approved without a control run: one approve, then the import completed.
     expect(destination.log.filter(l => l.route === `/imports/${IMPORT}/approve`)).toHaveLength(1);
     expect(destination.imports.get(IMPORT)!.phase).toBe("complete");
+  });
+
+  test("a one-press push naming no import options plans with Push to live's Everything options", async () => {
+    const { w } = local();
+    await w.run("transfer.local-export", { siteId: "ddev-shop", pullId: PULL }, { runId: "export" });
+    await w.run("transfer.preview", { siteId: "external:dest", previewId: PREVIEW, exportPullId: PULL }, { runId: "preview" });
+    const { importOptions: _omitted, ...input } = pushInput({ dryRun: true });
+    const planned = await w.run("transfer.push", input, { runId: "push" });
+    expect((planned as any).output.plan.options).toMatchObject({ fence: "activation", review: true, replacements: { automatic: true, variants: true, paths: true } });
   });
 
   test("an early-fenced push is finished by itself too", async () => {

@@ -196,6 +196,18 @@ export function importOptionsToPlugin(options, caps, extra = {}) {
   return Object.keys(out).length ? out : undefined;
 }
 
+/**
+ * Import options of a one-press push that names none: Push to live's Everything defaults
+ * (staged with review, late activation, every replacement, tables the destination lacks,
+ * cache purge), each turned off when the destination's Zoer Connect lacks it, as the dialog does.
+ */
+export function onePressImportOptions(caps) {
+  const has = (capability) => caps?.[capability] === true;
+  const lateFence = has("lateFence");
+  return { replacements: { automatic: true, variants: has("replacementVariants"), paths: has("replacementRules"), custom: [] }, replaceGuids: true, keepActivePlugins: null, keepActiveTheme: null,
+    authorMapping: has("authorMapping") ? "match" : "administrator", createTables: has("createTables"), fence: lateFence ? "activation" : "early", review: lateFence && has("reviewPause"), purgeCaches: has("cachePurge") };
+}
+
 /** Replace-only (A6 kind:'replace') options. */
 export function replaceOptionsToPlugin(options, caps, tables) {
   if (!caps?.siteReplace) fail("Update Zoer Connect on this site to 0.4.0 to run find & replace.");

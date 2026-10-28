@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { codeContentIssue, codeExportIssue, codeExportOptions, codePathReason } from "../plugin/worker/lib/code-publish.js";
+import { codeContentIssue, codeExportIssue, codeExportOptions, codeExportOptionsFor, codePathReason } from "../plugin/worker/lib/code-publish.js";
 import { defaultExportOptions, defaultImportOptions } from "../src/lib/wordpress-transfer/options";
 import { pullOptionsFrom } from "../plugin/worker/lib/options.js";
 import { FakeWorld } from "./fakes/host";
@@ -73,6 +73,28 @@ describe("portable code publication", () => {
     // Other pushes check portability only.
     expect(codeContentIssue(secret, source, "https://live.example", { credentials: false })).toBeNull();
     expect(codeContentIssue("https://local.example/a.jpg", source, "https://live.example", { credentials: false })).toContain("source-site hostname");
+  });
+
+  test("a code export named by slugs matches the Code only export", () => {
+    const named = codeExportOptionsFor({ themes: ["example-theme"], plugins: ["example"] });
+    expect(pullOptionsFrom(named)).toEqual(pullOptionsFrom(options()));
+    expect(codeExportIssue(pullOptionsFrom(codeExportOptionsFor({ plugins: ["example"] })))).toBeNull();
+    for (const bad of [undefined, [], {}, { themes: [] }, { plugins: ["../auth"] }, { plugins: "example" }, { plugins: ["example"], media: true }]) expect(codeExportOptionsFor(bad)).toBeNull();
+  });
+
+  test("a code-only push without import options stages for review with the Code only defaults", async () => {
+    const { w, destination, input } = await prepared();
+    const { importOptions: _omitted, ...rest } = input;
+    const result = await w.run("transfer.push", { ...rest, dryRun: true });
+    expect((result as any).output.plan).toMatchObject({ codeOnly: true, database: false, files: 1 });
+    expect(destination.imports.size).toBe(0);
+  });
+
+  test("a push without its confirmations names the fields it needs", async () => {
+    const { w, input } = await prepared();
+    const { replacementAccepted: _policy, ...noPolicy } = input;
+    expect((await w.run("transfer.push", { ...noPolicy, dryRun: true }) as any).output.error.message).toContain("replacementAccepted: true");
+    expect((await w.run("transfer.push", { ...input, confirmTarget: undefined, dryRun: true }) as any).output.error.message).toBe("Confirm the exact destination address: set confirmTarget to https://live.example.");
   });
 
   test("dry run scans sealed source and never creates an import", async () => {
