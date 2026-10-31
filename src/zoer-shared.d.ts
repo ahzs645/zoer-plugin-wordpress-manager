@@ -44,7 +44,9 @@ declare module "@zoer/plugin-ui/controls" {
     footer?: ReactNode;
     headerContent?: ReactNode;
     mobileSheet?: boolean;
-    size?: "sm" | "md" | "lg" | "xl" | "full" | "wide";
+    /** The host offers only these two widths. */
+    size?: "default" | "wide";
+    fit?: boolean;
     hostOverlay?: boolean;
     "aria-describedby"?: string;
   }): JSX.Element;

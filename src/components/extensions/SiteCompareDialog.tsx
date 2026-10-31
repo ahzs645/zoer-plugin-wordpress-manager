@@ -73,7 +73,7 @@ export default function SiteCompareDialog({ live, local, onClose, onStartSite, o
   const others = rows.length - differences.length;
   const visible = showSame ? rows : differences;
 
-  return <Modal mobileSheet size="lg" title={`Compare ${live.name}`} onClose={onClose} footer={<div className="flex flex-wrap justify-end gap-2">
+  return <Modal mobileSheet size="wide" title={`Compare ${live.name}`} onClose={onClose} footer={<div className="flex flex-wrap justify-end gap-2">
     {onReviewFiles && local.capabilities.deploySource && <Btn icon={<ArrowLeftRight className="h-4 w-4" />} onClick={() => onReviewFiles(local)}>Compare files</Btn>}
     <Btn variant="primary" onClick={onClose}>Done</Btn>
   </div>}>
