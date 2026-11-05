@@ -46,6 +46,8 @@ The live site's **Transfers → Push** uses the same form with a local-site pick
 
 ## Site page layout (unreleased)
 
+**Site cards.** The desktop site list has collapse buttons and drag handles. Drag a handle to move a card, or focus it and press Up/Down; Escape cancels a drag. Order and collapsed state are saved in this browser, including when the list is filtered. The phone site picker follows the saved order. A standalone card shows its website’s favicon; a group uses its first site’s favicon by default. **Card menu → Choose card favicon** selects another member. Missing icons fall back to a globe. Favicons require the matching Zoer host’s read-only `/wordpress-manager/sites/:id/favicon` service, which returns bounded, cached images through the scoped bridge without changing the page’s image policy. This source change has not been deployed or qualified against a live Zoer instance.
+
 A site's page has seven sections: **Overview** (Local and live, WordPress core updates, Site Health), **Plugins & themes** (one list with a Plugins | Themes switch), **Development**, **Publish** (Push to live and Hostinger publishing), **Backups** (download, automatic recovery points, restore into a new local site), **Activity** and **Security** (local DDEV sites; formerly *Scan & report*). Earlier routes keep working: `themes` opens the Themes half, `updates` and `history` open Activity.
 
 - **Running transfers.** A banner above the sections names any transfer running on the site, its stage and progress. While a transfer writes to the site (a refresh into a local copy, a push, Find & Replace, an import control), plugin and theme changes, backups, Push/Pull, Stop and Move to trash wait for it. **View progress** opens Activity.
