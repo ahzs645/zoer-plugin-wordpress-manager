@@ -13,6 +13,7 @@ import LinkSiteDialog, { type LinkRequest } from "./LinkSiteDialog";
 import ConnectionProblemCard from "./ConnectionProblemCard";
 import { useConnectionHealth, type ConnectionProblem } from "./connectionHealth";
 import WordPressRepositoryDevelopment from "./WordPressRepositoryDevelopment";
+import WordPressExtensionLibrary from "./WordPressExtensionLibrary";
 import { canDevelopInstalledPlugin, type SiteRepositorySource } from "./repositoryPluginSelection";
 import { useResourceSelection } from "@zoer/plugin-ui/workspace";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -925,7 +926,9 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     }
   };
 
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const headerActions = [
+    { label: "Extension library", icon: <Package className="h-4 w-4" />, onClick: () => setLibraryOpen(true) },
     { label: "Connect existing site", icon: <Link2 className="h-4 w-4" />, onClick: () => setAddSiteOpen(true) },
     { label: "Provider accounts", icon: <Cloud className="h-4 w-4" />, onClick: () => setProvidersOpen(true) },
     { label: "Kubernetes pilot", icon: <Server className="h-4 w-4" />, onClick: () => setPilotOpen(true) },
@@ -936,6 +939,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   // Create a live site: plans continue (link + push) while this page is open.
   useGoLiveOrchestrator(sites);
   const goLivePlans = useGoLivePlans();
+  if (libraryOpen) return <PluginPage title={page} fill actions={[{ label: "Back to sites", onClick: () => setLibraryOpen(false) }]}><div className="min-h-0 flex-1 overflow-y-auto"><WordPressExtensionLibrary /></div></PluginPage>;
   if (loading) return <PluginPage title={page} fill actions={headerActions} primary={newSiteButton}><div className="flex min-h-72 items-center justify-center text-[13px] text-text-secondary"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading sites…</div></PluginPage>;
 
   const lifecycle = selected ? wordpressLifecycleAction(selected) : null;

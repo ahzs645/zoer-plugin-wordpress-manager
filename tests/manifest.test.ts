@@ -33,7 +33,7 @@ test("WP-CLI arguments use the host's bounds",()=>{
 test("Hostinger accounts and Zoer Connect sites use host connections and endpoints",()=>{
  const integration=manifest.integration as any;
  expect(integration.requiredConnections).toEqual([expect.objectContaining({alias:"hostinger",provider:"hostinger",scopes:["hosting"],multiple:true,optional:true})]);
- expect(integration.networkAllowlist).toEqual(["developers.hostinger.com"]);
+ expect(integration.networkAllowlist).toEqual(["developers.hostinger.com", "raw.githubusercontent.com"]);
  const [site]=integration.requiredEndpoints;expect(site).toMatchObject({alias:"site",pathPrefix:"/wp-json/zoer-connect/v1/",keyHeader:"x-zoer-connection",keyPattern:"^zc_[a-f0-9]{64}$",probe:"status",multiple:true});
  expect(site.routes.find((r:any)=>r.path==="status")).toEqual({path:"status",methods:["GET"],effect:"read"});
  // 0.12.0: Site Editor copies on a live site (Zoer Connect 0.7.0), read-only.
