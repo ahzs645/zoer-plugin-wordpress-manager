@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { History } from "lucide-react";
-import { Btn, Select, fieldLabelClass, selectClass } from "@zoer/plugin-ui/controls";
+import { Btn, Select, Tooltip, fieldLabelClass, selectClass } from "@zoer/plugin-ui/controls";
 import type { WordPressManagedSite } from "../../../lib/api/types/wordpress-manager";
 import { useCatalogKind, useRecentRuns } from "../../../lib/queries/plugin-engine";
 import { wordpressQueries } from "../../../lib/queries/wordpress";
@@ -73,7 +73,7 @@ export default function PluginTransferHistory({ siteId: fixedSiteId, sites: give
             <div className="min-w-0">
               <p className="text-[13px] font-medium text-text-primary">
                 <span className="mr-2 rounded border border-border-muted px-1.5 py-0.5 text-[12px] font-normal text-text-secondary">{ENGINE_HISTORY_LABELS[item.kind]}</span>
-                {item.engine === "legacy" && <span className="mr-2 rounded border border-border-muted px-1.5 py-0.5 text-[12px] font-normal text-text-secondary" title="Recorded by Zoer's earlier transfer engine (before WordPress Manager 0.8.0) and migrated">Before 0.8.0</span>}
+                {item.engine === "legacy" && <Tooltip content="Recorded by Zoer's earlier transfer engine (before WordPress Manager 0.8.0) and migrated" className="mr-2" persistOnClick><span tabIndex={0} className="rounded border border-border-muted px-1.5 py-0.5 text-[12px] font-normal text-text-secondary">Before 0.8.0</span></Tooltip>}
                 <span className="break-words">{item.sourceSiteId ? `${name(item.sourceSiteId)} → ${site}` : site}</span>
               </p>
               {item.summary && <p className="mt-1 break-words text-[13px] text-text-secondary">{tidyTransferSummary(item.summary)}</p>}

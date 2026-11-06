@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Btn, Modal, Select, controlClass, selectClass, textareaClass } from "@zoer/plugin-ui/controls";
-import { Copy, Download, ExternalLink, Plus, RefreshCw, Upload } from "lucide-react";
+import { Btn, EmptyState, Modal, Select, controlClass, selectClass, textareaClass } from "@zoer/plugin-ui/controls";
+import { PluginPage } from "@zoer/plugin-ui/workspace";
+import { Copy, Download, ExternalLink, Library, Plus, RefreshCw, Upload } from "lucide-react";
 import { runAction } from "../../host/actions";
 import { engineKeys, useCatalogKind, type CatalogRecord } from "../../lib/queries/plugin-engine";
 import { stackClient } from "../../lib/api/stack-client";
@@ -16,7 +17,7 @@ function downloadManifest(manifest: LibraryManifest) {
   const link = document.createElement("a"); link.href = url; link.download = "wordpress-library.json"; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-export default function WordPressExtensionLibrary() {
+export default function WordPressExtensionLibrary({ onBack }: { onBack: () => void }) {
   const catalog = useCatalogKind(LIBRARY_KIND, { refetchInterval: 30_000 });
   const client = useQueryClient();
   const [editor, setEditor] = useState<{ type: "repository" | "manifest" | "import"; record?: LibraryRecord } | null>(null);
@@ -38,16 +39,21 @@ export default function WordPressExtensionLibrary() {
   }
   const entries = parsed.entries.filter(entry => (kind === "all" || kind === entry.kind) && `${entry.name} ${entry.slug} ${entry.repositoryUrl} ${entry.description} ${entry.origins.join(" ")}`.toLowerCase().includes(query.toLowerCase()));
   const ready = catalog.isSuccess && !parsed.error;
-  return <section aria-label="WordPress extension library" className="min-w-0 space-y-5 p-3 sm:p-4">
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><h2 className="font-medium text-text-heading">Extension library</h2><p className="mt-1 max-w-2xl text-sm text-text-secondary">Your plugins and themes, saved by GitHub repository. Add them individually or through manifests that list repositories and other manifests.</p></div>
-      <div className="flex flex-wrap gap-2"><Btn icon={<Plus className="h-4 w-4" />} disabled={!ready || !!busy} onClick={() => setEditor({ type: "repository" })}>Add repository</Btn><Btn disabled={!ready || !!busy} onClick={() => setEditor({ type: "manifest" })}>Add manifest</Btn></div>
-    </div>
-    <p className="text-sm text-text-secondary">In chat, reference <code>@wordpress</code> and ask for a saved plugin or theme by name. Copy a reference below to include its repository, ref and folder. Adding a source saves its details; use Development to build and install it.</p>
+  const addRepository = () => setEditor({ type: "repository" });
+  const empty = ready && !parsed.sources.length;
+  const actions = [
+    { label: "Add manifest", disabled: !ready || !!busy, onClick: () => setEditor({ type: "manifest" }) },
+    { label: "Import library", icon: <Upload className="h-4 w-4" />, disabled: !ready || !!busy, onClick: () => setEditor({ type: "import" }) },
+    { label: "Export library", icon: <Download className="h-4 w-4" />, disabled: !ready || !!busy || !parsed.sources.length, onClick: () => void work("export", async () => { downloadManifest(exportLibrary(catalog.data ?? [])); setNotice("Library exported with individual repositories and manifest snapshots."); }) },
+    { label: "Refresh", iconOnly: true, icon: <RefreshCw className="h-4 w-4" />, disabled: !!busy, onClick: () => void catalog.refetch() },
+  ];
+  return <PluginPage title="Extension library" onBack={onBack} backLabel="Back to sites" fill actions={actions} primary={<Btn variant="primary" icon={<Plus className="h-4 w-4" />} disabled={!ready || !!busy} onClick={addRepository}>Add repository</Btn>}>
+  <div className="min-h-0 flex-1 overflow-y-auto">
+  <section aria-label="WordPress extension library" className="min-w-0 space-y-5 p-3 sm:p-4">
+    {!empty && <p className="max-w-2xl text-sm text-text-secondary">Reference a saved plugin or theme in chat with <code>@wordpress</code>. Use Development to build and install it.</p>}
     {(catalog.error || parsed.error || error) && <InlineAlert error={catalog.error || parsed.error || error} onRetry={catalog.error ? () => void catalog.refetch() : undefined} onDismiss={error ? () => setError(null) : undefined} />}
     {notice && <p role="status" className="text-sm text-text-secondary">{notice}</p>}
-    <div className="flex flex-wrap gap-2"><Btn size="sm" icon={<Upload className="h-4 w-4" />} disabled={!ready || !!busy} onClick={() => setEditor({ type: "import" })}>Import library</Btn><Btn size="sm" icon={<Download className="h-4 w-4" />} disabled={!ready || !!busy || !parsed.sources.length} onClick={() => void work("export", async () => { downloadManifest(exportLibrary(catalog.data ?? [])); setNotice("Library exported with individual repositories and manifest snapshots."); })}>Export library</Btn><Btn size="sm" icon={<RefreshCw className="h-4 w-4" />} disabled={!!busy} onClick={() => void catalog.refetch()}>Refresh list</Btn></div>
-    {catalog.isPending ? <p role="status">Loading library…</p> : ready && !parsed.sources.length ? <p className="py-6 text-sm text-text-secondary">No saved plugins or themes yet. Add your first repository or manifest to make it available here and in chat.</p> : null}
+    {catalog.isPending ? <p role="status">Loading library…</p> : empty ? <EmptyState icon={<Library className="h-7 w-7" />} title="No saved plugins or themes" description="Add a GitHub repository or a manifest, then reference it in chat with @wordpress." /> : null}
     {!!parsed.entries.length && <>
       <div className="flex flex-wrap items-center gap-3"><input aria-label="Search extension library" placeholder="Search plugins, themes and repositories" value={query} onChange={event => setQuery(event.target.value)} className={controlClass("compact", "min-w-0 flex-1")} /><FilterChips label="Extension type" value={kind} onChange={setKind} options={[{ value: "all", label: "All" }, { value: "plugin", label: "Plugins" }, { value: "theme", label: "Themes" }]} /></div>
       <ul className="divide-y divide-border-default" aria-label="Saved plugins and themes">{entries.map(entry => <li key={entry.key} className="flex min-w-0 flex-wrap items-start justify-between gap-3 py-3">
@@ -57,8 +63,10 @@ export default function WordPressExtensionLibrary() {
     </>}
     {!!parsed.sources.length && <section aria-label="Library sources" className="min-w-0 space-y-2"><h3 className="text-sm font-medium text-text-heading">Manage sources</h3><p className="text-xs text-text-secondary">Refreshing a manifest reads its latest contents before you save a replacement. Removing a source keeps entries still supplied by another source.</p><ul className="divide-y divide-border-default">{parsed.sources.map(source => <li key={source.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 py-3"><div className="min-w-0 flex-1"><p className="break-words text-sm text-text-primary">{source.title}</p><p className="break-all text-xs text-text-muted">{source.data.type === "repository" ? source.data.entry.repositoryUrl : source.data.source.repositoryUrl ? `${source.data.source.repositoryUrl} · ${source.data.source.ref} · ${source.data.source.path}` : "Imported manifest snapshot"}</p></div><div className="flex gap-2"><Btn size="sm" disabled={!!busy} onClick={() => setEditor({ type: source.data.type, record: source })}>{source.data.type === "manifest" ? "Review / refresh" : "Edit"}</Btn><Btn size="sm" disabled={!!busy} onClick={() => setRemove(source)}>Remove</Btn></div></li>)}</ul></section>}
     {editor && <LibrarySourceEditor type={editor.type} record={editor.record} onClose={() => setEditor(null)} onSaved={async () => { await changed(); setEditor(null); setNotice("Library saved and read back successfully."); }} />}
-    {remove && <Modal title="Remove library source" onClose={() => { if (!busy) setRemove(null); }} footer={<><Btn disabled={!!busy} onClick={() => setRemove(null)}>Cancel</Btn><Btn disabled={!!busy} loading={busy === "remove"} onClick={() => void work("remove", async () => { await runAction("library.remove", { id: remove.id }); setRemove(null); setNotice("Source removed from the library."); })}>Remove source</Btn></>}><p className="text-sm">Remove {remove.title} from this library? Its GitHub repository and installed WordPress sites are preserved.</p>{error && <InlineAlert error={error} />}</Modal>}
-  </section>;
+    {remove && <Modal fit title="Remove library source" onClose={() => { if (!busy) setRemove(null); }} footer={<><Btn disabled={!!busy} onClick={() => setRemove(null)}>Cancel</Btn><Btn disabled={!!busy} loading={busy === "remove"} onClick={() => void work("remove", async () => { await runAction("library.remove", { id: remove.id }); setRemove(null); setNotice("Source removed from the library."); })}>Remove source</Btn></>}><p className="text-sm">Remove {remove.title} from this library? Its GitHub repository and installed WordPress sites are preserved.</p>{error && <InlineAlert error={error} />}</Modal>}
+  </section>
+  </div>
+  </PluginPage>;
 }
 
 function LibrarySourceEditor({ type, record, onClose, onSaved }: { type: "repository" | "manifest" | "import"; record?: LibraryRecord; onClose: () => void; onSaved: () => Promise<void> }) {

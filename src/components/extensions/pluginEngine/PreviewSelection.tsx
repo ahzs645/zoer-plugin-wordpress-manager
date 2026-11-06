@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Btn, checkboxClass, controlClass } from "@zoer/plugin-ui/controls";
+import { Btn, Select, checkboxClass, controlClass, selectClass } from "@zoer/plugin-ui/controls";
 import { formatTransferBytes } from "../wordpressPullProgress";
 import { MAX_SELECTED_PATHS, type PreviewFile, type PreviewState } from "./records";
 
@@ -25,10 +25,10 @@ export default function PreviewSelection({ files, selected, onChange, disabled }
     </p>
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
       <input aria-label="Filter compared files by path" className={controlClass("default", "text-base sm:text-[14px]")} placeholder="Filter by theme, plugin or file path" value={filter} onChange={event => setFilter(event.target.value)} />
-      <select aria-label="Filter compared files by state" className={controlClass("default", "text-base sm:text-[14px]")} value={state} onChange={event => setState(event.target.value as "" | PreviewState)}>
+      <Select aria-label="Filter compared files by state" presentation="dropdown" searchable={false} className={selectClass("default")} value={state} onChange={event => setState(event.target.value as "" | PreviewState)}>
         <option value="">All states</option>
         {(["new", "changed", "unchanged", "blocked", "database"] as PreviewState[]).map(key => <option key={key} value={key}>{key[0].toUpperCase() + key.slice(1)}</option>)}
-      </select>
+      </Select>
     </div>
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
       <Btn size="sm" className="w-full sm:w-auto" disabled={disabled} onClick={() => onChange(new Set([...selected, ...filtered.filter(f => f.state === "new" || f.state === "changed").map(f => f.path)]))}>Select new and changed matches</Btn>

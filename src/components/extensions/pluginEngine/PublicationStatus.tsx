@@ -178,7 +178,7 @@ function ClearCachesDialog({ siteId, siteUrl, onClose, onDone, onReconnect }: { 
     finally { setBusy(null); }
   }
 
-  return <Modal mobileSheet title="Clear caches and recheck" onClose={() => { if (!busy) onClose(); }}>
+  return <Modal fit mobileSheet title="Clear caches and recheck" onClose={() => { if (!busy) onClose(); }}>
     <div className="min-w-0 space-y-4 text-sm">
       <p className="text-text-secondary">Clears each cache layer you choose, then rechecks the public site for up to about 16 minutes. Nothing is republished.</p>
       <label className="flex min-h-11 items-start gap-2"><input type="checkbox" className={`${checkboxClass} mt-1`} checked={wordpress} onChange={event => setWordpress(event.target.checked)} disabled={!!busy} />

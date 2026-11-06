@@ -61,7 +61,7 @@ export default function DeleteSiteDialog({ site, trashed = false, onClose, onTra
     <span className="min-w-0"><span className={`block font-medium ${value === "erase" ? "text-status-error" : "text-text-primary"}`}>{title}</span><span className="block text-xs text-text-secondary">{summary}</span></span>
   </label>;
 
-  return <Modal mobileSheet title={`Delete ${site.name}?`} onClose={() => { if (!busy) onClose(); }} footer={<>
+  return <Modal fit mobileSheet title={`Delete ${site.name}?`} onClose={() => { if (!busy) onClose(); }} footer={<>
     <Btn variant="ghost" disabled={busy} onClick={onClose}>Cancel</Btn>
     <Btn variant="danger" icon={<Trash2 className="h-3.5 w-3.5" />} loading={busy} disabled={!canSubmit} onClick={() => void submit()}>{choice === "trash" ? "Move to trash" : "Delete everything"}</Btn>
   </>}>

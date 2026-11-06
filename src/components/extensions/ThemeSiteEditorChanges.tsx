@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, ChevronDown, ChevronRight } from "lucide-react";
-import { Btn, Modal } from "@zoer/plugin-ui/controls";
+import { Btn, Modal, Tooltip } from "@zoer/plugin-ui/controls";
 import { getApiBase, json } from "../../lib/api/_http";
 import { formatWhen } from "../../lib/formatWhen";
 
@@ -135,7 +135,7 @@ export default function ThemeSiteEditorChanges({ base, theme, siteRunning, locke
           {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden="true" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden="true" />}
           <span className="min-w-0 truncate font-medium">{name}</span>
           <span className="shrink-0 text-xs text-text-secondary">{TYPE_LABEL[item.type]}</span>
-          {!!item.warnings.length && <span className="inline-flex shrink-0 items-center gap-0.5 text-xs text-status-warning" title={item.warnings.join(" ")}><AlertTriangle className="h-3 w-3" aria-hidden="true" /><span className="sr-only">Warnings: </span>{item.warnings.length}</span>}
+          {!!item.warnings.length && <Tooltip content={item.warnings.join(" ")} persistOnClick><span tabIndex={0} className="inline-flex items-center gap-0.5 text-xs text-status-warning"><AlertTriangle className="h-3 w-3" aria-hidden="true" /><span className="sr-only">Warnings: </span>{item.warnings.length}</span></Tooltip>}
         </button>
       </div>
       {isOpen && <div className={`mt-1 space-y-0.5 ${selectable ? "pl-6" : "pl-5"} text-xs`}>
@@ -191,7 +191,7 @@ export default function ThemeSiteEditorChanges({ base, theme, siteRunning, locke
         {OVERRIDE_GROUPS.map((entry, index) => {
           const count = groups[entry.id].length;
           return <li key={entry.id} className={`flex items-center gap-1.5 rounded border px-2 py-1 ${count ? "border-border-default text-text-primary" : "border-border-muted text-text-muted"}`}>
-            <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] ${count ? "bg-accent text-accent-text" : "bg-surface-secondary"}`}>{count ? index + 1 : <Check className="h-2.5 w-2.5" aria-hidden="true" />}</span>
+            <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[12px] ${count ? "bg-accent text-accent-text" : "bg-surface-secondary"}`}>{count ? index + 1 : <Check className="h-2.5 w-2.5" aria-hidden="true" />}</span>
             <span className="min-w-0 truncate">{entry.step}</span>
             {!!count && <span className="ml-auto shrink-0 text-text-secondary">{count}</span>}
           </li>;

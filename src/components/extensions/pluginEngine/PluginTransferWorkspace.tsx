@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { wordpressQueries } from "../../../lib/queries/wordpress";
 import { OneClickPushPanel } from "./OneClickPush";
 import { Archive, DatabaseBackup, Download, Replace, Upload } from "lucide-react";
-import { Btn, CheckboxField, Select, fieldLabelClass, selectClass } from "@zoer/plugin-ui/controls";
+import { Btn, CheckboxField, Select, Tooltip, fieldLabelClass, selectClass } from "@zoer/plugin-ui/controls";
 import type { ImportOptions, TransferAction, WordPressDiagnostics, ZoerConnectConnection } from "../../../lib/api/types/wordpress-transfer";
 import { engineKeys, startEngineAction, useRecentRuns } from "../../../lib/queries/plugin-engine";
 import { applyExportCapabilities, defaultReplaceTables, exportOptionsErrors, exportOptionsForAction, hasCapability, importOptionsErrors, replaceJobOptions, REQUIRES_040, TRANSFER_ACTIONS } from "../../../lib/wordpress-transfer/options";
@@ -200,10 +200,10 @@ export default function PluginTransferWorkspace({ siteId, siteName, connection, 
       <div role="radiogroup" aria-label="Transfer tool" className="flex min-w-0 flex-wrap gap-1 rounded-lg border border-border-default bg-surface-secondary p-1">
         {TRANSFER_ACTIONS.map(value => {
           const selected = action === value;
-          return <label key={value} title={availability[value] ?? ACTION_LABELS[value].description} className={`inline-flex min-h-11 min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors focus-within:ring-2 focus-within:ring-input-focus sm:min-h-9 ${selected ? "bg-surface-primary text-text-heading shadow-sm" : "text-text-secondary hover:text-text-primary"} ${availability[value] ? "opacity-50" : ""}`}>
+          return <Tooltip key={value} content={availability[value] ?? ACTION_LABELS[value].description} className="min-w-0 flex-1"><label className={`inline-flex min-h-11 w-full min-w-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors focus-within:ring-2 focus-within:ring-input-focus sm:min-h-9 ${selected ? "bg-surface-primary text-text-heading shadow-sm" : "text-text-secondary hover:text-text-primary"} ${availability[value] ? "opacity-50" : ""}`}>
             <input type="radio" name={`zoer-plugin-transfer-action-${siteId}`} className="sr-only" checked={selected} onChange={() => setDraft(d => switchAction(d, value))} />
             {ICONS[value]}{ACTION_LABELS[value].title}
-          </label>;
+          </label></Tooltip>;
         })}
       </div>
       <p className="text-xs text-text-secondary">{ACTION_LABELS[action].description}</p>

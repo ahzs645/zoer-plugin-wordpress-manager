@@ -76,3 +76,13 @@ export function securityNavigationLink(value?: string): string | null {
   try { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password ? url.href : null; }
   catch { return null; }
 }
+
+export type SecurityScanNotice = { kind: "start" } | { kind: "checking" } | { kind: "unavailable"; message: string } | { kind: "ready" };
+/** The one thing standing between this site and a scan. A stopped site can't report on its scanner, so starting it comes first. */
+export function securityScanNotice({ running, checking, available, error, reason }: { running: boolean; checking: boolean; available: boolean; error?: string; reason?: string | null }): SecurityScanNotice {
+  if (error) return { kind: "unavailable", message: error };
+  if (!running) return { kind: "start" };
+  if (checking) return { kind: "checking" };
+  if (reason || !available) return { kind: "unavailable", message: reason || "Scanning is not available on this host." };
+  return { kind: "ready" };
+}

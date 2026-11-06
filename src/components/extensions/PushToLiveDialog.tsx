@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Check, Globe2, Server, X } from "lucide-react";
-import { Btn, Modal, Select, selectClass } from "@zoer/plugin-ui/controls";
+import { Btn, Modal, Select, Tooltip, selectClass } from "@zoer/plugin-ui/controls";
 import type { WordPressManagedSite } from "../../lib/api";
 import { wordpressQueries } from "../../lib/queries/wordpress";
 import { useWordPressDiagnostics, useZoerConnection } from "../../lib/queries/wordpress-transfer";
@@ -11,7 +11,7 @@ import { pushReadiness, zoerConnectSettingsUrl } from "./wordpressTransfer/avail
 import { localPublishDestinations } from "./publishGuidance";
 
 const host = (url: string) => url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-const SIDE_TAG = "shrink-0 rounded border border-border-muted px-1.5 py-px text-[11px] font-normal text-text-secondary";
+const SIDE_TAG = "shrink-0 rounded border border-border-muted px-1.5 py-px text-[12px] font-normal text-text-secondary";
 
 /**
  * Local → live in one dialog: the destination (preselected for a local copy of a connected
@@ -56,7 +56,7 @@ export default function PushToLiveDialog({ source, sites, onClose, onHosting, on
             <Globe2 className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" />
             <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium">{host(site.url)}{stack[0] === site.id && <span className="font-normal text-text-secondary"> · main</span>}</span>
               {label(site) !== host(site.url) && <span className="block truncate text-[12px] text-text-secondary">{label(site)}</span>}</span>
-            {accountOf(site.id) && <span title={`Hostinger account ${accountOf(site.id)}`} className="max-w-[40%] shrink-0 truncate rounded border border-border-default bg-surface-secondary px-1.5 text-[11px] leading-4 text-text-secondary">{accountOf(site.id)}</span>}
+            {accountOf(site.id) && <Tooltip content={`Hostinger account ${accountOf(site.id)}`} className="max-w-[40%]"><span className="min-w-0 truncate rounded border border-border-default bg-surface-secondary px-1.5 text-[12px] leading-4 text-text-secondary">{accountOf(site.id)}</span></Tooltip>}
             {site.id === destinationId && <Check className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />}
           </button>)}
         </div>}

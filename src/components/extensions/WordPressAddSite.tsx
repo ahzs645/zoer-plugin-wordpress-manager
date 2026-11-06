@@ -56,7 +56,7 @@ export default function WordPressAddSite({ open, onOpenChange, onAdded, existing
     finally { setKey(""); setUrl(""); setBusy(false); }
   }
   return <>
-    {open && <Modal mobileSheet title="Add WordPress site" onClose={close} footer={<><Btn disabled={busy} onClick={close}>Cancel</Btn><Btn form="add-wordpress-site" type="submit" variant="primary" disabled={busy || !url.trim() || !key.trim()} loading={busy}>Test and add site</Btn></>}>
+    {open && <Modal fit mobileSheet title="Add WordPress site" onClose={close} footer={<><Btn disabled={busy} onClick={close}>Cancel</Btn><Btn form="add-wordpress-site" type="submit" variant="primary" disabled={busy || !url.trim() || !key.trim()} loading={busy}>Test and add site</Btn></>}>
       <form id="add-wordpress-site" onSubmit={submit} className="space-y-4 text-sm">
         <p id="wordpress-add-paste-help" className="text-text-secondary">In WordPress, open <strong>Tools → Zoer Connect</strong> and copy the connection info. Paste both lines together: the website address and key.</p>
         <label className="flex flex-col gap-1"><span>Connection info (website and key)</span><input className={controlClass()} type="password" required maxLength={4096} placeholder="Paste both connection lines" autoComplete="new-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-describedby="wordpress-add-paste-help" value={key} onPaste={pasteConnection} onChange={e => { setKey(e.target.value); setUrl(""); setError(e.target.value ? "Copy and paste the full connection info so Zoer can detect the website address." : ""); }} disabled={busy} /></label>

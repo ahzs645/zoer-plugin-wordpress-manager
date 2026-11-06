@@ -1,3 +1,4 @@
+import { Tooltip } from "@zoer/plugin-ui/controls";
 import { useId, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, GripVertical } from "lucide-react";
 import type { WordPressSiteGroup } from "./wordpressSiteGroups";
@@ -39,7 +40,7 @@ export default function SiteCardList({ groups, getName = group => siteCardMember
           toggle: <button type="button" className={controls} aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${name}`} aria-expanded={!isCollapsed} aria-controls={contentId} onClick={() => onToggle(id)}>
             <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isCollapsed ? "-rotate-90" : ""}`} aria-hidden="true" />
           </button>,
-          handle: <button type="button" className={`${controls} touch-none select-none ${feedback?.id === id ? "cursor-grabbing" : "cursor-grab"}`} aria-label={`Reorder ${name}`} aria-describedby={`${prefix}-help`} title="Drag to reorder · ↑/↓ to move"
+          handle: <Tooltip content="Drag to reorder · ↑/↓ to move"><button type="button" className={`${controls} touch-none select-none ${feedback?.id === id ? "cursor-grabbing" : "cursor-grab"}`} aria-label={`Reorder ${name}`} aria-describedby={`${prefix}-help`}
             onPointerDown={event => {
               if (event.button !== 0 || !event.isPrimary) return;
               event.preventDefault(); event.currentTarget.focus();
@@ -75,7 +76,7 @@ export default function SiteCardList({ groups, getName = group => siteCardMember
               if (!target) return;
               onMove(id, siteCardId(target), next > index);
               setAnnouncement(`${name} moved to position ${next + 1} of ${groups.length}.`);
-            }}><GripVertical className="h-3.5 w-3.5" aria-hidden="true" /></button>,
+            }}><GripVertical className="h-3.5 w-3.5" aria-hidden="true" /></button></Tooltip>,
         })}
       </div>;
     })}

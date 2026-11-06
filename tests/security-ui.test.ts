@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { bindHost } from "../src/host/bridge";
 import { wordpressQueries } from "../src/lib/queries/wordpress";
-import { securityClient, securityReportVerdict, securityQuarantinePath, securityFindingSubject, securityActionHistory, securityNavigationLink, type SecurityReport, type SecurityScan, type SecurityPlan } from "../src/components/extensions/wordpressSecurityClient";
+import { securityClient, securityReportVerdict, securityQuarantinePath, securityFindingSubject, securityActionHistory, securityNavigationLink, securityScanNotice, type SecurityReport, type SecurityScan, type SecurityPlan } from "../src/components/extensions/wordpressSecurityClient";
 
 const report = (status = "no_findings", checks: SecurityReport["checks"] = []): SecurityReport => ({ schemaVersion: 1, status, findingCount: 0, checks });
 const check = (status: string) => ({ name: "test", status, coverage: {}, findings: [], errors: [] });
@@ -62,5 +62,22 @@ describe("local security UI policy", () => {
     expect(calls[0].input.body).toEqual({ files: true, database: false, core: true });
     expect(calls[2].input.body).toEqual({ fingerprint: "exact-fingerprint", confirmation: "QUARANTINE local" });
     expect(calls.every(call => call.method === "api.request")).toBe(true);
+  });
+});
+
+describe("security scan notice", () => {
+  const state = { running: true, checking: false, available: true };
+  test("a stopped site is only asked to start, whatever the scanner says while stopped", () => {
+    expect(securityScanNotice({ ...state, running: false, available: false, reason: "Scanner offline." })).toEqual({ kind: "start" });
+    expect(securityScanNotice({ ...state, running: false, checking: true, available: false })).toEqual({ kind: "start" });
+  });
+  test("a running site gets the one real blocker", () => {
+    expect(securityScanNotice({ ...state, checking: true, available: false })).toEqual({ kind: "checking" });
+    expect(securityScanNotice({ ...state, available: false, reason: "Scanner offline." })).toEqual({ kind: "unavailable", message: "Scanner offline." });
+    expect(securityScanNotice({ ...state, available: false })).toEqual({ kind: "unavailable", message: "Scanning is not available on this host." });
+    expect(securityScanNotice(state)).toEqual({ kind: "ready" });
+  });
+  test("a host that cannot scan says so even for a stopped site", () => {
+    expect(securityScanNotice({ ...state, running: false, available: false, error: "Update the Zoer host to enable scanning and reports." })).toEqual({ kind: "unavailable", message: "Update the Zoer host to enable scanning and reports." });
   });
 });

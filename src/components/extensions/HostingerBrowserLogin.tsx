@@ -64,7 +64,7 @@ export default function HostingerBrowserLogin({ name, setName, onConnected, conn
   return <section className="mt-3 space-y-3 rounded-lg border border-border-default bg-surface-primary/40 p-3">
     <p className="text-[13px] text-text-secondary">Sign in through Zoer. Zoer opens its own browser for your usual login and MFA and keeps the connection; WordPress Manager never sees your password or tokens.</p>
     <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
-      <input aria-label="Hostinger connection name" className={`${controlClass("compact")} min-w-0 flex-1`} value={name} onChange={event => setName(event.target.value)} maxLength={80} placeholder="My Hostinger account" disabled={busy !== null} />
+      <input aria-label="Hostinger connection name" className={`${controlClass("compact")} min-w-0 sm:flex-1`} value={name} onChange={event => setName(event.target.value)} maxLength={80} placeholder="My Hostinger account" disabled={busy !== null} />
       <Btn size="sm" variant="primary" icon={<Cloud className="h-4 w-4" />} loading={busy === "sign-in"} disabled={busy !== null} onClick={() => void signIn()}>Sign in with Hostinger</Btn>
     </div>
     {pending.length > 0 && <div className="space-y-2">

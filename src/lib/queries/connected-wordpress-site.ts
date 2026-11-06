@@ -3,6 +3,14 @@ import type { HostEndpoint } from "../../host/actions";
 import type { WordPressManagedSite } from "../api";
 import { wordpressQueries } from "./wordpress";
 
+const CONNECTED_SITE_NOTE = "Zoer Connect handles Pull, Push and migration recovery for this site. Manage its plugins and hosting in WordPress.";
+
+/** Why a site's plugins and themes aren't managed here. A site already on Zoer Connect is not told to connect. */
+export function extensionManagementNote(site: Pick<WordPressManagedSite, "provider" | "status" | "limitation">) {
+  if (site.provider === "zoer-connect" && site.status === "connected") return CONNECTED_SITE_NOTE;
+  return site.limitation || undefined;
+}
+
 /** Reflect the host's saved endpoint immediately, before slow provider discovery finishes. */
 export async function rememberConnectedWordPressSite(client: QueryClient, endpoint: HostEndpoint): Promise<void> {
   const sitesKey = wordpressQueries.sites().queryKey;
@@ -16,7 +24,7 @@ export async function rememberConnectedWordPressSite(client: QueryClient, endpoi
     wordpressVersion: null, phpVersion: null, updates: null, vulnerabilities: null,
     connectionId: null, username: null, softwareId: null,
     capabilities: { preview: true, admin: false, extensions: false, backups: false, deploySource: false, deployTarget: false, siteHealth: false, rollback: false },
-    limitation: "Use Connect Zoer for permission-based Pull, Push and migration recovery. Manage plugins and hosting in WordPress.",
+    limitation: CONNECTED_SITE_NOTE,
   };
   client.setQueryData<WordPressManagedSite[]>(sitesKey, current => [...(current ?? []).filter(item => item.id !== site.id), site]);
   client.setQueryData<{ endpoints: HostEndpoint[] }>(endpointsKey, current => ({ endpoints: [...(current?.endpoints ?? []).filter(item => item.id !== endpoint.id), endpoint] }));

@@ -132,7 +132,7 @@ export default function PluginLocalCopy({ siteId, siteName, sourceUrl = null, pu
         <legend className={fieldLabelClass}>Into</legend>
         {targets.map(target => <label key={target.id} className={`${INTO_OPTION} ${replaceSiteId === target.id ? "border-accent bg-surface-hover" : "border-border-default"}`}>
           <input type="radio" name={`plugin-copy-target-${siteId}`} className={`${radioClass} mt-0.5`} checked={replaceSiteId === target.id} onChange={() => setReplaceSiteId(target.id)} />
-          <span className="min-w-0"><span className="block break-words text-text-primary">{target.name} <span className="ml-1 rounded border border-border-muted px-1.5 py-px text-[11px] text-text-secondary">Local copy</span></span><span className="block break-words text-[12px] text-text-muted">{target.url ? `${target.url.replace(/^https?:\/\//, "")} · ` : ""}refresh this copy</span></span>
+          <span className="min-w-0"><span className="block break-words text-text-primary">{target.name} <span className="ml-1 rounded border border-border-muted px-1.5 py-px text-[12px] text-text-secondary">Local copy</span></span><span className="block break-words text-[12px] text-text-muted">{target.url ? `${target.url.replace(/^https?:\/\//, "")} · ` : ""}refresh this copy</span></span>
         </label>)}
         <label className={`${INTO_OPTION} ${!replaceSiteId ? "border-accent bg-surface-hover" : "border-border-default"}`}>
           <input type="radio" name={`plugin-copy-target-${siteId}`} className={`${radioClass} mt-0.5`} checked={!replaceSiteId} onChange={() => setReplaceSiteId("")} />

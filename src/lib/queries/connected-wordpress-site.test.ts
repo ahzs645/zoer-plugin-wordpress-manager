@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import type { HostEndpoint } from "../../host/actions";
 import type { WordPressManagedSite } from "../api";
-import { rememberConnectedWordPressSite } from "./connected-wordpress-site";
+import { extensionManagementNote, rememberConnectedWordPressSite } from "./connected-wordpress-site";
 import { wordpressQueries } from "./wordpress";
 
 const endpoint: HostEndpoint = { id: "ep_new", alias: "site", origin: "https://new.example.org/blog", label: "New site", generation: "generation-1", testedAt: "2026-10-19T12:00:00Z", createdAt: "2026-10-19T12:00:00Z" };
@@ -50,4 +50,12 @@ test("a background inventory error retains the saved site and an updated connect
   expect(sites[0]!.capabilities).toEqual({ preview: true, admin: false, extensions: false, backups: false, deploySource: false, deployTarget: false, siteHealth: false, rollback: false });
   expect(client.getQueryData<{ endpoints: HostEndpoint[] }>(wordpressQueries.endpoints().queryKey)?.endpoints).toEqual([updated]);
   client.clear();
+});
+
+test("a connected Zoer Connect site is not told to connect, whatever the host's stored limitation says", () => {
+  const connected = extensionManagementNote({ provider: "zoer-connect", status: "connected", limitation: "Use Connect Zoer for permission-based Pull, Push and migration recovery." });
+  expect(connected).toContain("Manage its plugins and hosting in WordPress");
+  expect(connected).not.toContain("Use Connect Zoer");
+  expect(extensionManagementNote({ provider: "zoer-connect", status: "error", limitation: "Use Connect Zoer to reconnect." })).toBe("Use Connect Zoer to reconnect.");
+  expect(extensionManagementNote({ provider: "hostinger", status: "running", limitation: null })).toBeUndefined();
 });

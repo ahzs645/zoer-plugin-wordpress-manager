@@ -72,7 +72,7 @@ export default function WordPressTrash({ onClose, onChanged }: { onClose: () => 
   }
 
   if (plan) {
-    return <Modal mobileSheet title={`Remove ${plan.name} from Zoer`} onClose={() => { if (!busy) setPlan(null); }} footer={<><Btn variant="ghost" disabled={busy !== null} onClick={() => setPlan(null)}>Back</Btn><Btn variant="danger" loading={busy !== null} disabled={!removalRequest(plan, typed) || busy !== null} onClick={() => void remove()}>Request removal</Btn></>}>
+    return <Modal fit mobileSheet title={`Remove ${plan.name} from Zoer`} onClose={() => { if (!busy) setPlan(null); }} footer={<><Btn variant="ghost" disabled={busy !== null} onClick={() => setPlan(null)}>Back</Btn><Btn variant="danger" loading={busy !== null} disabled={!removalRequest(plan, typed) || busy !== null} onClick={() => void remove()}>Request removal</Btn></>}>
       <div className="space-y-4 text-sm">
         <ul className="list-disc space-y-1 pl-4 text-status-warning">{plan.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul>
         <div><div className="font-medium">Steps</div><ol className="mt-1 list-decimal space-y-1 pl-5 text-text-secondary">{plan.steps.map(step => <li key={step}>{step}</li>)}</ol></div>
