@@ -91,10 +91,10 @@ export function wordPressSiteMatches(site: WordPressManagedSite, query: string):
 }
 
 /** A pair stays together when any of its sites matches the search. */
-export function filterWordPressSiteGroups(groups: WordPressSiteGroup[], query: string, aliases: (id: string) => WordPressManagedSite[] = () => []): WordPressSiteGroup[] {
+export function filterWordPressSiteGroups(groups: WordPressSiteGroup[], query: string, aliases: (id: string) => WordPressManagedSite[] = () => [], getName?: (group: WordPressSiteGroup) => string): WordPressSiteGroup[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return groups;
-  return groups.filter((group) => group.kind === "site"
+  return groups.filter(group => getName?.(group).toLowerCase().includes(needle) || (group.kind === "site"
     ? [group.site, ...aliases(group.site.id)].some(site => wordPressSiteMatches(site, needle))
-    : [group.source, ...aliases(group.source.id), ...group.lives, ...group.copies].some((site) => wordPressSiteMatches(site, needle)));
+    : [group.source, ...aliases(group.source.id), ...group.lives, ...group.copies].some((site) => wordPressSiteMatches(site, needle))));
 }

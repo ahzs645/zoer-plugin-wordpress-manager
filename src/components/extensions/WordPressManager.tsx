@@ -57,6 +57,7 @@ import { isDemoMode } from "@zoer/plugin-ui/workspace";
 import { Btn as Btn } from "@zoer/plugin-ui/controls";
 import { ActionMenu as ActionMenu } from "@zoer/plugin-ui/controls";
 import { StatusBadge as StatusBadge, type StatusTone } from "@zoer/plugin-ui/controls";
+import * as controls from "@zoer/plugin-ui/controls";
 import { PluginPage } from "@zoer/plugin-ui/workspace";
 import { PageTabs as PageTabs, PageTabPanel } from "@zoer/plugin-ui/controls";
 import { Modal as Modal } from "@zoer/plugin-ui/controls";
@@ -64,7 +65,7 @@ import { openWordPressAdmin, wordpressPreviewUrl } from "../../lib/openWordPress
 import { EmptyState as EmptyState } from "@zoer/plugin-ui/controls";
 import { SearchInput as SearchInput } from "@zoer/plugin-ui/controls";
 import { controlClass, selectClass } from "@zoer/plugin-ui/controls";
-import { InlineAlert, useDialogs } from "@zoer/plugin-ui/controls";
+import { InlineAlert, Tooltip, useDialogs } from "@zoer/plugin-ui/controls";
 import WordPressUpdraftImport from "./WordPressUpdraftImport";
 import { wordpressExtensionActions, wordpressExtensionActionLabel, wordpressExtensionAutoUpdateLabel } from "./wordpressExtensionActions";
 import WordPressConnect from "./WordPressConnect";
@@ -103,7 +104,7 @@ import { hostingerRecordFor, recoveryGateFrom, recoveryPointValidUntil, type Rec
 import { hostConnections, runAction, type HostConnectionAccount } from "../../host/actions";
 import { isLocalWordPress, wordpressLifecycleAction } from "./wordpressLifecycle";
 import { consolidateWordPressSites, readSeparatedSiteConnections, writeSeparatedSiteConnections } from "./wordpressSiteIdentity";
-import { filterWordPressSiteGroups, groupWordPressSites, readSeparatedSitePairs, wordPressSiteCopies, wordPressSiteSource, writeSeparatedSitePairs } from "./wordpressSiteGroups";
+import { filterWordPressSiteGroups, groupWordPressSites, readSeparatedSitePairs, wordPressSiteCopies, wordPressSiteSource, writeSeparatedSitePairs, type WordPressSiteGroup } from "./wordpressSiteGroups";
 import { databaseKeys } from "../../lib/queries/databases";
 import { createdWebsiteOf, siteAccountId, siteInScope, type SiteScope } from "./wordpressSiteAccounts";
 import { DEPLOY_KIND, GROUP_NAME_KIND, makeMainLive, parseGroupName, parseSiteDeploy, removeStackLive, renameGroup, type SiteDeployLink } from "./siteStack";
@@ -453,7 +454,13 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const [faviconChoice, setFaviconChoice] = useState("");
   useEffect(() => { setCardSaveFailed(!saveSiteCardPreferences(cardPreferences)); }, [cardPreferences]);
   const siteGroups = useMemo(() => orderedSiteCards(groupWordPressSites(scopedSites, separatedPairs, separatedConnections, deploys), cardPreferences.order), [scopedSites, separatedPairs, separatedConnections, deploys, cardPreferences.order]);
-  const visibleGroups = useMemo(() => filterWordPressSiteGroups(siteGroups, siteQuery, identity.aliases), [siteGroups, siteQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+  const canNameExternalCard = (site: WordPressManagedSite) => (site.provider === "hostinger" || site.provider === "zoer-connect")
+    && siteGroups.some(group => group.kind === "site" && group.site.id === site.id);
+  const displaySiteName = (site: WordPressManagedSite) => canNameExternalCard(site) ? groupNames.get(site.id) ?? site.name : site.name;
+  const cardName = (group: WordPressSiteGroup) => group.kind === "site" ? displaySiteName(group.site) : groupNames.get(group.id) ?? group.source.name;
+  const editingLocalName = editSite && isLocalWordPress(editSite);
+  const editingExternalName = editSite && canNameExternalCard(editSite);
+  const visibleGroups = filterWordPressSiteGroups(siteGroups, siteQuery, identity.aliases, cardName);
   const faviconGroup = siteGroups.find(group => siteCardId(group) === faviconCardId);
   const chooseFavicon = (id: string) => { setFaviconCardId(id); setFaviconChoice(cardPreferences.faviconSites[id] ?? ""); };
   // The phone picker lists sites in the desktop list's order: each live site followed by its local copies.
@@ -905,9 +912,29 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     }
     client.setQueriesData<WordPressSiteDetails>({ queryKey: [...wordpressKeys.all(), "site", id] }, data => data ? { ...data, site: change(data.site) } : data);
   };
+  const openSiteName = (site: WordPressManagedSite) => {
+    setEditSite(site);
+    setEditName(displaySiteName(site));
+    setEditError(null);
+  };
   const saveSiteName = async () => {
-    if (!editSite || !isLocalWordPress(editSite)) return;
+    if (!editSite) return;
     const site = editSite, name = editName.trim(), previous = site.name;
+    if (canNameExternalCard(site)) {
+      const displayName = name === previous ? "" : name;
+      setEditError(null);
+      setBusy(`rename:${site.id}`);
+      try {
+        await renameGroup(site.id, displayName);
+        await client.invalidateQueries({ queryKey: engineKeys.catalog(GROUP_NAME_KIND) }, { throwOnError: true });
+        setEditSite(null);
+        setNotice(displayName ? `Name in Zoer saved as ${displayName}.` : "Name in Zoer reset to the site's original name.");
+      } catch (caught) {
+        setEditError(caught instanceof Error ? caught.message : "Could not save the name in Zoer.");
+      } finally { setBusy(null); }
+      return;
+    }
+    if (!isLocalWordPress(site)) return;
     if (name === previous) { setEditSite(null); return; }
     setEditError(null); setError(null);
     await client.cancelQueries({ queryKey: wordpressKeys.all() });
@@ -961,7 +988,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     ...(selectedSource ? [{ label: `Compare with ${selectedSource.name}`, icon: <ArrowLeftRight className="h-4 w-4" />, onClick: () => setCompare({ live: selectedSource, local: selected }) }] : []),
     ...selectedCopies.map(copy => ({ label: selectedCopies.length === 1 ? "Compare with local copy" : `Compare with ${copy.name}`, icon: <ArrowLeftRight className="h-4 w-4" />, onClick: () => setCompare({ live: selected, local: copy }) })),
     ...(isLocalWordPress(selected) && !lifecycle ? [{ label: "Refresh site status", icon: <RefreshCw className="h-4 w-4" />, disabled: busy !== null, onClick: () => void refreshAll() }] : []),
-    { label: "Site name & URL", icon: <Pencil className="h-4 w-4" />, onClick: () => { setEditSite(selected); setEditName(selected.name); setEditError(null); } },
+    { label: "Site name & URL", icon: <Pencil className="h-4 w-4" />, onClick: () => openSiteName(selected) },
     ...(lifecycle === "stop" ? [{ label: "Stop site", icon: <Square className="h-4 w-4" />, disabled: busy !== null || transferWriting, onClick: () => void changeLifecycle(selected) }] : []),
     ...(selectedWebsite ? [{ label: "Delete this website", icon: <Trash2 className="h-4 w-4" />, tone: "danger" as const, loading: busy === `delete:${selectedWebsite.id}`, disabled: busy !== null || transferWriting, onClick: () => void deleteWebsite(selected, selectedWebsite) }] : []),
     ...(isLocalWordPress(selected) ? [{ label: "Move to trash", icon: <Trash2 className="h-4 w-4" />, tone: "danger" as const, loading: busy === `delete:${selected.id}`, disabled: busy !== null || transferWriting, onClick: () => void removeSite(selected) }] : []),
@@ -1022,10 +1049,10 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
         </div>}
       </div>}
 
-      {editSite && <Modal mobileSheet title="Edit WordPress site" onClose={() => { if (busy === null) setEditSite(null); }} footer={<div className="flex justify-end gap-2"><Btn disabled={busy !== null} onClick={() => setEditSite(null)}>Cancel</Btn>{isLocalWordPress(editSite) && <Btn variant="primary" disabled={!editName.trim() || editName.trim().length > 100 || busy !== null} loading={busy === `rename:${editSite.id}`} onClick={() => void saveSiteName()}>Save name</Btn>}</div>}>
+      {editSite && <Modal mobileSheet title="Edit WordPress site" onClose={() => { if (busy === null) setEditSite(null); }} footer={<div className="flex justify-end gap-2"><Btn disabled={busy !== null} onClick={() => setEditSite(null)}>Cancel</Btn>{(editingLocalName || editingExternalName) && <Btn variant="primary" disabled={(editingLocalName && !editName.trim()) || editName.trim().length > 100 || busy !== null} loading={busy === `rename:${editSite.id}`} onClick={() => void saveSiteName()}>Save name</Btn>}</div>}>
         <div className="space-y-4 text-sm">
           {editError && <div role="alert" className="rounded-md border border-status-error/30 bg-status-error/10 px-3 py-2 text-status-error">{editError}</div>}
-          {isLocalWordPress(editSite) ? <label className="block"><span className="mb-1.5 block text-text-primary">Name in Zoer</span><input value={editName} maxLength={100} onChange={event => setEditName(event.target.value)} className={controlClass()} /></label> : <p className="text-text-secondary">{editSite.provider === "hostinger" ? "This name comes from the Hostinger WordPress installation. Change the site title in WordPress admin under Settings → General, then refresh sites." : "This name was saved when the site was connected. To change it, reconnect the site with the preferred name."}</p>}
+          {editingLocalName || editingExternalName ? <div><label className="block"><span className="mb-1.5 block text-text-primary">Name in Zoer</span><input value={editName} maxLength={100} onChange={event => setEditName(event.target.value)} className={controlClass()} /></label>{editingExternalName && <p className="mt-2 text-xs text-text-secondary">Clear the display name to restore the original name.</p>}</div> : <p className="text-text-secondary">{editSite.provider === "hostinger" ? "This name comes from the Hostinger WordPress installation. Change the site title in WordPress admin under Settings → General, then refresh sites." : "This name was saved when the site was connected. To change it, reconnect the site with the preferred name."}</p>}
           <div><div className="mb-1.5 text-text-primary">Site URL</div><div className="break-all rounded-md border border-border-default bg-surface-secondary px-3 py-2 text-text-secondary">{editSite.managedUrl || editSite.url || editSite.domain || "No public URL"}</div><p className="mt-2 text-xs leading-5 text-text-secondary">{isLocalWordPress(editSite) ? "Zoer keeps this development address stable so existing links and logins continue to work. The WordPress site title can be changed separately in WordPress admin under Settings → General." : editSite.provider === "hostinger" ? "Change the production domain in Hostinger. Zoer will discover the updated address after you refresh sites." : "Reconnect this site with its new address through Add site."}</p></div>
         </div>
       </Modal>}
@@ -1068,12 +1095,12 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
           <div className="flex gap-2"><SearchInput className="min-w-0 flex-1" value={siteQuery} onChange={setSiteQuery} placeholder="Search sites" />{scopeSelect("w-28 shrink-0")}</div>
           {cardSaveFailed && <p role="status" className="mt-2 text-xs text-status-warning">Browser storage is unavailable. Card preferences will last until this page closes.</p>}
           <div className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto">
-            <SiteCardList groups={visibleGroups} collapsed={cardPreferences.collapsed}
+            <SiteCardList groups={visibleGroups} getName={cardName} collapsed={cardPreferences.collapsed}
               onToggle={id => setCardPreferences(current => ({ ...current, collapsed: current.collapsed.includes(id) ? current.collapsed.filter(item => item !== id) : [...current.collapsed, id] }))}
               onMove={(id, target, after) => setCardPreferences(current => ({ ...current, order: moveSiteCard(current.order, siteGroups.map(siteCardId), id, target, after) }))}
               renderCard={(group, layout) => group.kind === "pair"
               ? <SitePairCard layout={layout} faviconSite={siteCardFaviconSite(group, cardPreferences.faviconSites)} onChooseFavicon={() => chooseFavicon(group.id)} onAddCopy={() => setLinkRequest({ mode: "copy", source: group.source, copies: group.copies })} source={group.source} name={groupNames.get(identity.canonicalId(group.id)) ?? null} onRename={() => void renameCard(identity.canonicalId(group.id), groupNames.get(identity.canonicalId(group.id)) ?? group.source.name, group.source.name)} lives={group.lives} copies={group.copies} selectedId={selected?.id ?? null} onSelect={selectSite} onSeparate={() => setPairSeparated(group.id, true)} onOpen={site => void openSiteLink(site)} onPull={(local, live) => setPullInto({ local, live })} onPush={(local, live) => pushFromTo(local, live ? identity.connector(live).id : null)} onCompare={(live, local) => setCompare({ live, local })} paused={pairWriting([group.source, ...group.lives, ...group.copies])} />
-              : <SiteCard layout={layout} site={group.site} selected={selected?.id === group.site.id} onSelect={selectSite} mergeInto={(() => {
+              : <SiteCard layout={layout} site={group.site} name={displaySiteName(group.site)} onRename={canNameExternalCard(group.site) ? () => openSiteName(group.site) : undefined} selected={selected?.id === group.site.id} onSelect={selectSite} mergeInto={(() => {
                   // A separated copy, or a live site with separated copies, offers to merge again.
                   const source = wordPressSiteSource(sites, group.site, separatedConnections);
                   if (source) return identity.aliases(source.id).some(alias => separatedPairs.has(alias.id)) ? source : null;
@@ -1088,7 +1115,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
         <div ref={pageScroll} className="@container flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">
           {/* Phones: the site list is a picker, grouped like the desktop list, with the scope filter beside it. */}
           <div className="flex items-center gap-2 px-3 pt-3 lg:hidden">
-            <label className="min-w-0 flex-1"><span className="sr-only">Site</span><Select searchable aria-label="Select WordPress site" optionDetails={siteOptions(pickerOrder, identity.aliases, pickerCopyOf, accountName)} value={selectedSummary?.id || ""} onChange={e => { setExtensionPlan(null); setDevelopingPlugin(null); setSelectedId(e.target.value); setTab("overview"); }} className={selectClass("compact")}><option value="" disabled>Select a site</option>{pickerOrder.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</Select></label>
+            <label className="min-w-0 flex-1"><span className="sr-only">Site</span><Select searchable aria-label="Select WordPress site" optionDetails={siteOptions(pickerOrder, identity.aliases, pickerCopyOf, accountName)} value={selectedSummary?.id || ""} onChange={e => { setExtensionPlan(null); setDevelopingPlugin(null); setSelectedId(e.target.value); setTab("overview"); }} className={selectClass("compact")}><option value="" disabled>Select a site</option>{pickerOrder.map(site => <option key={site.id} value={site.id}>{displaySiteName(site)}</option>)}</Select></label>
             {scopeSelect("w-[5.5rem] shrink-0", true)}
           </div>
           <div className="max-w-5xl shrink-0 px-3 py-3 sm:px-4">
@@ -1096,8 +1123,8 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
               <div className="min-w-0 flex-1">
                 {/* Below lg the site picker above already names the site. */}
                 <div className={`min-w-0 items-center gap-1 ${selected ? "hidden lg:flex" : "flex"}`}>
-                  <h2 className="truncate text-[15px] font-semibold text-text-heading">{selected?.name || "No site selected"}</h2>
-                  {selected && isLocalWordPress(selected) && <button type="button" aria-label={`Rename ${selected.name}`} title="Rename" onClick={() => { setEditSite(selected); setEditName(selected.name); setEditError(null); }} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-text-muted transition hover:bg-surface-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-focus sm:h-7 sm:w-7"><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></button>}
+                  <h2 className="truncate text-[15px] font-semibold text-text-heading">{selected ? displaySiteName(selected) : "No site selected"}</h2>
+                  {selected && isLocalWordPress(selected) && <button type="button" aria-label={`Rename ${selected.name}`} title="Rename" onClick={() => openSiteName(selected)} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-text-muted transition hover:bg-surface-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-focus sm:h-7 sm:w-7"><Pencil className="h-3.5 w-3.5" aria-hidden="true" /></button>}
                 </div>
                 {selected ? <>
                   <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-text-secondary lg:mt-1">
@@ -1197,13 +1224,18 @@ function SiteBadges({ site }: { site: WordPressManagedSite }) {
   return <div className="mt-1.5 flex flex-wrap gap-1.5">{site.updates ? <span className="rounded bg-status-warning/10 px-1.5 py-0.5 text-[12px] text-status-warning">{site.updates} {site.updates === 1 ? "update" : "updates"}</span> : null}{site.vulnerabilities ? <span className="rounded bg-status-error/10 px-1.5 py-0.5 text-[12px] text-status-error">{site.vulnerabilities} {site.vulnerabilities === 1 ? "risk" : "risks"}</span> : null}</div>;
 }
 
-/** Healthy sites get a quiet dot; any other state keeps its label so it stands out. */
-function SiteStatus({ status, site }: { status: string; site?: WordPressManagedSite }) {
-  const lookup = useContext(ProblemContext);
-  const problem = site ? lookup(site) : null;
-  if (site && problem) return <StatusBadge tone={problem.kind === "unreachable" ? "error" : "warning"}>{problemLabel(problem)}</StatusBadge>;
-  if (status === "running" || status === "connected") return <span role="img" aria-label={statusLabel(status)} className="mt-1 h-2 w-2 shrink-0 rounded-full bg-status-success" />;
-  return <Status status={status} />;
+function SiteStatus({ site }: { site: WordPressManagedSite }) {
+  const problem = useContext(ProblemContext)(site);
+  const label = problem ? problemLabel(problem) : statusLabel(site.status);
+  const tone = problem ? (problem.kind === "unreachable" ? "error" : "warning")
+    : site.status === "stopped" || site.status === "exited" ? "error" : statusTone(site.status);
+  const Dot = controls.StatusDot;
+  if (Dot) return <Dot status={tone === "neutral" ? "idle" : tone} label={label} />;
+  return <Tooltip content={label} persistOnClick>
+    <span role="img" aria-label={label} className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+      <StatusBadge tone={tone} variant="dot" className="[&>span:last-child]:sr-only">{label}</StatusBadge>
+    </span>
+  </Tooltip>;
 }
 
 function siteHost(site: WordPressManagedSite) {
@@ -1212,18 +1244,20 @@ function siteHost(site: WordPressManagedSite) {
 
 const pairControlClass = "inline-flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-text-muted transition hover:bg-surface-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-focus";
 
-function SiteCard({ site, selected, onSelect, mergeInto, onMerge, layout }: { site: WordPressManagedSite; selected: boolean; onSelect: (site: WordPressManagedSite) => void; mergeInto: WordPressManagedSite | null; onMerge: (source: WordPressManagedSite) => void; layout: SiteCardControls }) {
+function SiteCard({ site, name, onRename, selected, onSelect, mergeInto, onMerge, layout }: { site: WordPressManagedSite; name: string; onRename?: () => void; selected: boolean; onSelect: (site: WordPressManagedSite) => void; mergeInto: WordPressManagedSite | null; onMerge: (source: WordPressManagedSite) => void; layout: SiteCardControls }) {
+  const location = `${siteLocation(site)} · ${siteHost(site)}`;
   return <div className={`rounded-lg border transition ${selected ? "border-accent/40 bg-accent-subtle" : "border-border-muted bg-surface-primary/40 hover:border-border-default hover:bg-surface-hover"}`}>
     <div className="flex items-center gap-1 px-1 py-0.5">
       {layout.handle}{layout.toggle}<SiteFavicon site={site} />
-      <button type="button" aria-pressed={selected} onClick={() => onSelect(site)} className="min-w-0 flex-1 rounded px-1 py-1.5 text-left text-[13px] font-medium text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-focus"><span className="break-words">{site.name}</span></button>
-      <span className="mr-1 shrink-0">
-        <SiteStatus status={site.status} site={site} />
-      </span>
+      <Tooltip content={name} className="min-w-0 flex-1">
+        <button type="button" aria-pressed={selected} onClick={() => onSelect(site)} className="w-full rounded px-1 py-1.5 text-left text-[13px] font-medium text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-focus"><span className="line-clamp-2 break-words">{name}</span></button>
+      </Tooltip>
+      <SiteStatus site={site} />
+      {onRename && <ActionMenu label={`Actions for ${name}`} items={[{ label: "Edit name in Zoer", icon: <Pencil className="h-4 w-4" />, onClick: onRename }]} size="sm" />}
     </div>
     <div id={layout.contentId} hidden={layout.collapsed}>
-    <button type="button" aria-label={`Select ${site.name}`} aria-pressed={selected} onClick={() => onSelect(site)} className="w-full rounded-lg px-2.5 pb-2.5 text-left">
-      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-text-secondary"><SiteAccount site={site} /><span className="truncate">{siteLocation(site)} · {siteHost(site)}</span></div>
+    <button type="button" aria-label={`Select ${name}`} aria-pressed={selected} onClick={() => onSelect(site)} className="w-full rounded-lg px-2.5 pb-2.5 text-left">
+      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-text-secondary"><SiteAccount site={site} /><Tooltip content={location} className="min-w-0"><span className="block truncate">{location}</span></Tooltip></div>
       <SiteBadges site={site} />
     </button>
     {mergeInto && <div className="flex justify-end border-t border-border-muted/60 px-1.5 py-1">
@@ -1260,18 +1294,19 @@ function SitePairCard({ source, name = null, onRename, lives = [], copies, selec
   return <div className={`overflow-hidden rounded-lg border transition ${active ? "border-accent/40" : "border-border-muted"} bg-surface-primary/40`}>
     <div className="flex items-center gap-1 px-1 py-0.5">
       {layout.handle}{layout.toggle}<SiteFavicon site={faviconSite} />
-      <div className="min-w-0 flex-1 break-words px-1 text-[13px] font-semibold text-text-heading" title={name ? `Renamed card · main site ${source.name}` : undefined}>{name ?? source.name}</div>
+      <Tooltip content={name ?? source.name} className="min-w-0 flex-1"><span className="line-clamp-2 break-words px-1 text-[13px] font-semibold text-text-heading">{name ?? source.name}</span></Tooltip>
       <ActionMenu label={`Actions for ${name ?? source.name}`} items={menu} size="sm" />
     </div>
     <div id={layout.contentId} hidden={layout.collapsed} className="divide-y divide-border-muted border-t border-border-muted">
       {members.map((site) => {
         const selected = site.id === selectedId;
+        const hostname = siteHost(site);
         return <button key={site.id} type="button" aria-pressed={selected} onClick={() => onSelect(site)} className={`block w-full px-2.5 py-2 text-left transition ${selected ? "bg-accent-subtle shadow-[inset_2px_0_0_var(--accent)]" : "hover:bg-surface-hover"}`}>
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center justify-between gap-2">
             <span className="flex min-w-0 items-center gap-2 text-[12px] font-medium text-text-primary">{providerIcon(site.provider)}<span className="truncate">{siteLocation(site)}{lives.length > 0 && site.id === source.id ? " · main" : ""}</span></span>
-            <SiteStatus status={site.status} site={site} />
+            <SiteStatus site={site} />
           </div>
-          <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-text-secondary"><SiteAccount site={site} /><span className="truncate">{siteHost(site)}</span></div>
+          <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-text-secondary"><SiteAccount site={site} /><Tooltip content={hostname} className="min-w-0"><span className="block truncate">{hostname}</span></Tooltip></div>
           <SiteBadges site={site} />
         </button>;
       })}

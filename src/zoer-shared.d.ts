@@ -76,6 +76,7 @@ declare module "@zoer/plugin-ui/controls" {
  export const fieldLabelClass:string,checkboxClass:string,radioClass:string;
  export type StatusTone="success"|"running"|"warning"|"error"|"info"|"neutral";
  export function StatusBadge(props:{children:ReactNode;tone?:StatusTone;variant?:"pill"|"dot";icon?:ReactNode;className?:string}):ReactElement;
+ export const StatusDot: ((props:{status:"success"|"running"|"warning"|"error"|"info"|"idle";label?:string})=>ReactElement) | undefined;
  export interface ActionMenuItem {label:string;icon?:ReactNode;onClick:()=>void;disabled?:boolean;loading?:boolean;tone?:"default"|"danger";}
  export function ActionMenu(props:{label:string;items:ActionMenuItem[];trigger?:"icon"|"text";triggerLabel?:string;size?:"sm"|"md";className?:string}):ReactElement;
  export function EmptyState(props:{icon?:ReactNode;title:string;description?:string;action?:ReactNode}):ReactElement;

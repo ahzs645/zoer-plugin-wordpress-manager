@@ -39,6 +39,14 @@ test("searching keeps a pair together when only one side matches", () => {
   expect(filterWordPressSiteGroups(groups, "  ")).toBe(groups);
 });
 
+test("search finds a standalone site by its Zoer name or its provider domain", () => {
+  const groups = groupWordPressSites(sites, new Set());
+  const getName = (group: (typeof groups)[number]) => group.kind === "site" && group.site === other ? "Downtown studio" : "";
+  const standalone = [{ kind: "site" as const, site: other }];
+  expect(filterWordPressSiteGroups(groups, "DOWNTOWN", undefined, getName)).toEqual(standalone);
+  expect(filterWordPressSiteGroups(groups, "other.example", undefined, getName)).toEqual(standalone);
+});
+
 test("counterparts resolve in both directions and never to a missing site", () => {
   expect(wordPressSiteSource(sites, copy)).toBe(live);
   expect(wordPressSiteSource(sites, orphan)).toBeNull();

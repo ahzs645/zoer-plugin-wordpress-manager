@@ -50,6 +50,8 @@ The live site's **Transfers → Push** uses the same form with a local-site pick
 
 ## Site page layout (unreleased)
 
+Site names in the desktop list wrap to two lines, with the full name on hover. Standalone cards and grouped site rows use the same status dots, with the status shown on hover. For a standalone external site, use **Card menu → Edit name in Zoer** to save a display name. On phones, open **Site actions → Site name & URL**. Clearing the field restores the provider name.
+
 **Site cards.** The desktop site list has collapse buttons and drag handles. Drag a handle to move a card, or focus it and press Up/Down; Escape cancels a drag. Order and collapsed state are saved in this browser, including when the list is filtered. The phone site picker follows the saved order. A standalone card shows its website’s favicon; a group uses its first site’s favicon by default. **Card menu → Choose card favicon** selects another member. Missing icons fall back to a globe. Favicons require the matching Zoer host’s read-only `/wordpress-manager/sites/:id/favicon` service, which returns bounded, cached images through the scoped bridge without changing the page’s image policy. This source change has not been deployed or qualified against a live Zoer instance.
 
 A site's page has seven sections: **Overview** (Local and live, WordPress core updates, Site Health), **Plugins & themes** (one list with a Plugins | Themes switch), **Development**, **Publish** (Push to live and Hostinger publishing), **Backups** (download, automatic recovery points, restore into a new local site), **Activity** and **Security** (local DDEV sites; formerly *Scan & report*). Earlier routes keep working: `themes` opens the Themes half, `updates` and `history` open Activity.

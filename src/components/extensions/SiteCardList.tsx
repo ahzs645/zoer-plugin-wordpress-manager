@@ -6,8 +6,9 @@ import { siteCardId, siteCardMembers } from "./siteCardPreferences";
 export interface SiteCardControls { handle: ReactNode; toggle: ReactNode; collapsed: boolean; contentId: string }
 
 /** Pointer dragging works with mouse, pen and touch; the focused handle also accepts arrow keys. */
-export default function SiteCardList({ groups, collapsed, onToggle, onMove, renderCard }: {
+export default function SiteCardList({ groups, getName = group => siteCardMembers(group)[0]!.name, collapsed, onToggle, onMove, renderCard }: {
   groups: WordPressSiteGroup[]; collapsed: readonly string[];
+  getName?: (group: WordPressSiteGroup) => string;
   onToggle: (id: string) => void;
   onMove: (id: string, target: string, after: boolean) => void;
   renderCard: (group: WordPressSiteGroup, controls: SiteCardControls) => ReactNode;
@@ -17,7 +18,6 @@ export default function SiteCardList({ groups, collapsed, onToggle, onMove, rend
   const drag = useRef<{ id: string; pointer: number; x: number; y: number; active: boolean; target: string; after: boolean } | null>(null);
   const [feedback, setFeedback] = useState<{ id: string; target: string; after: boolean } | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const label = (group: WordPressSiteGroup) => siteCardMembers(group)[0]!.name;
   const controls = "inline-flex h-8 w-6 shrink-0 items-center justify-center rounded text-text-muted hover:bg-surface-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-focus";
   const finish = (commit: boolean) => {
     const state = drag.current;
@@ -31,7 +31,7 @@ export default function SiteCardList({ groups, collapsed, onToggle, onMove, rend
     <p id={`${prefix}-help`} className="sr-only">Drag to reorder cards, or use Up and Down arrow keys on a drag handle. Press Escape to cancel dragging.</p>
     <p role="status" aria-live="polite" className="sr-only">{announcement}</p>
     {groups.map((group, index) => {
-      const id = siteCardId(group), name = label(group), isCollapsed = collapsed.includes(id);
+      const id = siteCardId(group), name = getName(group), isCollapsed = collapsed.includes(id);
       const contentId = `${prefix}-${encodeURIComponent(id)}`;
       return <div key={id} data-site-card-id={id} className={`relative rounded-lg ${feedback?.id === id ? "opacity-60" : ""} ${feedback?.target === id && feedback.id !== id ? feedback.after ? "after:absolute after:inset-x-0 after:-bottom-1 after:h-0.5 after:bg-accent" : "before:absolute before:inset-x-0 before:-top-1 before:h-0.5 before:bg-accent" : ""}`}>
         {renderCard(group, {
