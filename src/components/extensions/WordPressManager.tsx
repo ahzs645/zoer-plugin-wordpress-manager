@@ -107,6 +107,9 @@ import { databaseKeys } from "../../lib/queries/databases";
 import { createdWebsiteOf, siteAccountId, siteInScope, type SiteScope } from "./wordpressSiteAccounts";
 import { DEPLOY_KIND, GROUP_NAME_KIND, makeMainLive, parseGroupName, parseSiteDeploy, removeStackLive, renameGroup, type SiteDeployLink } from "./siteStack";
 import { rememberConnectedWordPressSite } from "../../lib/queries/connected-wordpress-site";
+import SiteCardList, { type SiteCardControls } from "./SiteCardList";
+import SiteFavicon from "./SiteFavicon";
+import { moveSiteCard, orderedSiteCards, readSiteCardPreferences, saveSiteCardPreferences, siteCardFaviconSite, siteCardId, siteCardMembers } from "./siteCardPreferences";
 
 function siteLocation(site: WordPressManagedSite) {
   return site.provider === "zoer-connect" ? "External · Zoer Connect" : site.provider === "hostinger" ? "Live · Hostinger" : site.provider === "kubernetes" ? "Local · Kubernetes" : site.provider === "ddev" ? "Local · DDEV" : "Local · Playground";
@@ -122,7 +125,7 @@ function siteOptions(sites: WordPressManagedSite[], aliases: (id: string) => Wor
     // Local sites' long development hosts repeat their names; live sites show their public domain.
     const account = accountOf(site);
     const where = source ? `Local copy of ${source.name}` : isLocalWordPress(site) ? siteLocation(site) : `${siteLocation(site)}${account ? ` · ${account}` : ""} · ${siteDomain(site)}`;
-    return [site.id, { icon: providerIcon(site.provider), description: `${where}${status}`, keywords: [siteDomain(site), source?.name ?? "", account ?? "", ...aliases(site.id).map(alias => `${alias.name} ${alias.provider}`)].join(" ") }];
+    return [site.id, { icon: <SiteFavicon site={site} />, description: `${where}${status}`, keywords: [siteDomain(site), source?.name ?? "", account ?? "", ...aliases(site.id).map(alias => `${alias.name} ${alias.provider}`)].join(" ") }];
   }));
 }
 
@@ -443,8 +446,15 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
   const ddevConnector = runtimeConnectors.find((connector) => connector.id === "ddev");
   // New site → Blank local site: DDEV unless chosen otherwise or unavailable.
   const runtime = blankRuntime ?? (ddevConnector?.active ? "ddev" : "playground");
-  const siteGroups = useMemo(() => groupWordPressSites(scopedSites, separatedPairs, separatedConnections, deploys), [scopedSites, separatedPairs, separatedConnections, deploys]);
+  const [cardPreferences, setCardPreferences] = useState(readSiteCardPreferences);
+  const [cardSaveFailed, setCardSaveFailed] = useState(false);
+  const [faviconCardId, setFaviconCardId] = useState<string | null>(null);
+  const [faviconChoice, setFaviconChoice] = useState("");
+  useEffect(() => { setCardSaveFailed(!saveSiteCardPreferences(cardPreferences)); }, [cardPreferences]);
+  const siteGroups = useMemo(() => orderedSiteCards(groupWordPressSites(scopedSites, separatedPairs, separatedConnections, deploys), cardPreferences.order), [scopedSites, separatedPairs, separatedConnections, deploys, cardPreferences.order]);
   const visibleGroups = useMemo(() => filterWordPressSiteGroups(siteGroups, siteQuery, identity.aliases), [siteGroups, siteQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+  const faviconGroup = siteGroups.find(group => siteCardId(group) === faviconCardId);
+  const chooseFavicon = (id: string) => { setFaviconCardId(id); setFaviconChoice(cardPreferences.faviconSites[id] ?? ""); };
   // The phone picker lists sites in the desktop list's order: each live site followed by its local copies.
   const pickerOrder = useMemo(() => siteGroups.flatMap(group => group.kind === "pair" ? [group.source, ...group.lives, ...group.copies] : [group.site]), [siteGroups]);
   const pickerCopyOf = useMemo(() => new Map(siteGroups.flatMap(group => group.kind === "pair" ? group.copies.map(copy => [copy.id, group.source] as const) : [])), [siteGroups]);
@@ -1052,15 +1062,19 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
       <div className="flex min-h-0 flex-1">
         <aside aria-label="WordPress sites" className="hidden w-[280px] shrink-0 flex-col border-r border-border-default p-3 lg:flex">
           <div className="flex gap-2"><SearchInput className="min-w-0 flex-1" value={siteQuery} onChange={setSiteQuery} placeholder="Search sites" />{scopeSelect("w-28 shrink-0")}</div>
+          {cardSaveFailed && <p role="status" className="mt-2 text-xs text-status-warning">Browser storage is unavailable. Card preferences will last until this page closes.</p>}
           <div className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto">
-            {visibleGroups.map((group) => group.kind === "pair"
-              ? <SitePairCard key={`pair:${group.id}`} onAddCopy={() => setLinkRequest({ mode: "copy", source: group.source, copies: group.copies })} source={group.source} name={groupNames.get(identity.canonicalId(group.id)) ?? null} onRename={() => void renameCard(identity.canonicalId(group.id), groupNames.get(identity.canonicalId(group.id)) ?? group.source.name, group.source.name)} lives={group.lives} copies={group.copies} selectedId={selected?.id ?? null} onSelect={selectSite} onSeparate={() => setPairSeparated(group.id, true)} onOpen={site => void openSiteLink(site)} onPull={(local, live) => setPullInto({ local, live })} onPush={(local, live) => pushFromTo(local, live ? identity.connector(live).id : null)} onCompare={(live, local) => setCompare({ live, local })} paused={pairWriting([group.source, ...group.lives, ...group.copies])} />
-              : <SiteCard key={group.site.id} site={group.site} selected={selected?.id === group.site.id} onSelect={selectSite} mergeInto={(() => {
+            <SiteCardList groups={visibleGroups} collapsed={cardPreferences.collapsed}
+              onToggle={id => setCardPreferences(current => ({ ...current, collapsed: current.collapsed.includes(id) ? current.collapsed.filter(item => item !== id) : [...current.collapsed, id] }))}
+              onMove={(id, target, after) => setCardPreferences(current => ({ ...current, order: moveSiteCard(current.order, siteGroups.map(siteCardId), id, target, after) }))}
+              renderCard={(group, layout) => group.kind === "pair"
+              ? <SitePairCard layout={layout} faviconSite={siteCardFaviconSite(group, cardPreferences.faviconSites)} onChooseFavicon={() => chooseFavicon(group.id)} onAddCopy={() => setLinkRequest({ mode: "copy", source: group.source, copies: group.copies })} source={group.source} name={groupNames.get(identity.canonicalId(group.id)) ?? null} onRename={() => void renameCard(identity.canonicalId(group.id), groupNames.get(identity.canonicalId(group.id)) ?? group.source.name, group.source.name)} lives={group.lives} copies={group.copies} selectedId={selected?.id ?? null} onSelect={selectSite} onSeparate={() => setPairSeparated(group.id, true)} onOpen={site => void openSiteLink(site)} onPull={(local, live) => setPullInto({ local, live })} onPush={(local, live) => pushFromTo(local, live ? identity.connector(live).id : null)} onCompare={(live, local) => setCompare({ live, local })} paused={pairWriting([group.source, ...group.lives, ...group.copies])} />
+              : <SiteCard layout={layout} site={group.site} selected={selected?.id === group.site.id} onSelect={selectSite} mergeInto={(() => {
                   // A separated copy, or a live site with separated copies, offers to merge again.
                   const source = wordPressSiteSource(sites, group.site, separatedConnections);
                   if (source) return identity.aliases(source.id).some(alias => separatedPairs.has(alias.id)) ? source : null;
                   return identity.aliases(group.site.id).some(alias => separatedPairs.has(alias.id)) && wordPressSiteCopies(sites, group.site, separatedConnections).length ? group.site : null;
-                })()} onMerge={(source) => setPairSeparated(source.id, false)} />)}
+                })()} onMerge={(source) => setPairSeparated(source.id, false)} />}/>
             {!visibleGroups.length && <EmptyState icon={<Globe2 />} title={siteQuery ? "No matches" : scope === "local" ? "No local sites" : scope !== "all" ? "No sites on this account" : "No sites yet"} description={siteQuery ? undefined : "Create a local site or connect one."} />}
           </div>
         </aside>
@@ -1157,6 +1171,17 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
       {publishPlan && <ReviewPanel title={`${publishPlan.mode === "replace" ? "Replace" : "Publish"} ${publishPlan.domain}`} plan={publishPlan} confirmation={confirmation} setConfirmation={setConfirmation} busy={busy === "execute-publish"} onApply={executePublish} onCancel={() => { setPublishPlan(null); setConfirmation(""); }} />}
       {linkRequest && <LinkSiteDialog request={linkRequest} sites={identity.sites} sourceOf={site => wordPressSiteSource(sites, site, separatedConnections)} onClose={() => setLinkRequest(null)} />}
       {replaceKeyFor && <WordPressConnect key={`replace:${replaceKeyFor.id}`} autoOpen siteId={identity.connector(replaceKeyFor).id} siteName={replaceKeyFor.name} onDismiss={() => { setReplaceKeyFor(null); void health.recheck(); }} />}
+      {faviconGroup && <Modal title="Card favicon" onClose={() => setFaviconCardId(null)} footer={<><Btn variant="ghost" onClick={() => setFaviconCardId(null)}>Cancel</Btn><Btn variant="primary" onClick={() => {
+        setCardPreferences(current => { const faviconSites = { ...current.faviconSites }; if (faviconChoice) faviconSites[siteCardId(faviconGroup)] = faviconChoice; else delete faviconSites[siteCardId(faviconGroup)]; return { ...current, faviconSites }; });
+        setFaviconCardId(null);
+      }}>Save</Btn></>}>
+        <p className="mb-4 text-sm text-text-secondary">Choose which website supplies this card’s favicon. The first website is used by default. This preference is saved in this browser.</p>
+        <label className="block text-sm font-medium">Website favicon<Select className={selectClass("default", "mt-2")} value={siteCardMembers(faviconGroup).some(site => site.id === faviconChoice) ? faviconChoice : ""} onChange={event => setFaviconChoice(event.target.value)}>
+          <option value="">First website (automatic)</option>
+          {siteCardMembers(faviconGroup).map(site => <option key={site.id} value={site.id}>{site.name} · {siteHost(site)}</option>)}
+        </Select></label>
+        <div className="mt-4 flex items-center gap-2 text-sm"><SiteFavicon site={siteCardFaviconSite(faviconGroup, { [siteCardId(faviconGroup)]: faviconChoice })} /><span>Preview</span></div>
+      </Modal>}
     </section>
     </PluginPage>
     </AccountContext.Provider></ProblemContext.Provider>
@@ -1183,24 +1208,30 @@ function siteHost(site: WordPressManagedSite) {
 
 const pairControlClass = "inline-flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-text-muted transition hover:bg-surface-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-focus";
 
-function SiteCard({ site, selected, onSelect, mergeInto, onMerge }: { site: WordPressManagedSite; selected: boolean; onSelect: (site: WordPressManagedSite) => void; mergeInto: WordPressManagedSite | null; onMerge: (source: WordPressManagedSite) => void }) {
+function SiteCard({ site, selected, onSelect, mergeInto, onMerge, layout }: { site: WordPressManagedSite; selected: boolean; onSelect: (site: WordPressManagedSite) => void; mergeInto: WordPressManagedSite | null; onMerge: (source: WordPressManagedSite) => void; layout: SiteCardControls }) {
   return <div className={`rounded-lg border transition ${selected ? "border-accent/40 bg-accent-subtle" : "border-border-muted bg-surface-primary/40 hover:border-border-default hover:bg-surface-hover"}`}>
-    <button type="button" aria-pressed={selected} onClick={() => onSelect(site)} className="w-full rounded-lg p-2.5 text-left">
-      <div className="flex items-start justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-text-primary">{providerIcon(site.provider)}<span className="break-words">{site.name}</span></span>
+    <div className="flex items-center gap-1 px-1 py-0.5">
+      {layout.handle}{layout.toggle}<SiteFavicon site={site} />
+      <button type="button" aria-pressed={selected} onClick={() => onSelect(site)} className="min-w-0 flex-1 rounded px-1 py-1.5 text-left text-[13px] font-medium text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-focus"><span className="break-words">{site.name}</span></button>
+      <span className="mr-1 shrink-0">
         <SiteStatus status={site.status} site={site} />
-      </div>
+      </span>
+    </div>
+    <div id={layout.contentId} hidden={layout.collapsed}>
+    <button type="button" aria-label={`Select ${site.name}`} aria-pressed={selected} onClick={() => onSelect(site)} className="w-full rounded-lg px-2.5 pb-2.5 text-left">
       <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-text-secondary"><SiteAccount site={site} /><span className="truncate">{siteLocation(site)} · {siteHost(site)}</span></div>
       <SiteBadges site={site} />
     </button>
     {mergeInto && <div className="flex justify-end border-t border-border-muted/60 px-1.5 py-1">
       <button type="button" title={mergeInto.id === site.id ? "Show this site and its local copies as one card" : `Show this local copy on the ${mergeInto.name} card`} onClick={() => onMerge(mergeInto)} className={pairControlClass}><Link2 className="h-3 w-3" aria-hidden="true" />{mergeInto.id === site.id ? "Merge with local copies" : "Merge with live site"}</button>
     </div>}
+    </div>
   </div>;
 }
 
 /** One card for a live site and the local copies made from it; each environment is its own row. */
-function SitePairCard({ source, name = null, onRename, lives = [], copies, selectedId, onSelect, onSeparate, onAddCopy, onOpen, onPull, onPush, onCompare, paused = false }: {
+function SitePairCard({ source, name = null, onRename, lives = [], copies, selectedId, onSelect, onSeparate, onAddCopy, onOpen, onPull, onPush, onCompare, paused = false, layout, faviconSite, onChooseFavicon }: {
+  layout: SiteCardControls; faviconSite: WordPressManagedSite; onChooseFavicon: () => void;
   source: WordPressManagedSite; /** The card's own name, when renamed. */ name?: string | null; /** Rename card. */ onRename?: () => void; /** Other live sites the copies were deployed to. */ lives?: WordPressManagedSite[]; copies: WordPressManagedSite[]; selectedId: string | null; onSelect: (site: WordPressManagedSite) => void; onSeparate: () => void; /** Adds an existing local site to this card. */ onAddCopy: () => void;
   onOpen: (site: WordPressManagedSite) => void; onPull: (local: WordPressManagedSite, live: WordPressManagedSite) => void; /** Push to live from `local`, to `live` when not the main live site. */ onPush: (local: WordPressManagedSite, live?: WordPressManagedSite) => void;
   onCompare: (live: WordPressManagedSite, local: WordPressManagedSite) => void; /** A transfer is writing to the selected site. */ paused?: boolean;
@@ -1218,15 +1249,17 @@ function SitePairCard({ source, name = null, onRename, lives = [], copies, selec
     ...lives.filter(live => live.capabilities.preview && wordpressPreviewUrl(live)).map(live => ({ label: `Open ${siteHost(live)}`, icon: <ExternalLink className="h-4 w-4" />, onClick: () => onOpen(live) })),
     ...(copies.length === 1 ? lives.map(live => ({ label: `Push to ${siteHost(live)}`, icon: <Rocket className="h-4 w-4" />, disabled: paused, onClick: () => onPush(copies[0]!, live) })) : []),
     ...(onRename ? [{ label: "Rename card", icon: <Pencil className="h-4 w-4" />, onClick: onRename }] : []),
+    { label: "Choose card favicon", icon: <Globe2 className="h-4 w-4" />, onClick: onChooseFavicon },
     { label: "Add a local site to this card", icon: <Link2 className="h-4 w-4" />, onClick: onAddCopy },
     { label: "Show as separate cards", icon: <Unlink2 className="h-4 w-4" />, onClick: onSeparate },
   ];
   return <div className={`overflow-hidden rounded-lg border transition ${active ? "border-accent/40" : "border-border-muted"} bg-surface-primary/40`}>
-    <div className="flex items-center justify-between gap-2 py-0.5 pl-2.5 pr-1">
-      <div className="min-w-0 break-words text-[13px] font-semibold text-text-heading" title={name ? `Renamed card · main site ${source.name}` : undefined}>{name ?? source.name}</div>
+    <div className="flex items-center gap-1 px-1 py-0.5">
+      {layout.handle}{layout.toggle}<SiteFavicon site={faviconSite} />
+      <div className="min-w-0 flex-1 break-words px-1 text-[13px] font-semibold text-text-heading" title={name ? `Renamed card · main site ${source.name}` : undefined}>{name ?? source.name}</div>
       <ActionMenu label={`Actions for ${name ?? source.name}`} items={menu} size="sm" />
     </div>
-    <div className="divide-y divide-border-muted border-t border-border-muted">
+    <div id={layout.contentId} hidden={layout.collapsed} className="divide-y divide-border-muted border-t border-border-muted">
       {members.map((site) => {
         const selected = site.id === selectedId;
         return <button key={site.id} type="button" aria-pressed={selected} onClick={() => onSelect(site)} className={`block w-full px-2.5 py-2 text-left transition ${selected ? "bg-accent-subtle shadow-[inset_2px_0_0_var(--accent)]" : "hover:bg-surface-hover"}`}>
