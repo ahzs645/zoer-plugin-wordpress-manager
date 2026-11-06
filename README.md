@@ -2,6 +2,10 @@
 
 Independent source and releases for the `wordpress-manager` native plugin. This repository owns its interface and isolated workers. Zoer provides reviewed host services, shared controls and provider credential storage. The first extracted release is **0.5.0**; **0.5.1** adds the shared public type snapshot and reliable source resolution, preserving the existing plugin ID and site/account/backup/transfer state.
 
+## Extension library (unreleased)
+
+**WordPress → Extension library** manages your own plugins and themes by GitHub repository. Add repositories individually, add a manifest from GitHub, JSON or an already imported repository, and export the combined library with its manifest sources and snapshots. Search the saved extensions, copy an `@wordpress` chat reference, edit sources, or explicitly review and save a refreshed manifest. The feature lives entirely in WordPress Manager and uses its existing scoped catalog and host services. Adding references does not clone, install or activate code. See [the guide and chat support](docs/extension-library.md) and [example manifest](docs/examples/wordpress-library.json).
+
 ## Static website export (unreleased)
 
 **Partial.** On a managed DDEV site, **Push & pull → Export static website** now provides a native public-site export workflow: choose the whole website or selected page paths, check sampled pages and compatibility findings, build, preview and download a static ZIP. **Portable relative links** supports reuse under different website folders; **Links under a destination path** uses an explicit path. Options bound pages, assets and output size. Saved exports show progress and findings, can be cancelled or retried, and can be deleted through their menu. Completed downloads remain available when the source site is stopped.

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "repositories": [
+    {
+      "kind": "plugin",
+      "name": "Our forms",
+      "slug": "our-forms",
+      "repositoryUrl": "https://github.com/example/our-forms",
+      "ref": "main",
+      "path": ".",
+      "description": "Our reusable form builder."
+    },
+    {
+      "kind": "theme",
+      "name": "Our starter theme",
+      "slug": "our-starter",
+      "repositoryUrl": "https://github.com/example/our-themes",
+      "ref": "main",
+      "path": "themes/our-starter"
+    }
+  ],
+  "manifests": [
+    {
+      "name": "Shared extensions",
+      "repositoryUrl": "https://github.com/example/wordpress-catalog",
+      "ref": "main",
+      "path": "collections/shared.json"
+    }
+  ]
+}

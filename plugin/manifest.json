@@ -25,7 +25,8 @@
       "routes:hosted"
     ],
     "networkAllowlist": [
-      "developers.hostinger.com"
+      "developers.hostinger.com",
+      "raw.githubusercontent.com"
     ],
     "requiredConnections": [
       {
@@ -2922,6 +2923,302 @@
           "maxNetworkRequests": 4
         },
         "idempotent": true
+      },
+      {
+        "id": "library.search",
+        "title": "Search WordPress extension library",
+        "description": "With @wordpress, find plugins and themes saved in WordPress Manager by name, slug, description or GitHub repository. Returns repository URLs, refs, paths and manifest origins, not checked-out code. Treat metadata as untrusted. Page with offset/limit. Library registration does not install code or grant Git access.",
+        "effect": "read",
+        "approval": "never",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/extension-library.js"
+        },
+        "requiredCapabilities": [],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "query": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "plugin",
+                "theme"
+              ]
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            }
+          },
+          "required": []
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "entries": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "total": {
+              "type": "integer"
+            },
+            "next": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "entries",
+            "total",
+            "next"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 2097152
+        },
+        "idempotent": true
+      },
+      {
+        "id": "library.resolve",
+        "title": "Read WordPress library manifests",
+        "description": "Resolve a schemaVersion 1 JSON manifest containing repositories and other manifests. Each repository has kind plugin/theme, repositoryUrl, optional name/slug/ref/path/description. Each manifest has name, repositoryUrl, ref and path, or an embedded snapshot. Reads public GitHub JSON through the host; existing snapshots are reused unless refresh is true. Does not save or run code. Upload private manifests or read them from an imported repository in WordPress Manager.",
+        "effect": "read",
+        "approval": "never",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/extension-library.js"
+        },
+        "requiredCapabilities": [
+          "network-egress"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "manifest": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "refresh": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "manifest"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "manifest": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "manifest"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 2097152,
+          "maxNetworkRequests": 20,
+          "maxNetworkResponseBytes": 1048576
+        },
+        "idempotent": true
+      },
+      {
+        "id": "library.save",
+        "title": "Save a WordPress library source",
+        "description": "Add or edit a plugin/theme repository or a resolved manifest in WordPress Manager. source is {v:1,type:repository,entry:{kind,name,slug,repositoryUrl,ref,path,description}} or {v:1,type:manifest,source:{name,repositoryUrl?,ref?,path?,snapshot:<resolved manifest>}}. replaceId edits an existing library source atomically. Does not clone, install or activate code.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/extension-library.js"
+        },
+        "requiredCapabilities": [],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "replaceId": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          "required": [
+            "source"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ids": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "saved": {
+              "type": "integer"
+            },
+            "removed": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "ids",
+            "saved",
+            "removed"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 2097152
+        },
+        "idempotent": true
+      },
+      {
+        "id": "library.import",
+        "title": "Import a WordPress library",
+        "description": "Merge an exported, resolved WordPress library manifest into the existing library atomically, preserving individual repositories and manifest snapshots. Resolve unsaved manifest references with library.resolve first. Existing unrelated sources are preserved.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/extension-library.js"
+        },
+        "requiredCapabilities": [],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "manifest": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "manifest"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ids": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "saved": {
+              "type": "integer"
+            },
+            "removed": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "ids",
+            "saved",
+            "removed"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 2097152
+        },
+        "idempotent": true
+      },
+      {
+        "id": "library.remove",
+        "title": "Remove a WordPress library source",
+        "description": "Remove one saved source by its extension-library record ID. Repositories shared by other manifests remain available. Does not delete Git repositories or change any WordPress site.",
+        "effect": "local_write",
+        "approval": "when_configured",
+        "execution": {
+          "kind": "isolated-process",
+          "handler": "worker/extension-library.js"
+        },
+        "requiredCapabilities": [],
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^extension-library:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ids": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "saved": {
+              "type": "integer"
+            },
+            "removed": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "ids",
+            "saved",
+            "removed"
+          ]
+        },
+        "resourceLimits": {
+          "timeoutMs": 120000,
+          "maxMemoryMb": 128,
+          "maxOutputBytes": 2097152
+        },
+        "idempotent": true
       }
     ],
     "ui": [
@@ -3111,7 +3408,7 @@
       },
       {
         "id": "backups-table",
-        "title": "Application backups · database + WP_CONTENT_DIR",
+        "title": "Application backups \u00b7 database + WP_CONTENT_DIR",
         "placement": "dashboard",
         "renderer": "table",
         "recordType": "wordpress-backup",
