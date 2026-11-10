@@ -8,13 +8,13 @@ import { requestAction, runAction } from "../../host/actions";
 import { forgetErasedSiteRecords } from "../../lib/queries/plugin-engine";
 import { purgeLabel, removalRequest, sortTrashedSites, type SiteRemovalPlan, type TrashedSite } from "./wordpressTrashPolicy";
 import { formatWhen } from "../../lib/formatWhen";
+import { api } from "../../lib/api";
 
 /**
  * Trashed DDEV sites on Zoer's S9 managed resources: `sites.trash` lists them
  * (`includeArchived: true`), `site.restore` restores one, and removal from Zoer reviews the S9
  * plan (`site.removal-plan`), takes the typed phrase and sends `site.remove` through the host's
- * approval (`destructive`, `approval: always`). Playground sites are restored from the Zoer
- * Computers trash, as before.
+ * approval (`destructive`, `approval: always`). Both providers use the same permanent erasure review.
  */
 export default function WordPressTrash({ onClose, onChanged }: { onClose: () => void; onChanged: (restoredId?: string) => Promise<void> | void }) {
   const [sites, setSites] = useState<TrashedSite[] | null>(null);
@@ -26,16 +26,30 @@ export default function WordPressTrash({ onClose, onChanged }: { onClose: () => 
   const [eraseTarget, setEraseTarget] = useState<TrashedSite | null>(null);
 
   const refresh = async () => {
-    try { setSites(sortTrashedSites((await runAction<{ sites: TrashedSite[] }>("sites.trash")).sites ?? [])); setError(null); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to list trashed sites."); setSites(current => current ?? []); }
+    const [ddev, kubernetes] = await Promise.allSettled([
+      runAction<{ sites: TrashedSite[] }>("sites.trash"),
+      api.listTrashedWordPressPilots(),
+    ]);
+    const pilots = kubernetes.status === "fulfilled" ? kubernetes.value.sites
+      .filter(site => site.provider === "kubernetes" && site.state === "archived")
+      .map((site): TrashedSite => ({ ...site, id: site.siteId, provider: "kubernetes", scheduledPurgeAt: null })) : [];
+    const ddevSites = ddev.status === "fulfilled"
+      ? (ddev.value.sites ?? []).map(site => ({ ...site, scheduledPurgeAt: site.scheduledPurgeAt || null })) : [];
+    setSites(sortTrashedSites([...ddevSites, ...pilots]));
+    setError([ddev.status === "rejected" ? "DDEV" : "", kubernetes.status === "rejected" ? "Kubernetes" : ""].filter(Boolean).map(provider => `Unable to list ${provider} sites in Trash.`).join(" ") || null);
   };
   useEffect(() => { void refresh(); }, []);
 
   const restore = async (site: TrashedSite) => {
     setBusy(`restore:${site.id}`); setError(null); setNotice(null);
     try {
-      const result = await runAction<{ summary: string }>("site.restore", { siteId: site.id, start: true });
-      setNotice(`${site.name}: ${result.summary}`);
+      if (site.provider === "kubernetes") {
+        await api.restoreWordPressPilot(site.id);
+        setNotice(`${site.name} was restored and is still stopped.`);
+      } else {
+        const result = await runAction<{ summary: string }>("site.restore", { siteId: site.id, start: true });
+        setNotice(`${site.name}: ${result.summary}`);
+      }
       await onChanged(site.id);
       await refresh();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to restore this site."); }
@@ -86,17 +100,17 @@ export default function WordPressTrash({ onClose, onChanged }: { onClose: () => 
 
   return <Modal mobileSheet title="Trash" onClose={() => { if (!busy) onClose(); }}>
     <div className="space-y-3 text-sm">
-      {!!sites?.length && <p className="text-text-secondary">Trashed local sites can be restored until their scheduled purge. <strong className="font-medium text-text-primary">Remove from Zoer</strong> purges one now and keeps its DDEV project files; <strong className="font-medium text-text-primary">Delete everything</strong> removes those too.</p>}
+      {!!sites?.length && <p className="text-text-secondary"><strong className="font-medium text-text-primary">Delete everything</strong> permanently removes a site's files and database after review. Kubernetes sites have no automatic purge. For DDEV, <strong className="font-medium text-text-primary">Remove from Zoer</strong> leaves the project files on the DDEV server.</p>}
       {sites === null && <p className="text-text-secondary">Loading trashed sites…</p>}
       {sites?.length === 0 && !error && <EmptyState icon={<Trash2 className="h-7 w-7" />} title="Trash is empty" description="Deleted local sites stay here until they're purged. Playground sites are in Computers trash." />}
       {sites?.map(site => <div key={site.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-muted p-3">
-        <div className="min-w-0"><div className="font-medium text-text-primary">{site.name}</div><div className="text-xs text-text-secondary">{purgeLabel(site.scheduledPurgeAt)}{site.archivedAt ? ` · trashed ${formatWhen(site.archivedAt)}` : ""}{site.owned ? "" : " · created outside WordPress Manager"}</div></div>
-        <div className="flex items-center gap-1">
-          <Btn size="sm" icon={<RotateCcw className="h-3.5 w-3.5" />} loading={busy === `restore:${site.id}`} disabled={busy !== null} onClick={() => void restore(site)}>Restore</Btn>
-          <ActionMenu label={`More actions for ${site.name}`} size="sm" items={[
+        <div className="min-w-0"><div className="font-medium text-text-primary">{site.name}</div><div className="text-xs text-text-secondary">{site.provider === "kubernetes" ? "Kubernetes · " : ""}{purgeLabel(site.scheduledPurgeAt)}{site.archivedAt ? ` · trashed ${formatWhen(site.archivedAt)}` : ""}{site.owned === false ? " · created outside WordPress Manager" : ""}</div></div>
+        <div className="flex flex-wrap items-center gap-1">
+          {!site.erasurePending && <Btn size="sm" icon={<RotateCcw className="h-3.5 w-3.5" />} loading={busy === `restore:${site.id}`} disabled={busy !== null} onClick={() => void restore(site)}>Restore</Btn>}
+          <Btn size="sm" variant="ghost" icon={<Trash2 className="h-3.5 w-3.5" />} disabled={busy !== null} onClick={() => setEraseTarget(site)}>{site.erasurePending ? "Finish erasure" : "Delete everything"}</Btn>
+          {site.provider !== "kubernetes" && <ActionMenu label={`More actions for ${site.name}`} size="sm" items={[
             { label: "Remove from Zoer…", icon: <Trash2 className="h-4 w-4" />, loading: busy === `plan:${site.id}`, disabled: busy !== null, onClick: () => void review(site) },
-            { label: "Delete everything…", icon: <Trash2 className="h-4 w-4" />, tone: "danger", disabled: busy !== null, onClick: () => setEraseTarget(site) },
-          ]} />
+          ]} />}
         </div>
       </div>)}
       {notice && <p role="status" className="text-status-success">{notice}</p>}

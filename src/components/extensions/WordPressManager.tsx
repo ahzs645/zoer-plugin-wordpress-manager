@@ -562,7 +562,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     else tab?.close();
   };
 
-  // A local DDEV site being deleted: the dialog offers the trash or deleting everything.
+  // DDEV and Kubernetes share the review dialog; only DDEV offers permanent erasure.
   // A Hostinger website WordPress Manager created can be deleted from its own page (Hostinger deletes
   // it with its files and database; the same typed phrase as Websites created here).
   const selectedWebsite = selected ? createdWebsiteOf(selected, identity.aliases(selected.id), createdWebsites) : null;
@@ -593,8 +593,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
       setError("Production sites must be removed through their hosting provider.");
       return;
     }
-    if (site.provider === "kubernetes") { setError("Pilot removal requires operator review; its volumes are retained."); return; }
-    if (site.provider === "ddev") { setDeleteTarget(site); return; }
+    if (site.provider === "ddev" || site.provider === "kubernetes") { setDeleteTarget(site); return; }
     const description = "This stops the Playground site and moves it to Zoer trash. Its workspace remains recoverable until the trash retention period ends.";
     if (!await dialogs.confirm({ title: `Delete ${site.name}?`, description, confirmLabel: "Move to trash", tone: "danger" })) return;
     setBusy(`delete:${site.id}`);
@@ -611,15 +610,20 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
       setBusy(null);
     }
   };
-  /** DDEV: S9 managed resources through the site.archive action (runtime:manage). Throws so the dialog can show why. */
-  const trashDdevSite = async (site: WordPressManagedSite) => {
+  /** Both providers use managed resources; DDEV keeps its existing reviewed plugin action. */
+  const trashLocalSite = async (site: WordPressManagedSite) => {
     setBusy(`delete:${site.id}`);
     setError(null);
     setNotice(null);
     try {
-      const result = await write(() => runAction<{ summary: string }>("site.archive", { siteId: site.id }));
+      const result = await write(async () => {
+        if (site.provider !== "kubernetes") return runAction<{ summary: string }>("site.archive", { siteId: site.id });
+        await api.archiveWordPressPilot(site.id);
+        return { summary: "Restore it from WordPress Trash. No automatic purge is scheduled." };
+      });
       setSelectedId(null);
       setNotice(`${site.name} was moved to trash.${result?.summary ? ` ${result.summary}` : ""}`);
+      void client.invalidateQueries({ queryKey: databaseKeys.all() });
     } finally {
       setBusy(null);
     }
@@ -630,6 +634,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
     // The plugin's own link records are plugin data, so the host can't remove them.
     await forgetErasedSiteRecords(site.id).catch(() => undefined);
     void client.invalidateQueries({ queryKey: engineKeys.catalog("site-link") });
+    void client.invalidateQueries({ queryKey: databaseKeys.all() });
     await load(true, true);
   };
 
@@ -1053,7 +1058,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
         setNotice(verified ? "Website connected." : "Connection saved. Its source check needs attention.");
         void load(true, true);
       }} />
-      {trashOpen && <WordPressTrash onClose={() => setTrashOpen(false)} onChanged={async (restoredId) => { await load(true, true); if (restoredId) { setSelectedId(restoredId); setTab("overview"); } }} />}
+      {trashOpen && <WordPressTrash onClose={() => setTrashOpen(false)} onChanged={async (restoredId) => { await Promise.all([load(true, true), client.invalidateQueries({ queryKey: databaseKeys.all() })]); if (restoredId) { setSelectedId(restoredId); setTab("overview"); } }} />}
 
       {(error || readError || notice || blockedLink) && <div className="space-y-2 px-3 pt-3 sm:px-4">
         {(error || readError) && <InlineAlert error={new Error(error || readError)} onRetry={!error && readError ? () => void refreshAll() : undefined} onDismiss={error ? () => setError(null) : undefined} />}
@@ -1212,7 +1217,7 @@ export default function WordPressManager({ page = "WordPress" }: { /** Page titl
           <PluginLocalCopy key={`${live.id}:${pullInto.local?.id ?? "new"}`} siteId={live.id} siteName={pullInto.live.name} sourceUrl={endpoint?.origin ?? live.url} refreshSiteId={pullInto.local?.id ?? null} heading={false} />
         </Modal>;
       })()}
-      {deleteTarget && <DeleteSiteDialog site={deleteTarget} onClose={() => setDeleteTarget(null)} onTrash={() => trashDdevSite(deleteTarget)} onErased={result => void siteErased(deleteTarget, result)} />}
+      {deleteTarget && <DeleteSiteDialog key={deleteTarget.id} site={deleteTarget} onClose={() => setDeleteTarget(null)} onTrash={() => trashLocalSite(deleteTarget)} onErased={result => void siteErased(deleteTarget, result)} />}
       {providersOpen && <Modal title="Provider accounts" onClose={() => setProvidersOpen(false)}><ConnectionsTab onNewWebsite={() => { setProvidersOpen(false); setCreateMode("hostinger"); setCreateOpen(true); }} onConnected={() => void load(true, true)} connections={connections} name={connectionName} setName={setConnectionName} token={connectionToken} setToken={setConnectionToken} busy={busy} onAdd={addConnection} onTest={testConnection} onRemove={removeConnection} onRename={renameConnection} renameUnavailable={renameUnavailable} /></Modal>}
       {extensionPlan && <ReviewPanel title={`${wordpressExtensionActionLabel(extensionPlan.plan.operation)} ${extensionPlan.plan.kind}${extensionPlan.plan.slugs.length > 1 ? "s" : ""}`} plan={extensionPlan.plan} confirmation={confirmation} setConfirmation={setConfirmation} busy={busy === "apply-extension"} onApply={applyExtension} onCancel={() => { setExtensionPlan(null); setConfirmation(""); }} />}
       {publishPlan && <ReviewPanel title={`${publishPlan.mode === "replace" ? "Replace" : "Publish"} ${publishPlan.domain}`} plan={publishPlan} confirmation={confirmation} setConfirmation={setConfirmation} busy={busy === "execute-publish"} onApply={executePublish} onCancel={() => { setPublishPlan(null); setConfirmation(""); }} />}

@@ -1,5 +1,5 @@
-/** Trashed DDEV sites (S9 `runtime.list.v1 { includeArchived: true }` through `sites.trash`). */
-export interface TrashedSite { id: string; name: string; status: string; archivedAt: string; scheduledPurgeAt: string; owned: boolean }
+/** DDEV rows come from the worker; Kubernetes rows come from the host lifecycle inventory. */
+export interface TrashedSite { id: string; name: string; status: string; archivedAt: string; scheduledPurgeAt: string | null; owned?: boolean; provider?: "kubernetes"; erasurePending?: boolean }
 
 /** S9 removal plan (`runtime.removal-plan.v1` through `site.removal-plan`). */
 export interface SiteRemovalPlan {
@@ -14,12 +14,13 @@ export interface SiteRemovalPlan {
 
 /** Soonest purge first; unknown dates last. */
 export function sortTrashedSites(sites: readonly TrashedSite[]): TrashedSite[] {
-  const at = (site: TrashedSite) => { const time = Date.parse(site.scheduledPurgeAt); return Number.isFinite(time) ? time : Number.POSITIVE_INFINITY; };
+  const at = (site: TrashedSite) => { const time = Date.parse(site.scheduledPurgeAt ?? ""); return Number.isFinite(time) ? time : Number.POSITIVE_INFINITY; };
   return [...sites].sort((left, right) => at(left) - at(right) || left.name.localeCompare(right.name));
 }
 
 /** "Purged in 3 days" / "Purge due" from the scheduled purge date. */
-export function purgeLabel(scheduledPurgeAt: string, now = Date.now()): string {
+export function purgeLabel(scheduledPurgeAt: string | null, now = Date.now()): string {
+  if (scheduledPurgeAt === null) return "No automatic purge";
   const time = Date.parse(scheduledPurgeAt);
   if (!Number.isFinite(time)) return "Purge date unknown";
   const days = Math.ceil((time - now) / 86_400_000);

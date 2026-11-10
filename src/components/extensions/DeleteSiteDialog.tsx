@@ -8,11 +8,10 @@ import { eraseConfirmed, FALLBACK_DELETE_PREVIEW, previewFailure, purgeWhen } fr
 type Choice = "trash" | "erase";
 
 /**
- * Deleting a local DDEV site: move it to the trash (restorable, purged later) or delete
- * everything now. The host says exactly what each keeps and removes.
+ * Review what Trash keeps and the storage the selected site's erasure removes.
  */
 export default function DeleteSiteDialog({ site, trashed = false, onClose, onTrash, onErased }: {
-  site: { id: string; name: string };
+  site: { id: string; name: string; provider?: string };
   /** Already in the trash: only deleting everything is left. */
   trashed?: boolean;
   onClose: () => void;
@@ -27,6 +26,7 @@ export default function DeleteSiteDialog({ site, trashed = false, onClose, onTra
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pilot = site.provider === "kubernetes";
 
   useEffect(() => {
     let current = true;
@@ -34,6 +34,10 @@ export default function DeleteSiteDialog({ site, trashed = false, onClose, onTra
       .then(result => { if (current) setPreview(result); })
       .catch(caught => {
         if (!current) return;
+        if (pilot) {
+          setError("Zoer couldn't check this Kubernetes site for Trash. Close and try again on a host that supports pilot Trash.");
+          return;
+        }
         // Without a preview the trash still works, described generically; deleting everything waits.
         const failure = previewFailure(caught);
         setOlder(failure.olderHost);
@@ -41,10 +45,12 @@ export default function DeleteSiteDialog({ site, trashed = false, onClose, onTra
         setPreview(FALLBACK_DELETE_PREVIEW);
       });
     return () => { current = false; };
-  }, [site.id]);
+  }, [site.id, pilot]);
 
-  const eraseAvailable = !!preview?.erase.available;
+  const eraseAvailable = (!pilot || trashed) && !!preview?.erase.available;
+  const confirmationName = preview?.name || site.name;
   const submit = async () => {
+    if (!canSubmit) return;
     setBusy(true); setError(null);
     try {
       if (choice === "trash") { await onTrash(); onClose(); return; }
@@ -54,14 +60,14 @@ export default function DeleteSiteDialog({ site, trashed = false, onClose, onTra
       setError(caught instanceof Error ? caught.message : "The site wasn't deleted.");
     } finally { setBusy(false); }
   };
-  const canSubmit = !!preview && !busy && (choice === "trash" ? !trashed : eraseAvailable && eraseConfirmed(site.name, typed));
+  const canSubmit = !!preview && !busy && (choice === "trash" ? !trashed : eraseAvailable && eraseConfirmed(confirmationName, typed));
 
   const option = (value: Choice, title: string, summary: string, disabled = false) => <label className={`flex cursor-pointer items-start gap-2 rounded-md border p-3 ${choice === value ? "border-border-strong bg-surface-secondary/50" : "border-border-default"} ${disabled ? "cursor-not-allowed opacity-60" : ""}`}>
     <input type="radio" name="delete-choice" className="mt-0.5 shrink-0" checked={choice === value} disabled={disabled || busy} onChange={() => setChoice(value)} />
     <span className="min-w-0"><span className={`block font-medium ${value === "erase" ? "text-status-error" : "text-text-primary"}`}>{title}</span><span className="block text-xs text-text-secondary">{summary}</span></span>
   </label>;
 
-  return <Modal fit mobileSheet title={`Delete ${site.name}?`} onClose={() => { if (!busy) onClose(); }} footer={<>
+  return <Modal fit mobileSheet title={pilot && !trashed ? `Move ${site.name} to trash?` : `Delete ${site.name}?`} onClose={() => { if (!busy) onClose(); }} footer={<>
     <Btn variant="ghost" disabled={busy} onClick={onClose}>Cancel</Btn>
     <Btn variant="danger" icon={<Trash2 className="h-3.5 w-3.5" />} loading={busy} disabled={!canSubmit} onClick={() => void submit()}>{choice === "trash" ? "Move to trash" : "Delete everything"}</Btn>
   </>}>
@@ -69,19 +75,21 @@ export default function DeleteSiteDialog({ site, trashed = false, onClose, onTra
       {!preview && !error && <p role="status" className="flex items-center gap-2 text-text-secondary"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Checking what this site leaves behind…</p>}
       {preview && <>
         {warning && <p role="alert" className="text-xs text-status-warning">{warning}</p>}
-        <div role="radiogroup" aria-label="How to delete" className="space-y-2">
-          {!trashed && option("trash", "Move to trash", `Restorable from Trash. Purged ${purgeWhen(preview.trash)}.`)}
-          {option("erase", "Delete everything now", eraseAvailable ? "Nothing is kept and it can't be undone." : warning ? "Unavailable until Zoer can list what it removes. Close and try again." : trashed && older ? "This Zoer version can't delete everything yet. Use Remove from Zoer in the Trash instead." : preview.erase.reason ?? "Not available for this site.", !eraseAvailable)}
-        </div>
+        {!pilot && !trashed && <div role="radiogroup" aria-label="How to delete" className="space-y-2">
+          {option("trash", "Move to trash", preview.trash.purgeAfterDays > 0 ? `Restorable from Trash. Purged ${purgeWhen(preview.trash)}.` : "Restorable from Trash. No automatic purge is scheduled.")}
+          {option("erase", "Delete everything now", eraseAvailable ? "The listed data will be permanently deleted." : preview.erase.reason ?? "Not available for this site.", !eraseAvailable)}
+        </div>}
+        {choice === "erase" && !eraseAvailable && <p role="status" className="text-text-secondary">{preview.erase.reason ?? "Permanent deletion is not available for this site."}</p>}
         {choice === "trash" && <div className="grid gap-3 sm:grid-cols-2">
-          <div><div className="text-xs font-medium text-text-heading">Kept until the purge</div><ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-text-secondary">{preview.trash.kept.map(line => <li key={line}>{line}</li>)}</ul></div>
-          <div><div className="text-xs font-medium text-text-heading">Removed at the purge</div><ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-text-secondary">{preview.trash.removedAtPurge.map(line => <li key={line}>{line}</li>)}</ul></div>
-          <p className="text-xs text-text-muted sm:col-span-2">To get it back, open Trash on the WordPress page and choose Restore. {older ? "To remove everything later, use Remove from Zoer in the Trash." : eraseAvailable ? "To remove everything now, choose Delete everything instead." : ""}</p>
+          {preview.trash.kept.length > 0 && <div className={pilot ? "sm:col-span-2" : undefined}><div className="text-xs font-medium text-text-heading">Kept</div><ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-text-secondary">{preview.trash.kept.map(line => <li key={line}>{line}</li>)}</ul></div>}
+          {preview.trash.purgeAfterDays > 0 && preview.trash.removedAtPurge.length > 0 && <div><div className="text-xs font-medium text-text-heading">Removed at the purge</div><ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-text-secondary">{preview.trash.removedAtPurge.map(line => <li key={line}>{line}</li>)}</ul></div>}
+          <p className="text-xs text-text-muted sm:col-span-2">This stops the site and takes its address offline. To get it back, open Trash on the WordPress page and choose Restore. {pilot ? "No automatic purge is scheduled." : older ? "To remove the site from Zoer later, use Remove from Zoer in the Trash." : eraseAvailable ? "To remove everything now, choose Delete everything instead." : ""}</p>
         </div>}
         {choice === "erase" && eraseAvailable && <div className="space-y-2">
           <div className="text-xs font-medium text-status-error">This removes</div>
           <ul className="list-disc space-y-0.5 pl-4 text-xs text-text-secondary">{preview.erase.removes.map(line => <li key={line}>{line}</li>)}</ul>
-          <label className="block"><span className="mb-1 block text-xs">Type <strong className="font-mono">{site.name}</strong> to confirm</span><input autoFocus aria-label="Site name to confirm" className={controlClass()} value={typed} disabled={busy} onChange={event => setTyped(event.target.value)} /></label>
+          <p className="text-xs text-status-error">This cannot be undone.</p>
+          <label className="block"><span className="mb-1 block text-xs">Type <strong className="font-mono">{confirmationName}</strong> to confirm</span><input autoFocus aria-label="Site name to confirm" className={controlClass()} value={typed} disabled={busy} onChange={event => setTyped(event.target.value)} /></label>
         </div>}
       </>}
       {error && <p role="alert" className="text-status-error">{error}</p>}

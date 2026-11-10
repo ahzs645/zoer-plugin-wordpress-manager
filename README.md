@@ -65,7 +65,11 @@ A site's page has seven sections: **Overview** (Local and live, WordPress core u
   sources and linked refresh destinations. **Kubernetes pilot → Sleep settings**
   controls idle sleeping and browser wake without recreating the site. Inventory
   polling does not count as activity, and active or paused workflows block sleep
-  and Stop. Storage remains node-local, and admin auto-login and full computer
+  and Stop. **Site actions → Move to trash** stops the pilot and takes its
+  preview offline while preserving its volumes and address. **Trash → Restore**
+  returns it to the list stopped. Pilot Trash has no automatic purge. On a host
+  with pilot erasure enabled, **Delete everything** reviews and permanently
+  reclaims both site volumes. Storage remains node-local, and admin auto-login and full computer
   tools are unavailable. Live qualification is recorded in Zoer's dated
   `output/ui-audit/2026-10-20-kubernetes-transfers/REPORT.json`.
 - **Activity** gathers what used to be split across three places: running transfers with their controls, recent failures that can be retried (*Needs attention*), the transfer history for this site or all sites, plugin and theme change receipts, and Hostinger publishing receipts. Publish no longer repeats them.

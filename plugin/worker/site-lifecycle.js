@@ -58,7 +58,8 @@ switch (request.action.id) {
   }
   case "site.archive": {
     const archived = await invoke("runtime.archive.v1", siteId, {});
-    done({ ok: true, siteId, scheduledPurgeAt: text(archived?.scheduledPurgeAt, 40), summary: `Moved to the Zoer trash. Restore it before ${text(archived?.scheduledPurgeAt, 40) || "its scheduled purge"}.` });
+    const purgeAt = text(archived?.scheduledPurgeAt, 40);
+    done({ ok: true, siteId, scheduledPurgeAt: purgeAt, summary: purgeAt ? `Restore it before ${purgeAt}.` : "Restore it from Trash. No automatic purge is scheduled." });
     break;
   }
   case "site.restore": {

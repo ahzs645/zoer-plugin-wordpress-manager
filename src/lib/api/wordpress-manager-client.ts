@@ -19,6 +19,7 @@ import type {
 } from "./types";
 
 export interface WordPressSiteDeletePreview {
+  name?: string;
   trash: { purgeAfterDays: number; purgeAt?: string; kept: string[]; removedAtPurge: string[] };
   erase: { available: boolean; reason?: string; removes: string[] };
 }
@@ -70,6 +71,9 @@ export const wordpressManagerClient = {
   renameWordPressManagerConnection: (id: string, name: string) => json<{ connection: HostingerConnectionPublic }>(`/wordpress-manager/connections/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   /** What moving a local site to the trash keeps, and what deleting it everything removes. */
   getWordPressSiteDeletePreview: (siteId: string) => json<WordPressSiteDeletePreview>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/delete-preview`),
+  listTrashedWordPressPilots: () => json<{ sites: { siteId: string; name: string; provider: string; state: string; status: string; archivedAt: string; erasurePending?: boolean }[] }>("/wordpress-manager/lifecycle/sites?archivedPilots=1"),
+  archiveWordPressPilot: (siteId: string) => json<{ archived: true }>(`/wordpress-manager/lifecycle/sites/${encodeURIComponent(siteId)}/archive`, { method: "POST" }),
+  restoreWordPressPilot: (siteId: string) => json<{ restored: boolean }>(`/wordpress-manager/lifecycle/sites/${encodeURIComponent(siteId)}/restore`, { method: "POST", body: JSON.stringify({ start: false }) }),
   /** Removes a local DDEV site and everything it left behind, now. The typed name must match. */
   eraseWordPressSite: (siteId: string, confirmName: string) => json<{ erased: string[]; warnings: string[] }>(`/wordpress-manager/sites/${encodeURIComponent(siteId)}/erase`, { method: "POST", body: JSON.stringify({ confirmName }) }),
   createWordPressAdminLink: (siteId: string) => json<{ url: string }>("/wordpress-manager/admin-link", { method: "POST", body: JSON.stringify({ siteId }) }),
