@@ -101,6 +101,10 @@ Use **Create local WordPress site** or **Link site** for an existing local DDEV 
 
 The plugin owns the development interface and site linkage. The host supplies reusable `/repository-development` inventory, attached computer and build primitives under `workspace:repositories`; it does not grant Git provider credentials, Git publishing or arbitrary computer access. Existing repository/site links, job receipts and settings remain intact. Old Repos WordPress-development bookmarks open this plugin tab. No WordPress development tab remains in Repos.
 
+## Backup restore compatibility (unreleased)
+
+The data-only UpdraftPlus/Hostinger database converter accepts even-length `0x...` byte literals, including binary content hashes saved by Simply Static. It preserves their bytes in the guarded snapshot and continues to reject SQL expressions and malformed literals. This source fix requires a WordPress Manager package upgrade before it is available on a running installation. The UpdraftPlus upload picker still expects five components; split media archives must first be combined into one verified uploads archive without changing the originals.
+
 ## Features
 
 Development source adds a **database-only refresh** for an existing linked DDEV

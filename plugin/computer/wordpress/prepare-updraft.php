@@ -2,7 +2,8 @@
 // wordpress.updraft.prepare: converts a verified five-part UpdraftPlus set, staged in the copy
 // stage, into a data-only Zoer snapshot (never executes SQL) plus extracted wp-content files.
 // PHP port of Zoer `backend/scripts/wordpress/prepare-updraft-copy.py` (legacy host engine) with the
-// same limits, checks and messages; the parity harness runs both on the same fixtures.
+// same limits and snapshot format; the parity harness covers their shared fixtures.
+// This converter also accepts UpdraftPlus hexadecimal byte strings without executing SQL.
 //
 // Plan: { id, components: [{ component, size, sha256, source }] } where `source` is the staged
 // position of each component. Writes <stage>/extracted/* and <stage>/prepared.json and prints one
@@ -33,7 +34,7 @@ function updraft_statements($handle): Generator {
     if (trim($pending) !== '') updraft_fail('Incomplete SQL statement.');
 }
 
-/** Only quoted strings, numbers and NULL; no SQL expressions or functions. */
+/** Only quoted strings, hexadecimal byte strings, numbers and NULL; no expressions or functions. */
 function updraft_rows(string $text): Generator {
     $i = 0; $n = strlen($text);
     $space = static function () use (&$i, $n, $text) { while ($i < $n && ctype_space($text[$i])) $i++; };
@@ -60,6 +61,11 @@ function updraft_rows(string $text): Generator {
                 }
                 if (!$closed) updraft_fail('Unclosed SQL string.');
                 $row[] = $value;
+            } elseif (preg_match('/\G0x((?:[0-9a-f]{2})+)\s*(?=[,)])/i', $text, $m, 0, $i)) {
+                // UpdraftPlus writes binary columns (for example static-export hashes) this way.
+                // Decode data only; the snapshot writer re-encodes every non-null cell as X'...'.
+                $row[] = hex2bin($m[1]);
+                $i += strlen($m[0]);
             } else {
                 if (!preg_match('/\G(NULL|[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s*(?=[,)])/i', $text, $m, 0, $i)) updraft_fail('Unsupported SQL value.');
                 $row[] = strtoupper($m[1]) === 'NULL' ? null : $m[1];
