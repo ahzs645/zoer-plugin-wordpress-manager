@@ -6,6 +6,8 @@
   "description": "Independent WordPress workspace for Zoer, with scoped reusable site operations.",
   "scripts": {
     "build": "bun scripts/build.ts",
+    "demo:build": "bun run build && bun build demo/host.ts --target=browser --outfile=dist/demo/index.mjs",
+    "demo:playground": "sh demo/start-playground.sh",
     "test": "bun test --preload ./tests/host-modules.ts src tests",
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",

@@ -137,6 +137,8 @@ Provider capabilities remain visible. Hostinger acceptance must be followed by c
 
 ## Build and release
 
+The [local Playground demo](docs/local-demo.md) runs the packaged workspace in Zoer’s development demo with a sample WordPress site on your machine.
+
 ```sh
 bun install --frozen-lockfile
 bun run typecheck

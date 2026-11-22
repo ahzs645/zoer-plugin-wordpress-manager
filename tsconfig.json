@@ -28,6 +28,7 @@
     }
   },
   "include": [
+    "demo/host.ts",
     "src",
     "tests",
     "scripts",
